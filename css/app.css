@@ -403,6 +403,42 @@ button.row { cursor: pointer; }
 }
 .panel h3 { margin: 0 0 10px; font-size: 16px; }
 
+/* «Про застосунок» — як у shooting-log: фото автора ліворуч, текст поруч, розкривні розділи */
+.about-head { display: flex; align-items: center; gap: 12px; }
+.about-head h3 { margin: 0 0 2px; }
+.about-avatar { flex: none; width: 64px; height: 64px; border-radius: 50%; object-fit: cover; background: var(--surface-2); box-shadow: 0 0 0 1px var(--line); }
+.about-more { margin-top: 6px; border-top: 1px solid var(--line-soft); }
+.about-more > summary { padding: 8px 0; color: var(--accent-2); font-size: 13px; font-weight: 700; cursor: pointer; list-style: none; }
+.about-more > summary::-webkit-details-marker { display: none; }
+.about-more > summary::before { content: '›'; display: inline-block; margin-right: 6px; transition: transform .15s; }
+.about-more[open] > summary::before { transform: rotate(90deg); }
+.about-steps { counter-reset: step; display: grid; gap: 8px; margin: 4px 0 10px; padding: 0; list-style: none; font-size: 14px; }
+.about-steps > li { position: relative; padding-left: 32px; line-height: 1.45; }
+.about-steps > li::before {
+  counter-increment: step;
+  content: counter(step);
+  position: absolute;
+  left: 0;
+  top: 1px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface-2));
+  color: var(--accent-2);
+  font-size: 12px;
+  font-weight: 800;
+}
+.about a { color: var(--accent-2); }
+
+/* Аватар Google-акаунта: у чипі синхронізації та в панелі */
+.avatar { flex: none; width: 20px; height: 20px; border-radius: 50%; object-fit: cover; background: var(--surface-2); }
+.avatar.big { width: 44px; height: 44px; }
+.sync-chip .avatar { margin-left: -6px; }
+.account { display: flex; align-items: center; gap: 12px; margin: 2px 0 10px; }
+.account-text { display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
+
 .empty { text-align: center; padding: 40px 12px; }
 .empty .btn-col { max-width: 320px; margin: 0 auto; }
 

@@ -529,11 +529,21 @@ const CHIP = {
   error: () => t('ошибка'),
 };
 
+/** Аватар Google-акаунта; без фото чи без мережі — іконка хмари. */
+function avatar(photo, cls = '') {
+  if (!photo) return icon('cloud');
+  return h('img', {
+    class: `avatar ${cls}`, alt: '', referrerpolicy: 'no-referrer',
+    src: photo.replace(/=s\d+(-c)?$/, '=s96-c'),
+    onerror: (e) => e.target.replaceWith(icon('cloud')),
+  });
+}
+
 function renderSyncChip(s) {
   const chip = $('sync-chip');
   chip.hidden = !CHIP[s.state];
   if (CHIP[s.state]) {
-    chip.replaceChildren(icon('cloud'), CHIP[s.state]());
+    chip.replaceChildren(avatar(s.photo), CHIP[s.state]());
     chip.className = `sync-chip ${s.state}`;
     chip.title = s.message || t('Синхронизация с Google Диском');
   }
@@ -570,8 +580,9 @@ function syncPanel() {
       h('div', { class: 'btn-row' }, btn(withIcon('cloud', t('Подключить Google Диск')), connectGoogle, 'primary')));
   } else {
     panel.append(
+      h('div', { class: 'account' }, avatar(s.photo, 'big'),
+        h('div', { class: 'account-text' }, h('b', {}, s.name ?? s.email ?? '—'), s.name && s.email ? h('span', { class: 'muted small' }, s.email) : null)),
       h('dl', { class: 'kv' },
-        h('dt', {}, t('Аккаунт')), h('dd', {}, s.email ?? '—'),
         h('dt', {}, t('Последняя')), h('dd', {}, syncTime(s.lastSync)),
         s.message ? [h('dt', {}, t('Статус')), h('dd', {}, s.message)] : null),
       h('div', { class: 'btn-row' },
@@ -720,11 +731,34 @@ function switchLang(code) {
   render();
 }
 
+/** «Про застосунок», як у shooting-log: аватар автора, що це таке, де дані, з чого почати. */
+function aboutPanel() {
+  const more = (title, node) => h('details', { class: 'about-more' }, h('summary', {}, title), node);
+  return h('section', { class: 'panel about' },
+    h('div', { class: 'about-head' },
+      h('img', { class: 'about-avatar', src: './icons/author.jpg', alt: '', width: 64, height: 64, loading: 'lazy' }),
+      h('div', {},
+        h('h3', {}, t('О приложении')),
+        h('p', { class: 'muted small' }, t('Weight Log — ежедневный вес, среднее за 7 дней, темп и прогноз цели. Работает без интернета: всё считается на устройстве.')))),
+    more(t('Где мои данные'), h('div', { class: 'muted small' },
+      h('p', {}, t('Записи лежат в браузере на этом устройстве. Сервера у приложения нет, автор не получает ни данных, ни статистики.')),
+      h('p', {}, t('Google Диск подключается по желанию: копия ложится в файл weight-log.json на вашем Диске, приложение видит только свои файлы.')),
+      h('p', {}, t('Резервная копия — «Поделиться копией» ниже. Она же переносит данные на другое устройство через «Импорт копии».')))),
+    more(t('С чего начать'), h('ol', { class: 'about-steps' },
+      h('li', {}, t('Задайте цель: стартовый вес, целевой и план, кг в неделю.')),
+      h('li', {}, t('Взвешивайтесь каждое утро и записывайте вес на главной — поле само предложит прошлое значение.')),
+      h('li', {}, t('Историю из Google-таблицы загрузите через «Импорт из Google-таблицы».')),
+      h('li', {}, t('Поставьте напоминание в календаре, чтобы не пропускать дни.')))),
+    h('p', { class: 'muted small' },
+      h('a', { href: 'https://github.com/VitaliyLobko/weight-log', target: '_blank', rel: 'noopener' }, t('Исходный код'))));
+}
+
 function renderSettings() {
   $('subtitle').textContent = t('версия {v}', { v: self.APP_VERSION });
   const backupInput = h('input', { type: 'file', accept: '.json,application/json', hidden: true, onchange: (e) => { if (e.target.files[0]) importBackup(e.target.files[0]); e.target.value = ''; } });
   const csvInput = h('input', { type: 'file', accept: '.csv,text/csv', hidden: true, onchange: (e) => { if (e.target.files[0]) importSheet(e.target.files[0]); e.target.value = ''; } });
   return h('div', {},
+    aboutPanel(),
     goalPanel(),
     checkpointsPanel(),
     remindPanel(),

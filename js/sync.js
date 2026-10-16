@@ -41,7 +41,9 @@ function save() {
 }
 
 function set(state, message = '') {
-  Object.assign(status, { state, message, lastSync: conf.lastSync ?? null, email: conf.email ?? null });
+  Object.assign(status, {
+    state, message, lastSync: conf.lastSync ?? null, email: conf.email ?? null, name: conf.name ?? null, photo: conf.photo ?? null,
+  });
   listeners.forEach((fn) => fn(status));
 }
 
@@ -253,9 +255,12 @@ export async function syncNow() {
   running = true;
   set('syncing');
   try {
-    if (!conf.email) {
-      const about = await (await api(`${DRIVE}/about?fields=user(emailAddress)`)).json();
-      conf.email = about.user?.emailAddress ?? null;
+    // Акаунт: адреса, ім'я й аватар; photo === undefined — підключено старою версією, без аватара
+    if (!conf.email || conf.photo === undefined) {
+      const about = await (await api(`${DRIVE}/about?fields=user(emailAddress,displayName,photoLink)`)).json();
+      conf.email = about.user?.emailAddress ?? conf.email ?? null;
+      conf.name = about.user?.displayName ?? null;
+      conf.photo = about.user?.photoLink ?? null;
     }
     // Відновлення посеред цього проходу застосує наступний — тут уже прочитано старі дані
     const { restoreAt } = conf;
