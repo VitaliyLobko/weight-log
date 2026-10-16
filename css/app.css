@@ -228,16 +228,38 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 /* --- графік --- */
 .chart-panel { padding: 12px 10px 8px; }
-.chart-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0 6px 8px; font-size: 13px; color: var(--muted); }
+.chart-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin: 0 6px 8px; }
+.chart-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--muted); }
+.chart-full {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 4px 12px;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--line));
+  background: var(--accent-soft);
+  color: var(--accent-2);
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.chart-full[hidden] { display: none; }
+.chart-full .ico { width: 16px; height: 16px; }
 .legend-item { display: inline-flex; align-items: center; gap: 6px; }
 .key { display: inline-block; flex: none; }
-.key.line { width: 16px; height: 2px; border-radius: 1px; }
+.key.line { width: 16px; height: 3px; border-radius: 2px; }
 .key.dot { width: 8px; height: 8px; border-radius: 50%; }
-.key.ring { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--c-ring); }
+.key.ring { width: 11px; height: 11px; border-radius: 50%; border: 1.5px solid var(--c-ring); }
+.key.area { width: 12px; height: 10px; border-radius: 3px; }
 .key.s-avg { background: var(--c-avg); }
 .key.s-plan { background: var(--c-plan); }
+.key.line.dash { height: 2px; background: repeating-linear-gradient(90deg, var(--c-plan) 0 5px, transparent 5px 8px); }
 .key.s-kg { background: var(--c-kg); }
 .key.ring.s-kg { background: none; }
+.key.area.good { background: color-mix(in srgb, var(--good) 40%, transparent); }
+.key.area.bad { background: color-mix(in srgb, var(--bad) 40%, transparent); }
 .chart-stage { position: relative; }
 .chart-plot { width: 100%; }
 .chart-svg { display: block; overflow: visible; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
@@ -245,13 +267,16 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .chart-svg .tick { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .chart-svg .end-label { fill: var(--text); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .chart-svg .series-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
-.chart-svg .series-line.s-avg { stroke: var(--c-avg); }
-.chart-svg .series-line.s-plan { stroke: var(--c-plan); stroke-width: 1.5; opacity: .85; }
+.chart-svg .series-line.s-avg { stroke: var(--c-avg); stroke-width: 2.75; }
+.chart-svg .series-line.s-plan { stroke: var(--c-plan); stroke-width: 1.6; stroke-dasharray: 6 5; opacity: .9; }
 .chart-svg .series-line.s-waist { stroke: var(--c-waist); }
+.chart-svg .series-band .ahead { fill: var(--good); opacity: .24; }
+.chart-svg .series-band .behind { fill: var(--bad); opacity: .3; }
 .chart-svg .series-dots circle { stroke: var(--surface); stroke-width: 1.5; }
-.chart-svg .series-dots.s-kg circle { fill: var(--c-kg); }
+.chart-svg .series-dots.s-kg circle { fill: var(--c-kg); fill-opacity: .8; }
+.chart-svg .series-dots.s-kg circle.last { fill: var(--text); fill-opacity: 1; stroke-width: 2; }
 .chart-svg .series-dots.s-waist circle { fill: var(--c-waist); stroke-width: 2; }
-.chart-svg .series-dots circle.ring { fill: none; stroke: var(--c-ring); stroke-width: 1.5; }
+.chart-svg .series-dots circle.ring { fill: none; stroke: var(--c-ring); stroke-width: 1.3; opacity: .85; }
 .chart-svg .hline line { stroke: var(--muted); stroke-width: 1; opacity: .5; }
 .chart-svg .hline.target line { stroke: var(--accent-2); opacity: .8; }
 .chart-svg .cursor line { stroke: var(--muted); stroke-width: 1; }

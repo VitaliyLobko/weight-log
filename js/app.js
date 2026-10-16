@@ -356,21 +356,30 @@ function renderChart() {
   const plan = rows.map((r) => ({ date: r.date, v: M.planAt(g, r.date) })).filter((p) => p.v !== null);
   const marks = M.checkpoints(rows, goal, sum).map((c) => ({ v: c.kg, label: c.isTarget ? t('цель') : fmt.int(c.kg), cls: c.isTarget ? 'target' : 'cp' }));
   const details = h('div', {}, dayDetails(picked));
+  // Заливка між середнім і планом: зелена — середнє нижче плану (випереджаєте), червона — вище
+  const planOn = new Map(plan.map((p) => [p.date, p.v]));
+  const ahead = rows.filter((r) => r.avg !== null && planOn.has(r.date)).map((r) => ({ date: r.date, a: r.avg, b: planOn.get(r.date) }));
   const chart = lineChart({
     series: [
+      { key: 'gap', kind: 'band', cls: 's-gap', points: ahead },
       { key: 'plan', kind: 'line', cls: 's-plan', points: plan },
-      { key: 'kg', kind: 'dots', cls: 's-kg', points: rows.map((r) => ({ date: r.date, v: r.kg, ring: Boolean(r.note) })) },
+      { key: 'kg', kind: 'dots', cls: 's-kg', points: rows.map((r, i) => ({ date: r.date, v: r.kg, ring: Boolean(r.note), last: i === rows.length - 1 })) },
       { key: 'avg', kind: 'line', cls: 's-avg', points: rows.filter((r) => r.avg !== null).map((r) => ({ date: r.date, v: r.avg })), endLabel: true },
     ],
+    height: 260,
     zoom: true,
     view,
     onView: (a, b) => { chartView = [a, b]; showRange(a, b); },
+    fullLabel: t('Весь график'),
+    onFull: () => { period = 'all'; chartView = null; remember('weight-log:period', period); render(); },
     hlines: marks,
     legend: [
       { label: t('Вес'), kind: 'dot', cls: 's-kg' },
       { label: t('Среднее 7 дн'), kind: 'line', cls: 's-avg' },
-      plan.length ? { label: t('План'), kind: 'line', cls: 's-plan' } : null,
+      plan.length ? { label: t('План'), kind: 'line dash', cls: 's-plan' } : null,
       vis.some((r) => r.note) ? { label: t('с заметкой'), kind: 'ring', cls: 's-kg' } : null,
+      ahead.length ? { label: t('опережаете'), kind: 'area', cls: 'good' } : null,
+      ahead.length ? { label: t('отстаёте'), kind: 'area', cls: 'bad' } : null,
     ].filter(Boolean),
     digits: 2,
     selected: picked,
@@ -383,7 +392,7 @@ function renderChart() {
   return h('div', {}, seg,
     h('section', { class: 'panel chart-panel' }, chart, below,
       h('p', { class: 'muted small chart-note chart-hint mouse' }, t('Колесо мыши — масштаб, перетаскивание — сдвиг, двойной клик — сбросить.')),
-      h('p', { class: 'muted small chart-note chart-hint touch' }, t('Два пальца: развести — масштаб, вести вместе — сдвиг. Кнопка периода — сбросить.'))),
+      h('p', { class: 'muted small chart-note chart-hint touch' }, t('Касание — выбрать день, палец вбок — сдвиг, два пальца — масштаб. Кнопка периода — сбросить.'))),
     box(withIcon('calendar', t('Выбранный день')), details),
     waistBox());
 }

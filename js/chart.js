@@ -2,6 +2,7 @@
 // Перемальовується під ширину контейнера; наведення/дотик показує підказку, тап — вибирає день.
 import { h, fmt } from './ui.js';
 import { daysBetween, addDays } from './model.js';
+import { withIcon } from './icons.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 
@@ -13,11 +14,44 @@ function s(tag, attrs = {}, ...children) {
 }
 
 const STEPS = [0.2, 0.5, 1, 2, 5, 10];
-const X_STEPS = [1, 2, 7, 14];
+const X_STEPS = [1, 2, 3, 7, 14];
+/** Мінімальна відстань між підписами дат, px. */
+const X_GAP = 62;
 
 /** Крок сітки: ~4–6 ліній на висоту. */
 function niceStep(span) {
   return STEPS.find((st) => span / st <= 6) ?? 10;
+}
+
+/**
+ * Заливка між лініями a і b: клас ahead там, де a < b, behind — де a > b. Відрізок, на якому лінії
+ * перетинаються, ділиться в точці перетину на два трикутники різного кольору; розрив даних > 3 днів не заливається.
+ */
+function band(pts, x, y, cls) {
+  const g = s('g', { class: `series-band ${cls}` });
+  const poly = (list, diff) => g.append(s('polygon', {
+    points: list.map(([px, py]) => `${px.toFixed(1)},${py.toFixed(1)}`).join(' '),
+    class: diff < 0 ? 'ahead' : 'behind',
+  }));
+  for (let i = 1; i < pts.length; i++) {
+    const p = pts[i - 1];
+    const q = pts[i];
+    if (daysBetween(p.date, q.date) > 3) continue;
+    const dp = p.a - p.b;
+    const dq = q.a - q.b;
+    const xp = x(p.date);
+    const xq = x(q.date);
+    if (dp * dq < 0) {
+      const k = dp / (dp - dq);
+      const xc = xp + k * (xq - xp);
+      const yc = y(p.a + k * (q.a - p.a));
+      poly([[xp, y(p.a)], [xc, yc], [xp, y(p.b)]], dp);
+      poly([[xc, yc], [xq, y(q.a)], [xq, y(q.b)]], dq);
+    } else {
+      poly([[xp, y(p.a)], [xq, y(q.a)], [xq, y(q.b)], [xp, y(p.b)]], dp + dq);
+    }
+  }
+  return g;
 }
 
 /** Найвужче вікно масштабу, днів. */
@@ -26,12 +60,13 @@ let clipSeq = 0;
 
 /**
  * spec: {
- *   series: [{ key, label, kind: 'line' | 'dots', cls, points: [{ date, v, ring }], endLabel }],
+ *   series: [{ key, label, kind: 'line' | 'dots' | 'band', cls, points: [{ date, v, ring, last }], endLabel }],
+ *     band — заливка між двома лініями, точки { date, a, b }: зелена, де a < b, червона — де a > b,
  *   extra: [числа, що мають влізти в шкалу], hlines: [{ v, label, cls }],
  *   legend: [{ label, cls, kind }], height, digits, unit,
  *   selected, onPick(date), tip(date) → [рядки],
- *   zoom — масштаб колесом миші й зсув перетягуванням; view: [з, по] — початкове вікно (дати),
- *   onView(з, по) — вікно змінилося,
+ *   zoom — масштаб колесом миші, пальцями й зсув перетягуванням; view: [з, по] — початкове вікно (дати),
+ *   onView(з, по) — вікно змінилося, onFull + fullLabel — кнопка «весь графік», поки показано не все,
  * }
  */
 export function lineChart(spec) {
@@ -39,9 +74,13 @@ export function lineChart(spec) {
     ? h('div', { class: 'chart-legend' }, spec.legend.map((l) => h('span', { class: 'legend-item' },
       h('span', { class: `key ${l.kind} ${l.cls}`, 'aria-hidden': 'true' }), l.label)))
     : null;
+  const fullBtn = spec.onFull
+    ? h('button', { type: 'button', class: 'chart-full', hidden: true, onclick: () => spec.onFull() }, withIcon('expand', spec.fullLabel))
+    : null;
   const plot = h('div', { class: `chart-plot ${spec.zoom ? 'zoomable' : ''}` });
   const tip = h('div', { class: 'chart-tip', hidden: true });
-  const wrap = h('div', { class: 'chart' }, legend, h('div', { class: 'chart-stage' }, plot, tip));
+  const head = legend || fullBtn ? h('div', { class: 'chart-head' }, legend ?? h('span'), fullBtn) : null;
+  const wrap = h('div', { class: 'chart' }, head, h('div', { class: 'chart-stage' }, plot, tip));
 
   // Вікно перегляду — у днях від першої дати всіх даних; дробове, щоб масштаб ішов плавно
   const allDates = [...new Set(spec.series.flatMap((se) => se.points.map((p) => p.date)))].sort();
@@ -85,12 +124,13 @@ export function lineChart(spec) {
     if (!allDates.length) { plot.replaceChildren(); cur = null; return; }
     const [v0, v1] = view;
     const spanDays = v1 - v0;
+    if (fullBtn) fullBtn.hidden = spanDays >= full - 1e-6;
     const off = (date) => daysBetween(D0, date);
     const inView = (p) => off(p.date) >= v0 - 1e-6 && off(p.date) <= v1 + 1e-6;
     // Лінії тягнемо до сусідньої точки за краєм — обрізає clipPath; крапки — лише видимі
     const shown = spec.series.map((se) => {
-      const pts = se.points.filter((p) => Number.isFinite(p.v));
-      if (se.kind !== 'line') return pts.filter(inView);
+      const pts = se.points.filter(se.kind === 'band' ? (p) => Number.isFinite(p.a) && Number.isFinite(p.b) : (p) => Number.isFinite(p.v));
+      if (se.kind === 'dots') return pts.filter(inView);
       const first = pts.findIndex((p) => off(p.date) >= v0 - 1e-6);
       const last = pts.findLastIndex((p) => off(p.date) <= v1 + 1e-6);
       if (first < 0 || last < 0) return [];
@@ -123,13 +163,16 @@ export function lineChart(spec) {
       grid.append(s('line', { x1: pad.l, x2: width - pad.r, y1: yy, y2: yy }),
         s('text', { x: pad.l - 6, y: yy + 4, 'text-anchor': 'end', class: 'tick' }, fmt.fix(v, digits)));
     }
-    // Підписи дат: щодня, через день, щотижня, через тиждень або перше число місяця
-    const xStep = X_STEPS.find((st) => spanDays / st <= 5);
+    // Підписи дат: стільки, скільки влазить по ширині; тижні — з понеділка, далі — перше число місяця
+    const maxTicks = Math.max(3, Math.floor(iw / X_GAP));
+    const xStep = X_STEPS.find((st) => spanDays / st <= maxTicks);
     const ticks = [];
     if (xStep) {
-      for (let d = Math.ceil(v0 - 1e-6); d <= v1 + 1e-6; d += xStep) ticks.push(addDays(D0, d));
+      let d = Math.ceil(v0 - 1e-6);
+      if (xStep >= 7) d += (8 - new Date(`${addDays(D0, d)}T00:00:00Z`).getUTCDay()) % 7;
+      for (; d <= v1 + 1e-6; d += xStep) ticks.push(addDays(D0, d));
     } else {
-      const months = Math.max(1, Math.ceil(spanDays / 30 / 5));
+      const months = Math.max(1, Math.ceil(spanDays / 30 / maxTicks));
       let m = `${d0.slice(0, 7)}-01`;
       while (m <= d1) {
         if (m >= d0) ticks.push(m);
@@ -159,6 +202,10 @@ export function lineChart(spec) {
     spec.series.forEach((se, i) => {
       const pts = shown[i];
       if (!pts.length) return;
+      if (se.kind === 'band') {
+        marks.append(band(pts, x, y, se.cls));
+        return;
+      }
       if (se.kind === 'line') {
         const d = pts.map((p, i) => `${i ? 'L' : 'M'}${x(p.date).toFixed(1)},${y(p.v).toFixed(1)}`).join('');
         marks.append(s('path', { d, class: `series-line ${se.cls}` }));
@@ -166,8 +213,10 @@ export function lineChart(spec) {
         const g = s('g', { class: `series-dots ${se.cls}` });
         const r = pts.length > 120 ? 2.5 : 3.5;
         for (const p of pts) {
-          g.append(s('circle', { cx: x(p.date).toFixed(1), cy: y(p.v).toFixed(1), r }));
-          if (p.ring) g.append(s('circle', { cx: x(p.date).toFixed(1), cy: y(p.v).toFixed(1), r: r + 3, class: 'ring' }));
+          const cx = x(p.date).toFixed(1);
+          const cy = y(p.v).toFixed(1);
+          if (p.ring) g.append(s('circle', { cx, cy, r: r + 2.5, class: 'ring' }));
+          g.append(s('circle', { cx, cy, r: p.last ? r + 1.5 : r, class: p.last ? 'last' : null }));
         }
         marks.append(g);
       }
@@ -223,21 +272,26 @@ export function lineChart(spec) {
   plot.addEventListener('pointerdown', (e) => {
     if (!cur || !e.isPrimary || e.button > 0 || pinch) return;
     const mouse = e.pointerType === 'mouse';
-    down = { x: e.clientX, view, moved: false, mouse };
+    // Палець на графіку з масштабом: рух убік — зсув, дотик без руху — вибір дня (на pointerup)
+    down = { x: e.clientX, view, moved: false, mouse, touch: !mouse && spec.zoom };
     if (mouse && spec.zoom) plot.setPointerCapture(e.pointerId);
-    cur.place(cur.nearest(e.clientX));
+    if (!down.touch) cur.place(cur.nearest(e.clientX));
   });
   plot.addEventListener('pointermove', (e) => {
     if (!cur) return;
     const zoomed = view[1] - view[0] < full - 1e-6;
-    if (down?.mouse && spec.zoom && zoomed && (down.moved || Math.abs(e.clientX - down.x) > 4)) {
-      // Перетягування мишею — зсув вікна, графік їде за курсором
+    const dragging = down && spec.zoom && (down.moved || Math.abs(e.clientX - down.x) > (down.mouse ? 4 : 8));
+    // Палець, що поїхав убік, — уже не дотик, навіть коли зсувати нікуди (графік віддалено повністю)
+    if (dragging && down.touch) down.moved = true;
+    if (dragging && zoomed) {
+      // Перетягування — зсув вікна, графік їде за мишею чи пальцем
       down.moved = true;
       plot.classList.add('panning');
       const days = (e.clientX - down.x) * cur.daysPerPx;
       setView([down.view[0] - days, down.view[1] - days]);
       return;
     }
+    if (down?.touch) return;
     if (e.pointerType === 'mouse' || down) cur.place(cur.nearest(e.clientX));
   });
   plot.addEventListener('pointerup', (e) => {
