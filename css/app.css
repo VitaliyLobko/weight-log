@@ -260,7 +260,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .chart-svg .cursor .hit.s-plan { fill: var(--c-plan); }
 .chart-svg .cursor .hit.s-kg { fill: var(--text); }
 .chart-svg .cursor .hit.s-waist { fill: var(--c-waist); }
-.chart-svg .overlay { fill: transparent; cursor: crosshair; }
+/* Події ловить сам svg (він не перестворюється), вміст перемальовується і їх не перехоплює */
+.chart-svg { cursor: crosshair; }
+.chart-svg > * { pointer-events: none; }
 .chart-tip {
   position: absolute;
   top: 4px;
@@ -278,6 +280,13 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .chart-tip[hidden] { display: none; }
 .tip-head { font-weight: 700; margin-bottom: 2px; }
 .chart-note { margin: 6px 6px 2px; }
+.chart-plot.panning, .chart-plot.panning .chart-svg { cursor: grabbing; }
+/* Підказка про колесо — де є миша, про пальці — на сенсорному екрані */
+.chart-hint.touch { display: none; }
+@media (hover: none) {
+  .chart-hint.mouse { display: none; }
+  .chart-hint.touch { display: block; }
+}
 .waist-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: 4px 0 8px; }
 .waist-head b { font-size: 22px; }
 .box .chart { margin: 0 -6px 8px; }

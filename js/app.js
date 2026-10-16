@@ -309,6 +309,8 @@ function renderHome() {
 const PERIODS = [['30', 'Месяц'], ['90', '3 месяца'], ['all', 'Всё']];
 let period = PERIODS.some(([k]) => k === recall('weight-log:period')) ? recall('weight-log:period') : '90';
 let picked = null;
+/** Вікно, набране колесом миші; кнопка періоду його скидає. */
+let chartView = null;
 
 function dayTip(date) {
   const r = rows.find((x) => x.date === date);
@@ -343,21 +345,26 @@ function dayDetails(date) {
 
 function renderChart() {
   if (!rows.length) return empty('chart', t('Пока нечего показать'), t('Запишите вес — и здесь появится график.'));
-  const seg = segmented(PERIODS.map(([k, l]) => [k, t(l)]), period, (v) => { period = v; remember('weight-log:period', v); render(); });
+  const seg = segmented(PERIODS.map(([k, l]) => [k, t(l)]), period, (v) => { period = v; chartView = null; remember('weight-log:period', v); render(); });
   const lastDate = rows.at(-1).date;
   const from = period === 'all' ? rows[0].date : M.addDays(lastDate, -(Number(period) - 1));
   const vis = rows.filter((r) => r.date >= from);
-  $('subtitle').textContent = `${fmt.date(vis[0].date)} — ${fmt.date(lastDate)}`;
+  const showRange = (a, b) => { $('subtitle').textContent = `${fmt.date(a)} — ${fmt.date(b)}`; };
+  const view = chartView ?? [vis[0].date, lastDate];
+  showRange(...view);
   const g = sum.goal;
-  const plan = vis.map((r) => ({ date: r.date, v: M.planAt(g, r.date) })).filter((p) => p.v !== null);
+  const plan = rows.map((r) => ({ date: r.date, v: M.planAt(g, r.date) })).filter((p) => p.v !== null);
   const marks = M.checkpoints(rows, goal, sum).map((c) => ({ v: c.kg, label: c.isTarget ? t('цель') : fmt.int(c.kg), cls: c.isTarget ? 'target' : 'cp' }));
   const details = h('div', {}, dayDetails(picked));
   const chart = lineChart({
     series: [
       { key: 'plan', kind: 'line', cls: 's-plan', points: plan },
-      { key: 'kg', kind: 'dots', cls: 's-kg', points: vis.map((r) => ({ date: r.date, v: r.kg, ring: Boolean(r.note) })) },
-      { key: 'avg', kind: 'line', cls: 's-avg', points: vis.filter((r) => r.avg !== null).map((r) => ({ date: r.date, v: r.avg })), endLabel: true },
+      { key: 'kg', kind: 'dots', cls: 's-kg', points: rows.map((r) => ({ date: r.date, v: r.kg, ring: Boolean(r.note) })) },
+      { key: 'avg', kind: 'line', cls: 's-avg', points: rows.filter((r) => r.avg !== null).map((r) => ({ date: r.date, v: r.avg })), endLabel: true },
     ],
+    zoom: true,
+    view,
+    onView: (a, b) => { chartView = [a, b]; showRange(a, b); },
     hlines: marks,
     legend: [
       { label: t('Вес'), kind: 'dot', cls: 's-kg' },
@@ -374,7 +381,9 @@ function renderChart() {
     ? h('p', { class: 'muted small chart-note' }, t('Цель {kg} — ниже шкалы графика: до неё ещё {d}.', { kg: kg(sum.target), d: kg(Math.max(0, sum.toGo ?? 0), 2) }))
     : null;
   return h('div', {}, seg,
-    h('section', { class: 'panel chart-panel' }, chart, below),
+    h('section', { class: 'panel chart-panel' }, chart, below,
+      h('p', { class: 'muted small chart-note chart-hint mouse' }, t('Колесо мыши — масштаб, перетаскивание — сдвиг, двойной клик — сбросить.')),
+      h('p', { class: 'muted small chart-note chart-hint touch' }, t('Два пальца: развести — масштаб, вести вместе — сдвиг. Кнопка периода — сбросить.'))),
     box(withIcon('calendar', t('Выбранный день')), details),
     waistBox());
 }
