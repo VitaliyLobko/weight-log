@@ -120,6 +120,24 @@ export async function mergeImport(changes) {
   window.dispatchEvent(new Event('db-change'));
 }
 
+/**
+ * «Заменить всё»: лишаються тільки записи з копії, усі з однією відміткою часу — її й повертає
+ * (за нею синхронізація відрізняє відновлене від старого, див. sync.markRestore).
+ */
+export async function replaceAll(changes) {
+  const now = Date.now();
+  await run(ALL, 'readwrite', (tx) => {
+    for (const name of ALL) {
+      const store = tx.objectStore(name);
+      store.clear();
+      if (!STORES.includes(name)) continue;
+      for (const obj of changes[name]?.put ?? []) store.put({ ...obj, updated: now });
+    }
+  });
+  window.dispatchEvent(new Event('db-change'));
+  return now;
+}
+
 export async function clearAll() {
   await run(ALL, 'readwrite', (tx) => {
     for (const name of ALL) tx.objectStore(name).clear();

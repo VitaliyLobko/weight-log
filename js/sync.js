@@ -199,6 +199,29 @@ export function merge(local, remote) {
   return result;
 }
 
+/**
+ * Після «Заменить всё» правдою стає копія: запис, найновіша версія якого (тут чи на Диску) старша
+ * за момент відновлення, видаляється. Надгробки кладемо на бік Диска — тоді localChanges запише їх
+ * і сюди, а інші пристрої отримають їх із файлу. Відновлені записи мають рівно restoreAt, а правки
+ * після відновлення (тут чи на іншому пристрої) — пізніші, тож їх не чіпає.
+ */
+function bury(local, remote, restoreAt) {
+  const graves = [];
+  for (const name of db.STORES) {
+    for (const rec of newest([local[name] ?? [], remote[name] ?? []]).values()) {
+      if (stamp(rec) < restoreAt) graves.push({ id: rec.id, store: name, updated: restoreAt });
+    }
+  }
+  return { ...remote, tombstones: [...(remote.tombstones ?? []), ...graves] };
+}
+
+/** Запам'ятати момент відновлення з копії до найближчої вдалої синхронізації (переживе офлайн і перезапуск). */
+export function markRestore(at) {
+  if (!conf.enabled) return;
+  conf.restoreAt = at;
+  save();
+}
+
 function fingerprint(data) {
   return ['tombstones', ...db.STORES].map((name) => JSON.stringify(
     [...(data[name] ?? [])].sort((a, b) => String(a.id).localeCompare(String(b.id))))).join('\n');
@@ -234,13 +257,16 @@ export async function syncNow() {
       const about = await (await api(`${DRIVE}/about?fields=user(emailAddress)`)).json();
       conf.email = about.user?.emailAddress ?? null;
     }
+    // Відновлення посеред цього проходу застосує наступний — тут уже прочитано старі дані
+    const { restoreAt } = conf;
     const local = await db.loadAll();
     const fileId = await findFile();
     const remote = fileId ? ((await (await api(`${DRIVE}/files/${fileId}?alt=media`)).json())?.data ?? {}) : {};
-    const merged = merge(local, remote);
+    const merged = merge(local, restoreAt ? bury(local, remote, restoreAt) : remote);
     const changes = localChanges(local, merged);
     if (changes) await db.writeMerged(changes);
     if (!fileId || fingerprint(remote) !== fingerprint(merged)) await upload(fileId, merged);
+    if (restoreAt && conf.restoreAt === restoreAt) delete conf.restoreAt;
     conf.lastSync = Date.now();
     save();
     set('idle');

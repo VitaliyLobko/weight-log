@@ -18,6 +18,7 @@ const ASSETS = [
   './js/chart.js',
   './js/importer.js',
   './js/remind.js',
+  './js/icons.js',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-maskable-512.png',
@@ -26,9 +27,22 @@ const ASSETS = [
 
 // Файли — повз HTTP-кеш браузера: GitHub Pages віддає max-age=600, і без reload
 // оновлення 10 хвилин після релізу ставило б старі файли.
+const precache = () => caches.open(CACHE).then((cache) => cache.addAll(ASSETS.map((url) => new Request(url, { cache: 'reload' }))));
+
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(ASSETS.map((url) => new Request(url, { cache: 'reload' })))));
+  event.waitUntil(precache());
 });
+
+/**
+ * Сусідній застосунок на цьому ж домені (shooting-log) під час свого оновлення видаляє всі чужі кеші.
+ * Тому при кожному відкритті з мережею перевіряємо свій кеш і докладаємо, чого бракує.
+ */
+async function repairCache() {
+  const cache = await caches.open(CACHE);
+  const have = new Set((await cache.keys()).map((r) => r.url));
+  const missing = ASSETS.map((url) => new URL(url, self.registration.scope).href).filter((url) => !have.has(url));
+  if (missing.length) await cache.addAll(missing.map((url) => new Request(url, { cache: 'reload' })));
+}
 
 // Кеші інших застосунків на тому ж домені (vitaliylobko.github.io/…) не чіпаємо — лише свої старі версії.
 self.addEventListener('activate', (event) => {
@@ -46,6 +60,7 @@ self.addEventListener('message', (event) => {
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET' || new URL(request.url).origin !== self.location.origin) return;
+  if (request.mode === 'navigate') event.waitUntil(repairCache().catch(() => {}));
   event.respondWith((async () => {
     const cached = await caches.match(request, { ignoreSearch: true, cacheName: CACHE });
     if (cached) return cached;

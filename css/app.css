@@ -199,14 +199,16 @@ button, input, select, textarea { font: inherit; color: inherit; }
   text-align: left;
   cursor: pointer;
 }
-.today-label { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.today-label { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.today-label .ico { color: var(--good); width: 17px; height: 17px; }
 .today-kg { grid-row: span 2; font-size: 28px; font-weight: 800; white-space: nowrap; }
 .today-delta { font-size: 14px; }
 .today-note { grid-column: 1 / -1; overflow-wrap: anywhere; }
 
 .stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin: 0 0 12px; }
 .stat { padding: 10px 12px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line-soft); min-width: 0; }
-.stat-label { font-size: 13px; color: var(--muted); }
+.stat-label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.stat-label .ico { width: 16px; height: 16px; color: var(--accent-2); }
 .stat-value { margin-top: 2px; font-size: 22px; font-weight: 800; overflow-wrap: anywhere; }
 .stat-sub { margin-top: 2px; font-size: 12px; overflow-wrap: anywhere; }
 .stat.good .stat-value { color: var(--good); }
@@ -215,6 +217,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .cp .row-title { display: flex; align-items: baseline; gap: 8px; }
 .cp-target { padding: 1px 8px; border-radius: 9px; background: var(--accent-soft); color: var(--accent-2); font-size: 12px; font-weight: 700; }
 .cp.done .row-title { color: var(--muted); }
+.cp-done { display: inline-flex; align-items: center; gap: 4px; }
 
 .bmi-head { display: flex; align-items: baseline; gap: 10px; margin: 4px 0 8px; }
 .bmi-value { font-size: 28px; font-weight: 800; }
@@ -384,8 +387,26 @@ button.row { cursor: pointer; }
 .import-sum { margin: 0 0 8px; padding-left: 20px; }
 .import-sum li { margin: 2px 0; }
 
+/* --- іконки (js/icons.js) --- */
+.ico { display: inline-grid; place-items: center; flex: none; width: 1.2em; height: 1.2em; }
+.ico svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
+.ico svg .fill, .tabs svg .fill { fill: currentColor; stroke: none; }
+.panel h3 { display: flex; align-items: center; gap: 8px; }
+.panel h3 .ico { color: var(--accent-2); }
+.box > legend .ico { width: 15px; height: 15px; color: var(--accent-2); }
+.empty-ico { width: 64px; height: 64px; padding: 15px; margin-bottom: 4px; border-radius: 50%; background: var(--accent-soft); color: var(--accent-2); }
+.empty-ico svg { stroke-width: 1.5; }
+.row-note { display: flex; align-items: flex-start; gap: 6px; }
+.row-note .ico { width: 14px; height: 14px; margin-top: 2px; color: var(--muted); }
+.sync-chip { display: inline-flex; align-items: center; gap: 6px; }
+.sync-chip .ico { width: 16px; height: 16px; }
+
 /* --- кнопки й поля --- */
 .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   min-height: 44px;
   padding: 10px 16px;
   border-radius: 12px;
