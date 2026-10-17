@@ -94,6 +94,7 @@ function weightForm(date = M.today()) {
     const v = f.values();
     const clash = findWeight(v.date);
     const write = async () => {
+      sync.renewOnGesture();
       close();
       const ids = [v.date, ...(existing && existing.id !== v.date ? [existing.id] : [])];
       const snap = snapshot('weights', ids);
@@ -136,6 +137,7 @@ function waistForm(record) {
     const id = M.waistId(v.date);
     const ids = [id, ...(record && record.id !== id ? [record.id] : [])];
     const snap = snapshot('waists', ids);
+    sync.renewOnGesture();
     close();
     await db.write({ waists: { put: [{ id, date: v.date, cm: Math.round(v.cm * 10) / 10 }], del: record && record.id !== id ? [record.id] : [] } });
     undoToast(t('Записано {cm} см за {date}', { cm: fmt.fix(v.cm), date: fmt.date(v.date) }), 'waists', snap);
@@ -166,6 +168,8 @@ function quickEntry() {
     if (!Number.isFinite(v) || v < 20 || v > 400) { toast(t('Введите вес в килограммах')); input.focus(); return; }
     const date = M.today();
     const snap = snapshot('weights', [date]);
+    // Ключ Google сплив — оновлюємо з цього ж дотику, поки браузер дозволяє відкрити вікно входу
+    sync.renewOnGesture();
     await db.write({ weights: { put: [{ id: date, kg: Math.round(v * 100) / 100, note: note.value.trim() }] } });
     undoToast(t('Записано {kg} за {date}', { kg: kg(v), date: fmt.date(date) }), 'weights', snap);
   };

@@ -108,13 +108,28 @@ export async function connect() {
     throw new Error(t('Google ещё загружается — нажмите ещё раз через секунду'));
   }
   await new Promise((resolve, reject) => {
-    authWaiter = { resolve, reject };
+    authWaiter = { resolve, reject, at: Date.now() };
     c.requestAccessToken({ prompt: conf.consented ? '' : 'consent', hint: conf.email || undefined });
   });
   conf.enabled = true;
   conf.consented = true;
   save();
   await syncNow();
+}
+
+/**
+ * Ключ Google живе годину, а вікно входу браузер дозволяє лише з дотику. Тож прострочений ключ
+ * оновлюємо з дотику, який людина й так робить («Записати»): згоду вже дано, вікно мигне й закриється.
+ * Викликати синхронно з обробника кліку, до першого await. Не вийшло (вікно закрили, нема Google) — тихо.
+ */
+export function renewOnGesture() {
+  // Вхід, що вже йде (connect чи попередній дотик), не перебиваємо; завислий понад хвилину — вже не рахується
+  const busy = authWaiter && Date.now() - (authWaiter.at ?? 0) < 60_000;
+  if (!configured() || !conf.enabled || !conf.consented || tokenValid() || !navigator.onLine || busy) return;
+  const c = client();
+  if (!c) { preload(); return; }
+  authWaiter = { resolve: () => syncNow(), reject: () => {}, at: Date.now() };
+  c.requestAccessToken({ prompt: '', hint: conf.email || undefined });
 }
 
 export function disconnect() {
