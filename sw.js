@@ -12,6 +12,7 @@ const ASSETS = [
   './js/config.js',
   './js/db.js',
   './js/sync.js',
+  './js/bot.js',
   './js/model.js',
   './js/ui.js',
   './js/i18n.js',

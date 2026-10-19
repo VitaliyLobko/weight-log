@@ -103,6 +103,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .sync-chip.idle { color: var(--good); }
 .sync-chip.auth { color: var(--accent); border-color: var(--accent); }
 .sync-chip.error { color: var(--bad); border-color: var(--bad); }
+.error-text { color: var(--bad); }
 .gear {
   display: grid;
   place-items: center;

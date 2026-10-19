@@ -1,5 +1,6 @@
 import * as db from './db.js';
 import * as sync from './sync.js';
+import * as bot from './bot.js';
 import * as M from './model.js';
 import {
   h, fmt, sheet, toast, form, btn, toolBtn, confirmSheet, fold, box, segmented,
@@ -515,7 +516,10 @@ function checkpointsPanel() {
 }
 
 function remindPanel() {
-  const time = h('input', { type: 'time', value: remindTime(), class: 'time-input', onchange: (e) => setRemindTime(e.target.value) });
+  const time = h('input', {
+    type: 'time', value: remindTime(), class: 'time-input',
+    onchange: (e) => { setRemindTime(e.target.value); bot.scheduleBot(500); },
+  });
   return h('section', { class: 'panel' }, h('h3', {}, withIcon('bell', t('Напоминание'))),
     h('p', { class: 'muted small' }, t('Само приложение без сервера не может разбудить телефон в нужный час, поэтому будильник ставит календарь: ежедневное событие «Взвеситься» с уведомлением. А на главной, пока вес за сегодня не записан, сверху стоит поле записи и горит точка на вкладке.')),
     h('label', { class: 'field' }, h('span', { class: 'field-label' }, t('Время')), time),
@@ -523,6 +527,65 @@ function remindPanel() {
       btn(withIcon('calendar', t('Google Календарь')), () => { setRemindTime(time.value); window.open(googleCalendarUrl(remindTime(), appUrl()), '_blank', 'noopener'); }, 'primary'),
       btn(withIcon('download', t('Файл .ics')), () => { setRemindTime(time.value); saveFile(icsFile(remindTime(), appUrl()), true); })),
     h('p', { class: 'muted small' }, t('В Google Календаре проверьте, что у события включено уведомление «в момент начала». Файл .ics открывают календари Samsung, iPhone и Outlook.')));
+}
+
+// ---------- Telegram-бот ----------
+
+let botError = '';
+
+/** Обмін з ботом; записане ботом — коротке повідомлення. Без мережі тихо: спробуємо наступного разу. */
+async function runBot() {
+  try {
+    const { got } = await bot.syncBot();
+    botError = '';
+    if (got?.length === 1) toast(t('Из Telegram: {kg} за {date}', { kg: kg(got[0].kg), date: fmt.date(got[0].date) }));
+    else if (got?.length) toast(t('Из Telegram: записей {n}', { n: got.length }));
+  } catch (err) {
+    // fetch без мережі падає з «Failed to fetch» — людині зрозуміліше своїми словами
+    botError = err.message === 'key' || err.message.startsWith('HTTP') ? err.message : t('сеть недоступна');
+  }
+  // Статус у налаштуваннях — свіжий, але не під пальцями, що саме вводять адресу чи ключ
+  if (tab === 'settings' && !document.activeElement?.matches('input')) render();
+}
+
+function botStatus(cfg) {
+  if (!cfg.from) return t('Не подключён. Проще всего — подключить бота в Хобі-плане на этом же телефоне: адрес и ключ подхватятся сами. Или укажите их ниже.');
+  if (botError === 'key') return t('Бот не принял ключ — возьмите новый командой /key и укажите его здесь и в Хобі-плане.');
+  if (botError) return t('Нет связи с ботом: {e}', { e: botError });
+  const via = cfg.from === 'hobby' ? t('Подключён через Хобі-план.') : t('Подключён.');
+  return `${via} ${t('Последний обмен: {time}', { time: syncTime(bot.lastSync()) })}`;
+}
+
+function telegramPanel() {
+  const cfg = bot.botConfig();
+  const f = form([
+    { name: 'url', label: t('Адрес бота'), value: cfg.from === 'own' ? cfg.url : '', placeholder: 'https://….workers.dev' },
+    { name: 'key', label: t('Ключ — команда /key в боте'), type: 'password', value: cfg.from === 'own' ? cfg.key : '' },
+  ]);
+  const save = async () => {
+    const v = f.values();
+    if (!v.url.startsWith('https://') || !v.key) { toast(t('Укажите адрес https://… и ключ')); return; }
+    bot.setBotConfig(v.url, v.key);
+    await runBot();
+    render();
+    toast(botError ? botStatus(bot.botConfig()) : t('Бот подключён'));
+  };
+  const own = h('div', {}, f.el, h('div', { class: 'btn-row' },
+    btn(t('Сохранить'), save, cfg.from ? '' : 'primary'),
+    cfg.from === 'own' ? btn(t('Отключить'), () => { bot.setBotConfig('', ''); botError = ''; render(); }) : null));
+  return h('section', { class: 'panel' }, h('h3', {}, withIcon('bell', 'Telegram')),
+    h('p', { class: 'muted small' }, t('Бот Хобі-плана во время напоминания пишет «пора взвеситься» и принимает вес сообщением — числом, например 82,4, можно с заметкой. Запись сама появится в журнале, когда откроете приложение.')),
+    h('p', { class: `small ${botError ? 'error-text' : 'muted'}` }, botStatus(cfg)),
+    cfg.from ? [
+      segmented([['on', t('Напоминать в {time}', { time: remindTime() })], ['off', t('Не напоминать')]],
+        bot.remindOn() ? 'on' : 'off', (v) => { bot.setRemindOn(v === 'on'); bot.scheduleBot(300); }),
+      h('div', { class: 'btn-row' }, btn(withIcon('sync', t('Проверить связь')), async () => {
+        await runBot();
+        render();
+        if (!botError) toast(t('Связь с ботом есть'));
+      }, 'primary')),
+    ] : null,
+    cfg.from === 'hobby' ? fold('bot-own', t('Свой адрес и ключ'), own) : own);
 }
 
 const CHIP = {
@@ -766,6 +829,7 @@ function renderSettings() {
     goalPanel(),
     checkpointsPanel(),
     remindPanel(),
+    telegramPanel(),
     h('section', { class: 'panel' }, h('h3', {}, withIcon('globe', 'Язык · Мова')), segmented(Object.entries(LANGS), lang(), switchLang)),
     h('section', { class: 'panel' }, h('h3', {}, withIcon('theme', t('Тема'))),
       segmented(THEMES.map(([k, label]) => [k, t(label)]), themePref(), (v) => { remember('weight-log:theme', v); applyTheme(); })),
@@ -855,7 +919,13 @@ function registerWorker() {
 let shownDay = M.today();
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && M.today() !== shownDay) { shownDay = M.today(); render(); }
+  // Відкрили застосунок — забрати вагу, надіслану боту, поки його не було на екрані
+  if (document.visibilityState === 'visible') runBot();
 });
+window.addEventListener('online', () => runBot());
+// Записали вагу тут — бот має знати, щоб не нагадувати
+window.addEventListener('db-change', () => bot.scheduleBot());
+window.addEventListener('sync-applied', () => bot.scheduleBot());
 
 applyStatic();
 applyTheme();
@@ -873,4 +943,5 @@ route();
 sync.onStatus(renderSyncChip);
 sync.preload();
 sync.syncNow();
+runBot();
 
