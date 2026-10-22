@@ -1,21 +1,21 @@
 :root {
-  --bg: #0f1316;
-  --bg-glow: #16222a;
-  --surface: #161c21;
-  --surface-2: #1f272e;
-  --line: #2b353d;
-  --line-soft: #232c33;
-  --text: #e8eef2;
-  --muted: #8f9ca6;
-  --accent: #1fae8f;
-  --accent-2: #4cd1b2;
+  --bg: #121019;
+  --bg-glow: #1f1830;
+  --surface: #19161f;
+  --surface-2: #231f2c;
+  --line: #322c3d;
+  --line-soft: #292433;
+  --text: #eeebf3;
+  --muted: #9d96a8;
+  --accent: #7c5cf0;
+  --accent-2: #a48bff;
   --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
   --good: #4cc38a;
   --bad: #e2725b;
   --warn: #dbad3a;
-  /* серії графіка: середнє — акцент, план — бузковий, точки зважувань — нейтральні */
+  /* серії графіка: середнє — акцент, план — рожевий, точки зважувань — нейтральні */
   --c-avg: var(--accent-2);
-  --c-plan: #9d8df1;
+  --c-plan: #f28cb8;
   --c-kg: #b7c2ca;
   --c-ring: #e8b04a;
   --c-waist: #6fb5e8;
@@ -27,24 +27,24 @@
 
 /* Тему ставить data-theme на <html>: скрипт у index.html ще до малювання, потім app.js. */
 :root[data-theme="light"] {
-  --bg: #f1f4f5;
-  --bg-glow: #e3ecee;
+  --bg: #f4f2f7;
+  --bg-glow: #e9e3f4;
   --surface: #ffffff;
-  --surface-2: #eceff1;
-  --line: #d6dde1;
-  --line-soft: #e4e9ec;
-  --text: #172026;
-  --muted: #5f6b73;
-  --accent: #128a71;
-  --accent-2: #0d7a63;
+  --surface-2: #eeebf2;
+  --line: #ddd8e4;
+  --line-soft: #e8e4ee;
+  --text: #1c1726;
+  --muted: #686175;
+  --accent: #6a45d8;
+  --accent-2: #5a37c4;
   --good: #1f8a55;
   --bad: #c2462d;
-  --c-avg: #0f8b70;
-  --c-plan: #6c5bd4;
+  --c-avg: #6a45d8;
+  --c-plan: #c2457f;
   --c-kg: #7c8890;
   --c-ring: #b8790f;
   --c-waist: #2b7fc0;
-  --shadow: 0 1px 2px rgb(20 35 45 / .06), 0 6px 16px rgb(20 35 45 / .06);
+  --shadow: 0 1px 2px rgb(35 20 50 / .06), 0 6px 16px rgb(35 20 50 / .06);
   color-scheme: light;
 }
 
@@ -672,10 +672,10 @@ button.row { cursor: pointer; }
   margin: 0 auto;
   padding: 12px 14px;
   border-radius: 14px;
-  background: #24303a;
-  color: #eef3f6;
+  background: #2c2638;
+  color: #f1eef6;
   box-shadow: 0 10px 24px rgb(0 0 0 / .35);
   animation: toast-in .18s ease;
 }
-.toast button { border: 0; background: none; color: #6fe0c4; font-weight: 800; cursor: pointer; padding: 4px 8px; }
+.toast button { border: 0; background: none; color: #c3b2ff; font-weight: 800; cursor: pointer; padding: 4px 8px; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
