@@ -7,15 +7,15 @@
   --line-soft: #292433;
   --text: #eeebf3;
   --muted: #9d96a8;
-  --accent: #7c5cf0;
-  --accent-2: #a48bff;
+  --accent: #7d6bb8;
+  --accent-2: #a99cd6;
   --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
   --good: #4cc38a;
   --bad: #e2725b;
   --warn: #dbad3a;
   /* серії графіка: середнє — акцент, план — рожевий, точки зважувань — нейтральні */
   --c-avg: var(--accent-2);
-  --c-plan: #f28cb8;
+  --c-plan: #d99ab5;
   --c-kg: #b7c2ca;
   --c-ring: #e8b04a;
   --c-waist: #6fb5e8;
@@ -35,12 +35,12 @@
   --line-soft: #e8e4ee;
   --text: #1c1726;
   --muted: #686175;
-  --accent: #6a45d8;
-  --accent-2: #5a37c4;
+  --accent: #63559e;
+  --accent-2: #54478c;
   --good: #1f8a55;
   --bad: #c2462d;
-  --c-avg: #6a45d8;
-  --c-plan: #c2457f;
+  --c-avg: #63559e;
+  --c-plan: #a8577c;
   --c-kg: #7c8890;
   --c-ring: #b8790f;
   --c-waist: #2b7fc0;
@@ -677,5 +677,5 @@ button.row { cursor: pointer; }
   box-shadow: 0 10px 24px rgb(0 0 0 / .35);
   animation: toast-in .18s ease;
 }
-.toast button { border: 0; background: none; color: #c3b2ff; font-weight: 800; cursor: pointer; padding: 4px 8px; }
+.toast button { border: 0; background: none; color: #c6bde6; font-weight: 800; cursor: pointer; padding: 4px 8px; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
