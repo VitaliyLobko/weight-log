@@ -1,7 +1,7 @@
 importScripts('./version.js');
 
 const PREFIX = 'weight-log-';
-const CACHE = `${PREFIX}${self.APP_VERSION}`;
+const CACHE = `${PREFIX}${self.APP_VERSION}-${self.APP_BUILD}`;
 const ASSETS = [
   './',
   './index.html',
@@ -12,14 +12,18 @@ const ASSETS = [
   './js/config.js',
   './js/db.js',
   './js/sync.js',
+  './js/google-token.js',
+  './js/drive-files.js',
+  './js/bot-key.js',
   './js/bot.js',
+  './js/cloud.js',
   './js/model.js',
   './js/ui.js',
   './js/i18n.js',
   './js/chart.js',
-  './js/importer.js',
   './js/remind.js',
   './js/icons.js',
+  './js/diet.js',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-maskable-512.png',

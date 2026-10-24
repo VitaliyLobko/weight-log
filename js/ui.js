@@ -275,6 +275,11 @@ function setUnfolded(key, open) {
   remember(UNFOLDED, JSON.stringify([...unfolded]));
 }
 
+/** Розгорнути групу заздалегідь — для переходу до неї з іншого екрана. */
+export function unfold(key) {
+  setUnfolded(key, true);
+}
+
 /** Група, що згортається: за замовчуванням згорнута, розгорнуту запам'ятовує. */
 export function fold(key, head, body) {
   const el = h('details', { class: 'fold', open: unfolded.has(key), dataset: { key } },
@@ -288,8 +293,12 @@ export function fold(key, head, body) {
 export function box(title, content, { fold: foldKey, count, tools } = {}) {
   const legendTools = tools ? h('span', { class: 'box-tools' }, tools) : null;
   if (!foldKey) return h('fieldset', { class: 'box' }, h('legend', {}, title, legendTools), content);
-  const key = `box:${foldKey}`;
-  const el = h('fieldset', { class: `box foldable ${unfolded.has(key) ? '' : 'closed'}` });
+  return foldFrame('box', `box:${foldKey}`, [title, count ? h('span', { class: 'box-count' }, fmt.int(count)) : null], content, legendTools);
+}
+
+/** Рамка cls з назвою на лінії, що згортається тапом по назві: за замовчуванням згорнута, розгорнуту запам'ятовує. */
+export function foldFrame(cls, key, title, content, tools = null) {
+  const el = h('fieldset', { class: `${cls} foldable ${unfolded.has(key) ? '' : 'closed'}` });
   const toggle = h('button', {
     type: 'button', class: 'box-toggle', 'aria-expanded': String(unfolded.has(key)),
     onclick: () => {
@@ -297,8 +306,8 @@ export function box(title, content, { fold: foldKey, count, tools } = {}) {
       setUnfolded(key, open);
       toggle.setAttribute('aria-expanded', String(open));
     },
-  }, h('span', { class: 'box-chevron', 'aria-hidden': 'true' }, '›'), title, count ? h('span', { class: 'box-count' }, fmt.int(count)) : null);
-  el.append(h('legend', {}, toggle, legendTools), h('div', { class: 'box-body' }, content));
+  }, h('span', { class: 'box-chevron', 'aria-hidden': 'true' }, '›'), title);
+  el.append(h('legend', {}, toggle, tools), h('div', { class: 'box-body' }, content));
   return el;
 }
 

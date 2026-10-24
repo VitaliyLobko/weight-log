@@ -55,7 +55,13 @@ export async function loadAll() {
   return state;
 }
 
-/** changes: { store: { put: [obj], del: [id] } } — усе в одній транзакції, з відміткою часу. */
+const stamp = (x) => Number(x?.updated) || 0;
+
+/**
+ * changes: { store: { put: [obj], del: [id] } } — усе в одній транзакції, з відміткою часу.
+ * Відмітка — не менша за наявну + 1: годинник іншого телефона чи бота може бути попереду, а правка тут
+ * мусить бути новішою за те, що правили.
+ */
 export async function write(changes) {
   const names = Object.keys(changes).filter((n) => STORES.includes(n));
   const now = Date.now();
@@ -64,17 +70,77 @@ export async function write(changes) {
     for (const name of names) {
       const store = tx.objectStore(name);
       // Той самий день записали знову після видалення — новіший запис перемагає старий надгробок при злитті
-      for (const obj of changes[name].put ?? []) store.put({ ...obj, updated: now });
+      for (const obj of changes[name].put ?? []) {
+        store.get(obj.id).onsuccess = (e) => {
+          graves.get(obj.id).onsuccess = (g) => {
+            store.put({ ...obj, updated: Math.max(now, stamp(e.target.result) + 1, stamp(g.target.result) + 1) });
+          };
+        };
+      }
       for (const id of changes[name].del ?? []) {
-        store.delete(id);
-        graves.put({ id, store: name, updated: now });
+        store.get(id).onsuccess = (e) => {
+          store.delete(id);
+          graves.put({ id, store: name, updated: Math.max(now, stamp(e.target.result) + 1) });
+        };
       }
     }
   });
   window.dispatchEvent(new Event('db-change'));
 }
 
-const stamp = (x) => Number(x?.updated) || 0;
+/**
+ * Зміни з бази бота: rows — [{ store, id, data, updated, deleted }]. Лягає лише новіше за свій запис
+ * і за надгробок; видалення лишає надгробок з часом бота. Повертає те, що лягло.
+ */
+export async function applyCloud(rows) {
+  const list = rows.filter((r) => STORES.includes(r.store) && r.id && (r.deleted || (r.data && typeof r.data === 'object')));
+  const applied = [];
+  if (!list.length) return applied;
+  await run(ALL, 'readwrite', (tx) => {
+    const graves = tx.objectStore('tombstones');
+    for (const r of list) {
+      const store = tx.objectStore(r.store);
+      store.get(r.id).onsuccess = (e) => {
+        const mine = e.target.result;
+        if (stamp(mine) >= r.updated) return;
+        graves.get(r.id).onsuccess = (g) => {
+          if (stamp(g.target.result) >= r.updated) return;
+          applied.push(r);
+          if (r.deleted) {
+            if (mine) store.delete(r.id);
+            graves.put({ id: r.id, store: r.store, updated: r.updated });
+          } else {
+            store.put({ ...r.data, id: r.id, updated: r.updated });
+          }
+        };
+      };
+    }
+  });
+  if (applied.length) window.dispatchEvent(new Event('db-change'));
+  return applied;
+}
+
+/**
+ * Після «Заменить всё»: записи бота, старші за відновлення й відсутні в копії, видаляються — надгробок
+ * з поточним часом поїде в бот наступним обміном. Запис, що є тут з часом відновлення чи пізніше, лишається.
+ */
+export async function buryStale(rows, restoreAt) {
+  const list = rows.filter((r) => STORES.includes(r.store) && r.id);
+  if (!list.length) return;
+  const now = Date.now();
+  await run(ALL, 'readwrite', (tx) => {
+    const graves = tx.objectStore('tombstones');
+    for (const r of list) {
+      const store = tx.objectStore(r.store);
+      store.get(r.id).onsuccess = (e) => {
+        if (stamp(e.target.result) >= restoreAt) return;
+        store.delete(r.id);
+        graves.put({ id: r.id, store: r.store, updated: now });
+      };
+    }
+  });
+  window.dispatchEvent(new Event('db-change'));
+}
 
 /**
  * Результат злиття з Диска: { store: { put: [obj], del: [{ id, updated }] } }.

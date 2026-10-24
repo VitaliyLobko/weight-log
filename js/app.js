@@ -1,16 +1,17 @@
 import * as db from './db.js';
 import * as sync from './sync.js';
 import * as bot from './bot.js';
+import * as BK from './bot-key.js';
 import * as M from './model.js';
 import {
-  h, fmt, sheet, toast, form, btn, toolBtn, confirmSheet, fold, box, segmented,
+  h, fmt, sheet, toast, form, btn, toolBtn, confirmSheet, fold, box, foldFrame, unfold, segmented,
   remember, recall, refreshSheets, saveFile, parseNum,
 } from './ui.js';
 import { t, plural, lang, setLang, LANGS, applyStatic } from './i18n.js';
 import { lineChart } from './chart.js';
 import { icon, withIcon } from './icons.js';
-import { parseCsv, fromSheet } from './importer.js';
 import { remindTime, setRemindTime, googleCalendarUrl, icsFile } from './remind.js';
+import { dietMemo } from './diet.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -240,7 +241,8 @@ function statsGrid() {
   if (s.toGo !== null) tiles.push(stat('target', t('До цели'), kg(Math.max(0, s.toGo), 2), t('цель {kg}', { kg: kg(s.target) })));
   if (s.rate !== null) {
     tiles.push(stat('speed', t('Темп'), `${fmt.fix(s.rate, 2)} ${t('кг/нед')}`,
-      Number.isFinite(g.planRate) ? t('план {r}', { r: fmt.fix(g.planRate, 2) }) : null,
+      [s.recent !== null ? t('за 4 нед. {r}', { r: fmt.fix(s.recent, 2) }) : null,
+        Number.isFinite(g.planRate) ? t('план {r}', { r: fmt.fix(g.planRate, 2) }) : null].filter(Boolean).join(' · ') || null,
       Number.isFinite(g.planRate) && s.rate >= g.planRate ? 'good' : ''));
   }
   if (s.weekDelta !== null) tiles.push(stat('trend', t('За неделю'), kgd(s.weekDelta, 2), t('среднее к прошлой неделе'), trendClass(s.weekDelta)));
@@ -248,10 +250,34 @@ function statsGrid() {
     tiles.push(stat('route', t('От плана'), kgd(s.planDiff, 2),
       s.planDiff < -0.005 ? t('опережаете') : s.planDiff > 0.005 ? t('отстаёте') : t('точно по плану'), trendClass(s.planDiff)));
   }
-  if (s.finish) tiles.push(stat('flag', t('Прогноз финиша'), fmt.date(s.finish), t('≈ {n} нед.', { n: s.weeksLeft })));
+  const pace = s.recent !== null ? t('темпом за 4 нед.') : t('темпом с начала');
+  if (s.finish) tiles.push(stat('flag', t('Прогноз финиша'), fmt.date(s.finish), `${t('≈ {n} нед.', { n: s.weeksLeft })} · ${pace}`));
   else if (s.toGo !== null && s.toGo <= 0) tiles.push(stat('trophy', t('Цель'), t('достигнута'), null, 'good'));
+  else if (s.toGo !== null && s.rate !== null) {
+    tiles.push(stat('flag', t('Прогноз финиша'), '—', s.recent !== null ? t('за 4 нед. вес не снижается') : t('вес не снижается'), 'bad'));
+  }
   tiles.push(stat('calendar-check', t('Дней записано'), fmt.int(s.days), g.startDate ? t('с {date}', { date: fmt.date(g.startDate) }) : null));
   return h('div', { class: 'stats' }, tiles);
+}
+
+/** Плашка «Плато»: середнє давно не оновлює мінімум. */
+/** Бот відкидає ключ — на головній, а не лише в налаштуваннях: інакше записи тихо не їдуть на інші пристрої. */
+function keyNote() {
+  if (!bot.keyProblem()) return null;
+  return h('section', { class: 'plateau key-note' },
+    h('div', { class: 'plateau-head' }, icon('warning'), h('b', {}, t('Ключ доступа не подходит'))),
+    h('p', { class: 'small' }, t('Записи не уходят на другие устройства. Возьмите новый ключ командой /key в Telegram-боте и вставьте в любом приложении — Хобі-план, Вага или Марнотрат: остальные на этом устройстве возьмут его сами, другие — с Google Диска.')),
+    h('div', { class: 'btn-row' }, btn(t('Вставить ключ'), () => openSettings('data'), 'primary')));
+}
+
+function plateauNote() {
+  const p = M.plateau(rows);
+  if (!p || (sum.toGo !== null && sum.toGo <= 0)) return null;
+  return h('section', { class: 'plateau' },
+    h('div', { class: 'plateau-head' }, icon('warning'),
+      h('b', {}, t('Плато {n} {days}', { n: p.days, days: plural(p.days, [t('день'), t('дня'), t('дней')]) }))),
+    h('p', { class: 'small' }, t('Среднее с {date} не опускается ниже {kg}. Обычно это вода и соль, а не жир: проверьте порции и сладкое, добавьте шагов — и подождите ещё неделю.',
+      { date: fmt.date(p.since), kg: kg(p.low, 2) })));
 }
 
 function checkpointsBox() {
@@ -265,7 +291,7 @@ function checkpointsBox() {
       c.reached ? h('span', { class: 'good cp-done' }, icon('check'), fmt.date(c.reached))
         : c.eta ? [h('span', {}, `≈ ${fmt.date(c.eta)}`), h('span', { class: 'muted small' }, weeksText(M.daysBetween(sum.currentDate, c.eta)))]
           : h('span', { class: 'muted' }, '—'))))),
-  { tools: [toolBtn('edit', t('Изменить'), () => { location.hash = '#settings'; })] });
+  { tools: [toolBtn('edit', t('Изменить'), () => openSettings('checkpoints'))] });
 }
 
 function weeksText(days) {
@@ -282,7 +308,7 @@ function bmiBox() {
   if (!b) {
     return box(withIcon('person', t('ИМТ')), h('div', {},
       h('p', { class: 'muted small' }, t('Индекс массы тела = вес ÷ рост². Укажите рост — и он будет считаться по среднему весу.')),
-      btn(t('Указать рост'), () => { location.hash = '#settings'; })));
+      btn(t('Указать рост'), () => openSettings('goal'))));
   }
   const at = (v) => `${((Math.min(BMI_MAX, Math.max(BMI_MIN, v)) - BMI_MIN) / (BMI_MAX - BMI_MIN)) * 100}%`;
   return box(withIcon('person', t('ИМТ')), h('div', { class: 'bmi' },
@@ -296,22 +322,39 @@ function bmiBox() {
 
 function renderHome() {
   if (!rows.length) {
-    return h('div', {}, quickEntry(), empty('scale', t('Начнём'),
-      t('Записывайте вес каждое утро — среднее за 7 дней, темп и прогноз посчитаются сами. Историю из Google-таблицы можно загрузить в настройках.'),
-      btn(withIcon('table', t('Загрузить из таблицы')), () => { location.hash = '#settings'; })));
+    return h('div', {}, keyNote(), quickEntry(), empty('scale', t('Начнём'),
+      t('Записывайте вес каждое утро — среднее за 7 дней, темп и прогноз посчитаются сами. Уже вели учёт на другом устройстве — подключите Google Диск в настройках.'),
+      btn(withIcon('cloud', t('Подключить Google Диск')), () => openSettings('data'))));
   }
   const todayRow = rows.find((r) => r.date === M.today());
   return h('div', {},
+    keyNote(),
     todayRow ? todayDone(todayRow) : quickEntry(),
     hero(),
+    plateauNote(),
     statsGrid(),
     checkpointsBox(),
-    bmiBox());
+    bmiBox(),
+    box(withIcon('leaf', t('Питание при диабете')), dietMemo(), { fold: 'diet' }));
 }
 
 // ---------- графік ----------
 
-const PERIODS = [['30', 'Месяц'], ['90', '3 месяца'], ['all', 'Всё']];
+const PERIODS = [['7', 'Неделя'], ['30', 'Месяц'], ['90', '3 месяца'], ['all', 'Всё']];
+/** Серії, вимкнені тапом по легенді, — пам'ятаються на пристрої. */
+const HIDDEN_KEY = 'weight-log:hidden-series';
+function hiddenSeries() {
+  try {
+    const v = JSON.parse(recall(HIDDEN_KEY) ?? '[]');
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}
+/** Лінію прогнозу до фінішу, дальшого за стільки днів, не малюємо. */
+const FORECAST_MAX_DAYS = 365;
+/** Запас праворуч під хвостик прогнозу — частка видимого періоду. */
+const FORECAST_PEEK = 0.15;
 let period = PERIODS.some(([k]) => k === recall('weight-log:period')) ? recall('weight-log:period') : '90';
 let picked = null;
 /** Вікно, набране колесом миші; кнопка періоду його скидає. */
@@ -330,22 +373,32 @@ function dayTip(date) {
   ].filter(Boolean);
 }
 
-function dayDetails(date) {
+/** Вибраний день одним рядком під графіком: дата, вага, зміна, середнє, від плану, нотатка й «Змінити». */
+function dayLine(date) {
   const r = rows.find((x) => x.date === date);
-  if (!r) return h('p', { class: 'muted small' }, t('Нажмите на точку графика — здесь появится этот день.'));
+  if (!r) return null;
   const plan = M.planAt(sum.goal, date);
-  const item = (label, value, cls = '') => [h('dt', {}, label), h('dd', { class: cls }, value)];
-  return h('div', {},
-    h('dl', { class: 'kv' },
-      item(t('Дата'), `${fmt.date(date)}, ${fmt.weekday(date)}`),
-      item(t('Вес'), kg(r.kg)),
-      r.day !== null ? item(t('К прошлому'), kgd(r.day), trendClass(r.day)) : null,
-      item(t('Среднее 7 дн'), r.avg !== null ? kg(r.avg, 2) : '—'),
-      r.delta !== null ? item(t('За неделю'), kgd(r.delta, 2), trendClass(r.delta)) : null,
-      plan !== null ? item(t('План'), kg(plan, 2)) : null,
-      plan !== null && r.avg !== null ? item(t('От плана'), kgd(r.avg - plan, 2), trendClass(r.avg - plan)) : null,
-      r.note ? item(t('Заметка'), r.note) : null),
-    btn(t('Изменить'), () => weightForm(date)));
+  const sep = () => h('span', { class: 'muted' }, ' · ');
+  return h('div', { class: 'day-line' },
+    h('div', { class: 'day-line-main' },
+      h('span', { class: 'muted' }, `${fmt.weekday(date)} ${fmt.short(date)}`), sep(),
+      h('b', {}, kg(r.kg)),
+      r.day !== null ? [' ', h('span', { class: `small ${trendClass(r.day)}` }, fmt.signed(r.day))] : null,
+      r.avg !== null ? [sep(), h('span', {}, t('сред. {v}', { v: fmt.fix(r.avg, 2) }))] : null,
+      plan !== null && r.avg !== null ? [sep(), h('span', { class: trendClass(r.avg - plan) }, t('план {d}', { d: fmt.signed(r.avg - plan, 2) }))] : null,
+      r.note ? h('div', { class: 'row-note' }, icon('note'), h('span', {}, r.note)) : null),
+    toolBtn('edit', t('Изменить'), () => weightForm(date)));
+}
+
+/** Рядок над графіком: зміна за видимий період, мінімум і максимум ваги. */
+function periodLine(a, b) {
+  const st = M.periodStats(rows, a, b);
+  if (!st) return [];
+  return [
+    st.change !== null ? h('span', { class: trendClass(st.change) }, t('за период {d}', { d: kgd(st.change, Math.abs(st.change) < 1 ? 2 : 1) })) : null,
+    h('span', { class: 'muted' }, t('мин {v}', { v: fmt.fix(st.min) })),
+    h('span', { class: 'muted' }, t('макс {v}', { v: fmt.fix(st.max) })),
+  ].filter(Boolean);
 }
 
 function renderChart() {
@@ -354,13 +407,23 @@ function renderChart() {
   const lastDate = rows.at(-1).date;
   const from = period === 'all' ? rows[0].date : M.addDays(lastDate, -(Number(period) - 1));
   const vis = rows.filter((r) => r.date >= from);
-  const showRange = (a, b) => { $('subtitle').textContent = `${fmt.date(a)} — ${fmt.date(b)}`; };
-  const view = chartView ?? [vis[0].date, lastDate];
+  const stats = h('div', { class: 'chart-stats' });
+  const showRange = (a, b) => {
+    $('subtitle').textContent = `${fmt.date(a)} — ${fmt.date(b)}`;
+    stats.replaceChildren(...periodLine(a, b));
+  };
+  // Прогноз — пунктир від поточного середнього до цілі; фініш далі за рік не малюємо — стиснув би графік
+  const finish = sum.finish && M.daysBetween(sum.currentDate, sum.finish) <= FORECAST_MAX_DAYS ? sum.finish : null;
+  const forecast = finish ? [{ date: sum.currentDate, v: sum.current }, { date: finish, v: sum.target }] : [];
+  // Графік заглядає вперед лише на кілька днів — прогноз видно хвостиком, дані лишаються на всю ширину
+  const peek = finish ? Math.min(M.daysBetween(lastDate, finish), Math.max(3, Math.round(M.daysBetween(vis[0].date, lastDate) * FORECAST_PEEK))) : 0;
+  const view = chartView ?? [vis[0].date, M.addDays(lastDate, peek)];
   showRange(...view);
   const g = sum.goal;
   const plan = rows.map((r) => ({ date: r.date, v: M.planAt(g, r.date) })).filter((p) => p.v !== null);
   const marks = M.checkpoints(rows, goal, sum).map((c) => ({ v: c.kg, label: c.isTarget ? t('цель') : fmt.int(c.kg), cls: c.isTarget ? 'target' : 'cp' }));
-  const details = h('div', {}, dayDetails(picked));
+  const day = picked && rows.some((r) => r.date === picked) ? picked : lastDate;
+  const details = h('div', {}, dayLine(day));
   // Заливка між середнім і планом: зелена — середнє нижче плану (випереджаєте), червона — вище
   const planOn = new Map(plan.map((p) => [p.date, p.v]));
   const ahead = rows.filter((r) => r.avg !== null && planOn.has(r.date)).map((r) => ({ date: r.date, a: r.avg, b: planOn.get(r.date) }));
@@ -370,35 +433,36 @@ function renderChart() {
       { key: 'plan', kind: 'line', cls: 's-plan', points: plan },
       { key: 'kg', kind: 'dots', cls: 's-kg', points: rows.map((r, i) => ({ date: r.date, v: r.kg, ring: Boolean(r.note), last: i === rows.length - 1 })) },
       { key: 'avg', kind: 'line', cls: 's-avg', points: rows.filter((r) => r.avg !== null).map((r) => ({ date: r.date, v: r.avg })), endLabel: true },
+      { key: 'forecast', kind: 'line', cls: 's-forecast', points: forecast, aside: true },
     ],
     height: 260,
     zoom: true,
     view,
+    ahead: peek,
     onView: (a, b) => { chartView = [a, b]; showRange(a, b); },
     fullLabel: t('Весь график'),
     onFull: () => { period = 'all'; chartView = null; remember('weight-log:period', period); render(); },
     hlines: marks,
+    floor: sum.target !== null ? { v: sum.target, label: t('цель {kg} · ещё {d}', { kg: fmt.fix(sum.target), d: fmt.fix(Math.max(0, sum.toGo ?? 0), 1) }) } : null,
+    bars: M.weeklyChanges(rows),
+    barsLabel: t('нед.'),
     legend: [
-      { label: t('Вес'), kind: 'dot', cls: 's-kg' },
-      { label: t('Среднее 7 дн'), kind: 'line', cls: 's-avg' },
-      plan.length ? { label: t('План'), kind: 'line dash', cls: 's-plan' } : null,
+      { label: t('Вес'), kind: 'dot', cls: 's-kg', keys: ['kg'] },
+      { label: t('Среднее 7 дн'), kind: 'line', cls: 's-avg', keys: ['avg'] },
+      plan.length ? { label: t('План'), kind: 'line dash', cls: 's-plan', keys: ['plan'] } : null,
+      finish ? { label: t('прогноз → {date}', { date: fmt.date(finish) }), kind: 'line dash', cls: 's-forecast', keys: ['forecast'] } : null,
       vis.some((r) => r.note) ? { label: t('с заметкой'), kind: 'ring', cls: 's-kg' } : null,
-      ahead.length ? { label: t('опережаете'), kind: 'area', cls: 'good' } : null,
-      ahead.length ? { label: t('отстаёте'), kind: 'area', cls: 'bad' } : null,
+      ahead.length ? { label: t('опережаете / отстаёте'), kind: 'area', cls: 'split', keys: ['gap'] } : null,
     ].filter(Boolean),
+    hidden: hiddenSeries(),
+    onHidden: (keys) => remember(HIDDEN_KEY, JSON.stringify(keys)),
     digits: 2,
-    selected: picked,
+    selected: day,
     tip: dayTip,
-    onPick: (date) => { picked = date; details.replaceChildren(dayDetails(date)); },
+    onPick: (date) => { picked = date; details.replaceChildren(dayLine(date) ?? ''); },
   });
-  const below = sum.target !== null && vis.every((r) => r.kg > sum.target + 1)
-    ? h('p', { class: 'muted small chart-note' }, t('Цель {kg} — ниже шкалы графика: до неё ещё {d}.', { kg: kg(sum.target), d: kg(Math.max(0, sum.toGo ?? 0), 2) }))
-    : null;
   return h('div', {}, seg,
-    h('section', { class: 'panel chart-panel' }, chart, below,
-      h('p', { class: 'muted small chart-note chart-hint mouse' }, t('Колесо мыши — масштаб, перетаскивание — сдвиг, двойной клик — сбросить.')),
-      h('p', { class: 'muted small chart-note chart-hint touch' }, t('Касание — выбрать день, палец вбок — сдвиг, два пальца — масштаб. Кнопка периода — сбросить.'))),
-    box(withIcon('calendar', t('Выбранный день')), details),
+    h('section', { class: 'panel chart-panel' }, stats, chart, details),
     waistBox());
 }
 
@@ -423,7 +487,72 @@ function waistBox() {
 
 // ---------- журнал ----------
 
-let logSeg = recall('weight-log:log-seg') === 'waist' ? 'waist' : 'weight';
+const LOG_SEGS = [['weight', 'Вес'], ['waist', 'Талия'], ['sizes', 'Размеры'], ['health', 'Здоровье']];
+let logSeg = LOG_SEGS.some(([k]) => k === recall('weight-log:log-seg')) ? recall('weight-log:log-seg') : 'weight';
+
+const settingText = (id) => state.settings.find((s) => s.id === id)?.text ?? '';
+
+/** Запис налаштувань одним текстом (розміри, діагнози): так список можна вставити цілком. */
+function textForm(id, { title, hint, placeholder, saved, rows = 12 }) {
+  const input = h('textarea', { rows, placeholder, autocomplete: 'off' });
+  input.value = settingText(id);
+  const save = async () => {
+    sync.renewOnGesture();
+    close();
+    const text = input.value.split('\n').map((s) => s.trimEnd()).join('\n').trim();
+    await db.write({ settings: { put: [{ id, text }] } });
+    toast(saved);
+  };
+  const close = sheet(title, h('div', { class: 'form' },
+    h('label', { class: 'field' }, input, h('small', { class: 'muted' }, hint))), {
+    actions: [btn(t('Сохранить'), save, 'primary')],
+  });
+}
+
+const sizesForm = () => textForm(M.SIZES_ID, {
+  title: t('Мои размеры'),
+  hint: t('Строка — один размер: название, потом значение. Можно вставить список целиком.'),
+  placeholder: t('Перчатки L\nОбувь 43/44, стелька 28,5 см\nГолова 59 см'),
+  saved: t('Размеры сохранены'),
+});
+
+const healthForm = () => textForm(M.HEALTH_ID, {
+  title: t('Здоровье'),
+  hint: t('Диагнозы, операции, уколы — как удобно. Строка с 🔹 или двоеточием в конце станет заголовком.'),
+  placeholder: t('🔹 Позвоночник:\nГрыжа L5–S1\nОперация 2010\n\nДиабет 2 типа'),
+  saved: t('Сохранено'),
+  rows: 16,
+});
+
+/** Текст діагнозів як є: рядки з 🔹 чи двокрапкою в кінці — заголовки, порожній рядок — відступ. */
+function renderHealth(seg) {
+  const lines = settingText(M.HEALTH_ID).split('\n');
+  $('subtitle').textContent = '';
+  if (!lines.some((l) => l.trim())) {
+    return h('div', {}, seg, empty('heart', t('Записей нет'),
+      t('Диагнозы, операции, хронические болячки — чтобы были под рукой у врача.'),
+      btn(withIcon('plus', t('Записать')), healthForm)));
+  }
+  return h('div', {}, seg, h('button', { type: 'button', class: 'panel health', onclick: healthForm },
+    lines.map((l) => {
+      const s = l.trim();
+      if (!s) return h('div', { class: 'health-gap' });
+      return /^🔹|:$/u.test(s) ? h('h4', {}, s.replace(/^🔹\s*/u, '')) : h('p', {}, s);
+    })));
+}
+
+function renderSizes(seg) {
+  const list = M.parseSizes(settingText(M.SIZES_ID));
+  $('subtitle').textContent = t('размеров: {n}', { n: list.length });
+  if (!list.length) {
+    return h('div', {}, seg, empty('tape', t('Размеров нет'),
+      t('Перчатки, обувь, одежда, кольцо — чтобы всегда были под рукой в магазине.'),
+      btn(withIcon('plus', t('Указать размеры')), sizesForm)));
+  }
+  return h('div', {}, seg, h('div', { class: 'rows sizes' }, list.map((s) => h('button', { type: 'button', class: 'row log-row', onclick: sizesForm },
+    h('div', { class: 'row-main' }, h('span', { class: 'row-title' }, s.label)),
+    s.value ? h('div', { class: 'row-side' }, h('span', { class: 'size-value' }, s.value)) : null))));
+}
 
 function weightRow(r) {
   return h('button', { type: 'button', class: 'row log-row', onclick: () => weightForm(r.date) },
@@ -440,7 +569,9 @@ function weightRow(r) {
 }
 
 function renderLog() {
-  const seg = segmented([['weight', t('Вес')], ['waist', t('Талия')]], logSeg, (v) => { logSeg = v; remember('weight-log:log-seg', v); render(); });
+  const seg = segmented(LOG_SEGS.map(([k, l]) => [k, t(l)]), logSeg, (v) => { logSeg = v; remember('weight-log:log-seg', v); render(); });
+  if (logSeg === 'sizes') return renderSizes(seg);
+  if (logSeg === 'health') return renderHealth(seg);
   if (logSeg === 'waist') {
     const ws = M.waistSeries(state.waists).reverse();
     $('subtitle').textContent = t('замеров: {n}', { n: ws.length });
@@ -492,7 +623,7 @@ function goalPanel() {
     await saveGoal({ start: v.start ?? undefined, startDate: v.startDate || undefined, target: v.target ?? undefined, planRate: v.planRate ?? undefined, height: v.height ?? undefined });
     toast(t('Цель сохранена'));
   };
-  return h('section', { class: 'panel' }, h('h3', {}, withIcon('target', t('Цель'))),
+  return h('section', { class: 'panel' },
     h('p', { class: 'muted small' }, t('План — линия на графике: от стартового веса ровно по «кг/нед». Без стартового веса берётся первое взвешивание.')),
     f.el, h('div', { class: 'btn-row' }, btn(t('Сохранить'), save, 'primary')));
 }
@@ -507,7 +638,7 @@ function checkpointsPanel() {
     await saveGoal({ checkpoints: [...(goal.checkpoints ?? []), { id: db.uid(), kg: v, note: noteInput.value.trim() }] });
   };
   const remove = (c) => saveGoal({ checkpoints: (goal.checkpoints ?? []).filter((x) => x.id !== c.id) });
-  return h('section', { class: 'panel' }, h('h3', {}, withIcon('flag', t('Контрольные точки'))),
+  return h('section', { class: 'panel' },
     h('p', { class: 'muted small' }, t('Промежуточные веса на пути к цели: для каждой — прогнозная дата по фактическому темпу. Сама цель добавляется в список автоматически.')),
     list.length ? h('div', { class: 'rows cp-list' }, list.map((c) => h('div', { class: 'row' },
       h('div', { class: 'row-main' }, h('span', { class: 'row-title' }, kg(c.kg)), c.note ? h('span', { class: 'muted small' }, c.note) : null),
@@ -520,72 +651,82 @@ function remindPanel() {
     type: 'time', value: remindTime(), class: 'time-input',
     onchange: (e) => { setRemindTime(e.target.value); bot.scheduleBot(500); },
   });
-  return h('section', { class: 'panel' }, h('h3', {}, withIcon('bell', t('Напоминание'))),
-    h('p', { class: 'muted small' }, t('Само приложение без сервера не может разбудить телефон в нужный час, поэтому будильник ставит календарь: ежедневное событие «Взвеситься» с уведомлением. А на главной, пока вес за сегодня не записан, сверху стоит поле записи и горит точка на вкладке.')),
+  const connected = Boolean(bot.botConfig().from);
+  return h('section', { class: 'panel' },
+    h('p', { class: 'muted small' }, t('Пока вес за сегодня не записан, на главной сверху стоит поле записи и горит точка на вкладке. Чтобы телефон сам напомнил в нужный час, нужен Telegram-бот или событие в календаре.')),
     h('label', { class: 'field' }, h('span', { class: 'field-label' }, t('Время')), time),
-    h('div', { class: 'btn-row' },
-      btn(withIcon('calendar', t('Google Календарь')), () => { setRemindTime(time.value); window.open(googleCalendarUrl(remindTime(), appUrl()), '_blank', 'noopener'); }, 'primary'),
-      btn(withIcon('download', t('Файл .ics')), () => { setRemindTime(time.value); saveFile(icsFile(remindTime(), appUrl()), true); })),
-    h('p', { class: 'muted small' }, t('В Google Календаре проверьте, что у события включено уведомление «в момент начала». Файл .ics открывают календари Samsung, iPhone и Outlook.')));
+    h('h4', { class: 'sub-head' }, withIcon('bell', 'Telegram')),
+    connected
+      ? segmented([['on', t('Напоминать')], ['off', t('Не напоминать')]], bot.remindOn() ? 'on' : 'off',
+        (v) => { bot.setRemindOn(v === 'on'); bot.scheduleBot(300); })
+      : h('p', { class: 'muted small' }, t('Синхронизация не включена — это в группе «Данные» ниже.')),
+    fold('remind-calendar', withIcon('calendar', t('Календарь телефона')), h('div', {},
+      h('p', { class: 'muted small' }, t('Запасной вариант без бота: ежедневное событие «Взвеситься» с уведомлением — будит телефон сам календарь.')),
+      h('div', { class: 'btn-row' },
+        btn(withIcon('calendar', t('Google Календарь')), () => { setRemindTime(time.value); window.open(googleCalendarUrl(remindTime(), appUrl()), '_blank', 'noopener'); }),
+        btn(withIcon('download', t('Файл .ics')), () => { setRemindTime(time.value); saveFile(icsFile(remindTime(), appUrl()), true); })),
+      h('p', { class: 'muted small' }, t('В Google Календаре проверьте, что у события включено уведомление «в момент начала». Файл .ics открывают календари Samsung, iPhone и Outlook.')))));
 }
 
 // ---------- Telegram-бот ----------
 
 let botError = '';
 
-/** Обмін з ботом; записане ботом — коротке повідомлення. Без мережі тихо: спробуємо наступного разу. */
+/** Синхронізація; нова вага з бази (з Telegram чи з іншого пристрою) — коротке повідомлення. Без мережі тихо: спробуємо наступного разу. */
 async function runBot() {
   try {
     const { got } = await bot.syncBot();
     botError = '';
-    if (got?.length === 1) toast(t('Из Telegram: {kg} за {date}', { kg: kg(got[0].kg), date: fmt.date(got[0].date) }));
-    else if (got?.length) toast(t('Из Telegram: записей {n}', { n: got.length }));
+    if (got?.length === 1) toast(t('Новое взвешивание: {kg} за {date}', { kg: kg(got[0].kg), date: fmt.date(got[0].date) }));
+    else if (got?.length) toast(t('Новых взвешиваний: {n}', { n: got.length }));
   } catch (err) {
     // fetch без мережі падає з «Failed to fetch» — людині зрозуміліше своїми словами
     botError = err.message === 'key' || err.message.startsWith('HTTP') ? err.message : t('сеть недоступна');
   }
+  renderSyncChip();
   // Статус у налаштуваннях — свіжий, але не під пальцями, що саме вводять адресу чи ключ
   if (tab === 'settings' && !document.activeElement?.matches('input')) render();
 }
 
 function botStatus(cfg) {
-  if (!cfg.from) return t('Не подключён. Проще всего — подключить бота в Хобі-плане на этом же телефоне: адрес и ключ подхватятся сами. Или укажите их ниже.');
-  if (botError === 'key') return t('Бот не принял ключ — возьмите новый командой /key и укажите его здесь и в Хобі-плане.');
-  if (botError) return t('Нет связи с ботом: {e}', { e: botError });
-  const via = cfg.from === 'hobby' ? t('Подключён через Хобі-план.') : t('Подключён.');
-  return `${via} ${t('Последний обмен: {time}', { time: syncTime(bot.lastSync()) })}`;
+  if (bot.keyProblem()) return t('Ключ доступа не подходит — возьмите новый командой /key в Telegram-боте и вставьте ниже.');
+  if (!cfg.from) return t('Не включена. Вставьте адрес сервера и ключ доступа ниже — или включите синхронизацию в Хобі-плане на этом устройстве, она подхватится сама.');
+  if (botError === 'key') return t('Ключ доступа не подходит — возьмите новый командой /key в Telegram-боте и вставьте ниже.');
+  if (botError) return t('Нет связи с сервером: {e}', { e: botError });
+  return t('Обмен: {time}', { time: syncTime(bot.lastSync()) });
 }
 
-function telegramPanel() {
+/** «Синхронізація»: стан обміну, адреса й ключ (спільні для застосунків на пристрої), обмін і від'єднання. */
+function botPanel() {
   const cfg = bot.botConfig();
   const f = form([
-    { name: 'url', label: t('Адрес бота'), value: cfg.from === 'own' ? cfg.url : '', placeholder: 'https://….workers.dev' },
-    { name: 'key', label: t('Ключ — команда /key в боте'), type: 'password', value: cfg.from === 'own' ? cfg.key : '' },
+    { name: 'url', label: t('Адрес сервера'), value: cfg.url, placeholder: 'https://….workers.dev' },
+    { name: 'key', label: t('Ключ доступа'), type: 'password', value: cfg.key },
   ]);
   const save = async () => {
     const v = f.values();
     if (!v.url.startsWith('https://') || !v.key) { toast(t('Укажите адрес https://… и ключ')); return; }
     bot.setBotConfig(v.url, v.key);
+    sync.botChanged();
     await runBot();
     render();
-    toast(botError ? botStatus(bot.botConfig()) : t('Бот подключён'));
+    toast(botError ? botStatus(bot.botConfig()) : t('Синхронизация включена'));
   };
-  const own = h('div', {}, f.el, h('div', { class: 'btn-row' },
-    btn(t('Сохранить'), save, cfg.from ? '' : 'primary'),
-    cfg.from === 'own' ? btn(t('Отключить'), () => { bot.setBotConfig('', ''); botError = ''; render(); }) : null));
-  return h('section', { class: 'panel' }, h('h3', {}, withIcon('bell', 'Telegram')),
-    h('p', { class: 'muted small' }, t('Бот Хобі-плана во время напоминания пишет «пора взвеситься» и принимает вес сообщением — числом, например 82,4, можно с заметкой. Запись сама появится в журнале, когда откроете приложение.')),
-    h('p', { class: `small ${botError ? 'error-text' : 'muted'}` }, botStatus(cfg)),
-    cfg.from ? [
-      segmented([['on', t('Напоминать в {time}', { time: remindTime() })], ['off', t('Не напоминать')]],
-        bot.remindOn() ? 'on' : 'off', (v) => { bot.setRemindOn(v === 'on'); bot.scheduleBot(300); }),
-      h('div', { class: 'btn-row' }, btn(withIcon('sync', t('Проверить связь')), async () => {
-        await runBot();
-        render();
-        if (!botError) toast(t('Связь с ботом есть'));
-      }, 'primary')),
-    ] : null,
-    cfg.from === 'hobby' ? fold('bot-own', t('Свой адрес и ключ'), own) : own);
+  const exchange = async () => {
+    await runBot();
+    render();
+    if (!botError) toast(t('Обмен прошёл'));
+  };
+  const bad = Boolean(botError) || bot.keyProblem();
+  return h('section', { class: 'panel' },
+    h('h3', {}, withIcon('sync', t('Синхронизация'))),
+    h('p', { class: `small ${bad ? 'error-text' : 'muted'}` }, botStatus(cfg)),
+    h('p', { class: 'muted small' }, t('Весь журнал (вес, талия, настройки) лежит в общей базе на сервере — одинаковый на всех устройствах; без интернета всё уйдёт позже. Эту же базу читает Telegram-бот: напоминает взвеситься и принимает вес сообщением. Ключ доступа даёт команда /key в боте; достаточно вставить в одном приложении — Хобі-план, Вага или Марнотрат.')),
+    f.el,
+    h('div', { class: 'btn-row' },
+      btn(t('Сохранить'), save, cfg.from ? '' : 'primary'),
+      cfg.from ? btn(withIcon('sync', t('Обменяться сейчас')), exchange, 'primary') : null,
+      cfg.from ? btn(t('Выключить синхронизацию'), () => { bot.setBotConfig('', ''); botError = ''; render(); }) : null));
 }
 
 const CHIP = {
@@ -606,22 +747,47 @@ function avatar(photo, cls = '') {
   });
 }
 
-function renderSyncChip(s) {
-  const chip = $('sync-chip');
-  chip.hidden = !CHIP[s.state];
-  if (CHIP[s.state]) {
-    chip.replaceChildren(avatar(s.photo), CHIP[s.state]());
-    chip.className = `sync-chip ${s.state}`;
-    chip.title = s.message || t('Синхронизация с Google Диском');
+/**
+ * Значок у шапці — основна синхронізація: база на сервері, а без неї — Google Диск. Стани й вигляд — як у Хобі-плані
+ * й Марнотраті: idle «✓ час», syncing, offline, key (ключ не підходить), error.
+ */
+function chipState() {
+  if (bot.keyProblem() || botError === 'key') return { st: 'key', text: t('ключ'), title: t('Ключ доступа не подходит') };
+  if (bot.botConfig().from) {
+    if (!navigator.onLine) return { st: 'offline', text: t('офлайн'), title: t('Нет интернета — синхронизация произойдёт, когда появится связь') };
+    if (botError) return { st: 'error', text: t('ошибка'), title: t('Нет связи с сервером: {e}', { e: botError }) };
+    const at = bot.lastSync();
+    if (!at) return { st: 'syncing', text: '…', title: t('Синхронизация') };
+    return { st: 'idle', text: `✓ ${fmt.time(at)}`, title: t('Обмен: {time}', { time: syncTime(at) }) };
   }
-  if (tab === 'settings') render();
+  const s = sync.status;
+  if (!CHIP[s.state]) return null;
+  return { st: s.state, text: CHIP[s.state](), title: s.message || t('Синхронизация с Google Диском'), drive: true, photo: s.photo };
+}
+
+function renderSyncChip() {
+  const chip = $('sync-chip');
+  const s = chipState();
+  chip.hidden = !s;
+  if (!s) return;
+  chip.replaceChildren(s.drive ? avatar(s.photo) : icon(s.st === 'key' ? 'warning' : 'sync'), s.text);
+  chip.className = `sync-chip ${s.st}`;
+  chip.title = s.title;
 }
 
 function onSyncChip() {
+  const s = chipState();
+  if (s?.st === 'key') { openSettings('data'); return; }
+  if (s?.st === 'offline') { toast(t('Нет интернета — синхронизация произойдёт, когда появится связь')); return; }
+  if (bot.botConfig().from) {
+    runBot().then(() => toast(botError ? chipState()?.title ?? botError : t('Обмен прошёл')));
+    return;
+  }
   const { state: st, message } = sync.status;
   if (st === 'auth') connectGoogle();
   else if (st === 'offline') toast(t('Нет интернета — синхронизация произойдёт, когда появится связь'));
-  else if (st === 'error') { toast(message || t('Ошибка синхронизации')); sync.syncNow(); } else sync.syncNow();
+  else if (st === 'error') { toast(message || t('Ошибка синхронизации')); sync.syncNow({ force: true }); } else sync.syncNow({ force: true });
+  runBot();
 }
 
 function syncTime(ms) {
@@ -636,27 +802,48 @@ function connectGoogle() {
   sync.connect().then(() => toast(t('Google Диск подключён'))).catch((err) => toast(err.message));
 }
 
-function syncPanel() {
+/** «Google Диск»: з ботом — щоденна копія, без бота — синхронізація між пристроями. */
+function drivePanel() {
   const s = sync.status;
-  const panel = h('section', { class: 'panel' }, h('h3', {}, withIcon('cloud', t('Синхронизация · Google Диск'))));
+  const daily = Boolean(bot.botConfig().from);
+  const panel = h('section', { class: 'panel' }, h('h3', {}, withIcon('cloud', daily ? t('Google Диск · ежедневная копия') : t('Google Диск · синхронизация'))));
   if (!sync.configured()) {
     panel.append(h('p', { class: 'muted small' }, t('Не настроена: в js/config.js не указан Google Client ID.')));
   } else if (!sync.enabled()) {
     panel.append(
-      h('p', { class: 'muted small' }, t('Данные будут храниться в файле weight-log.json на вашем Google Диске и совпадать на телефоне и компьютере. Приложение видит только свои файлы, остальной Диск ему недоступен.')),
+      h('p', { class: 'muted small' }, t('Копия журнала — файл weight-log.json на вашем Google Диске; там же адрес сервера и ключ доступа для других устройств. Приложение видит только свои файлы.')),
       h('div', { class: 'btn-row' }, btn(withIcon('cloud', t('Подключить Google Диск')), connectGoogle, 'primary')));
   } else {
+    const restore = async () => {
+      try {
+        const parsed = await sync.fetchBackup();
+        if (!parsed) { toast(t('На Диске ещё нет копии')); return; }
+        importParsed(parsed, t('Копия с Google Диска'));
+      } catch (err) { toast(err.message); }
+    };
     panel.append(
       h('div', { class: 'account' }, avatar(s.photo, 'big'),
         h('div', { class: 'account-text' }, h('b', {}, s.name ?? s.email ?? '—'), s.name && s.email ? h('span', { class: 'muted small' }, s.email) : null)),
-      h('dl', { class: 'kv' },
-        h('dt', {}, t('Последняя')), h('dd', {}, syncTime(s.lastSync)),
-        s.message ? [h('dt', {}, t('Статус')), h('dd', {}, s.message)] : null),
+      h('p', { class: `small ${s.state === 'error' ? 'error-text' : 'muted'}` },
+        s.message || t('Последняя копия: {time}', { time: syncTime(s.lastSync) })),
       h('div', { class: 'btn-row' },
-        s.state === 'auth' ? btn(t('Войти в Google'), connectGoogle, 'primary') : btn(withIcon('sync', t('Синхронизировать')), () => sync.syncNow(), 'primary'),
-        btn(t('Отключить'), () => confirmSheet(t('Отключить синхронизацию?'), t('Данные останутся и на устройстве, и на Google Диске, просто перестанут обмениваться.'), t('Отключить'), () => sync.disconnect()))));
+        s.state === 'auth' ? btn(t('Войти в Google'), connectGoogle, 'primary') : btn(withIcon('sync', t('Сохранить сейчас')), () => sync.syncNow({ force: true }), 'primary'),
+        btn(withIcon('download', t('Восстановить с Диска')), restore),
+        btn(t('Отключить'), () => confirmSheet(t('Отключить Google Диск?'), t('Копия на Диске останется, просто перестанет обновляться. Вход в Google в других приложениях не тронем.'), t('Отключить'), () => sync.disconnect()))));
   }
   return panel;
+}
+
+/** «Копія у файл»: зберегти (на телефоні — «Поділитися», на комп'ютері — завантажити) і відновити. */
+function filePanel() {
+  const input = h('input', { type: 'file', accept: '.json,application/json', hidden: true, onchange: (e) => { if (e.target.files[0]) importBackup(e.target.files[0]); e.target.value = ''; } });
+  return h('section', { class: 'panel' },
+    h('h3', {}, withIcon('archive', t('Копия в файл'))),
+    h('p', { class: 'muted small' }, t('Взвешиваний: {w} · замеров талии: {c}', { w: state.weights.length, c: state.waists.length })),
+    h('div', { class: 'btn-row' },
+      btn(withIcon('download', t('Сохранить копию')), () => exportData(true)),
+      btn(withIcon('upload', t('Восстановить из файла')), () => input.click())),
+    input);
 }
 
 async function exportData(share) {
@@ -677,6 +864,11 @@ function readText(file) {
 async function importBackup(file) {
   let parsed;
   try { parsed = JSON.parse(await readText(file)); } catch { toast(t('Файл не похож на JSON')); return; }
+  importParsed(parsed, t('Импорт копии'));
+}
+
+/** Копія (з файлу чи з Диска): «Объединить» або «Заменить всё». */
+function importParsed(parsed, title) {
   const data = parsed?.data;
   if (parsed?.app !== 'weight-log' || !data || !db.STORES.every((s) => !data[s] || Array.isArray(data[s]))) {
     toast(t('Это не резервная копия Weight Log'));
@@ -684,92 +876,23 @@ async function importBackup(file) {
   }
   const count = db.STORES.reduce((s, k) => s + (data[k]?.length ?? 0), 0);
   const changes = Object.fromEntries(db.STORES.map((s) => [s, { put: (data[s] ?? []).filter((x) => x && x.id) }]));
-  const close = sheet(t('Импорт копии'), h('div', {},
+  const close = sheet(title, h('div', {},
     h('p', {}, t('В файле {n} записей.', { n: count })),
     h('p', { class: 'muted small' }, t('«Объединить» — добавит новые записи и обновит те, что в файле новее: более поздние правки на устройстве останутся. «Заменить всё» — сначала удалит текущие данные.')),
-    sync.enabled() ? h('p', { class: 'muted small' }, t('Включена синхронизация: «Заменить всё» заменит данные и на Google Диске, и на других устройствах. «Объединить» не откатит более новые данные с Диска.')) : null), {
+    sync.enabled() || bot.botConfig().from ? h('p', { class: 'muted small' }, t('«Заменить всё» заменит данные и на других устройствах. «Объединить» не откатит более новые правки с них.')) : null), {
     actions: [
       btn(t('Отмена'), () => close()),
-      btn(t('Объединить'), async () => { close(); await db.mergeImport(changes); toast(t('Импортировано')); }, 'primary'),
+      btn(t('Объединить'), async () => { close(); await db.mergeImport(changes); bot.rewindPushed(); toast(t('Импортировано')); }, 'primary'),
       btn(t('Заменить всё'), () => {
         close();
-        confirmSheet(t('Заменить все данные?'), t('Текущие данные будут удалены. Сначала сделайте экспорт, если они нужны.'), t('Заменить'), async () => {
-          sync.markRestore(await db.replaceAll(changes)); toast(t('Данные заменены'));
+        confirmSheet(t('Заменить все данные?'), t('Текущие данные будут удалены. Сначала сохраните копию, если они нужны.'), t('Заменить'), async () => {
+          const at = await db.replaceAll(changes);
+          sync.markRestore(at);
+          bot.markRestore(at);
+          toast(t('Данные заменены'));
         });
       }, 'danger'),
     ],
-  });
-}
-
-/**
- * Імпорт CSV з таблиці. Дні, яких у застосунку нема, додаються; однакові пропускаються;
- * де вага різна — лишається своя, а замінити значеннями з таблиці можна окремою кнопкою.
- */
-async function importSheet(file) {
-  const parsed = fromSheet(parseCsv(await readText(file)));
-  if (!parsed.weights.length && !parsed.waists.length) {
-    toast(t('В файле не найдено ни одного взвешивания — нужен CSV листа «Вес» или «Графики»'));
-    return;
-  }
-  const add = [];
-  const fill = [];
-  const diff = [];
-  let same = 0;
-  for (const w of parsed.weights) {
-    const mine = findWeight(w.date);
-    const rec = { id: w.date, kg: w.kg, note: w.note };
-    if (!mine) add.push(rec);
-    else if (Math.abs(mine.kg - w.kg) > 0.001) diff.push({ rec, mine });
-    else {
-      same += 1;
-      // Нотатка з таблиці — лише якщо своєї нема (на аркуші «Графики» нотатки обрізані)
-      if (!mine.note && w.note) fill.push({ ...mine, note: w.note });
-    }
-  }
-  const waistAdd = [];
-  const waistDiff = [];
-  for (const w of parsed.waists) {
-    const mine = state.waists.find((x) => x.id === M.waistId(w.date));
-    const rec = { id: M.waistId(w.date), date: w.date, cm: w.cm };
-    if (!mine) waistAdd.push(rec);
-    else if (Math.abs(mine.cm - w.cm) > 0.001) waistDiff.push({ rec, mine });
-  }
-  const goalPatch = {};
-  for (const k of ['start', 'startDate', 'target', 'planRate']) {
-    if (parsed.goal[k] !== undefined && (goal[k] === undefined || goal[k] === null || goal[k] === '')) goalPatch[k] = parsed.goal[k];
-  }
-  if (parsed.goal.checkpoints && !(goal.checkpoints ?? []).length) goalPatch.checkpoints = parsed.goal.checkpoints.map((c) => ({ id: db.uid(), ...c }));
-  const goalKeys = Object.keys(goalPatch);
-  const apply = async (replace) => {
-    close();
-    const changes = {
-      weights: { put: [...add, ...fill.map(({ updated, ...r }) => r), ...(replace ? diff.map((d) => ({ ...d.rec, note: d.rec.note || d.mine.note })) : [])] },
-      waists: { put: [...waistAdd, ...(replace ? waistDiff.map((d) => d.rec) : [])] },
-    };
-    if (goalKeys.length) changes.settings = { put: [{ ...goal, ...goalPatch, id: M.GOAL_ID }] };
-    await db.write(changes);
-    toast(t('Из таблицы загружено'));
-  };
-  const lines = [
-    t('Новых дней: {n}', { n: add.length }),
-    t('Уже есть, совпадают: {n}', { n: same }),
-    fill.length ? t('Добавится заметок к имеющимся дням: {n}', { n: fill.length }) : null,
-    diff.length ? t('Вес отличается: {n}', { n: diff.length }) : null,
-    parsed.waists.length ? t('Замеров талии: новых {n}, отличаются {d}', { n: waistAdd.length, d: waistDiff.length }) : null,
-    goalKeys.length ? t('Цель и контрольные точки: возьмутся из таблицы (в приложении не заданы)') : null,
-  ].filter(Boolean);
-  const anything = add.length || fill.length || waistAdd.length || goalKeys.length;
-  const close = sheet(t('Импорт из таблицы'), h('div', {},
-    h('ul', { class: 'import-sum' }, lines.map((l) => h('li', {}, l))),
-    diff.length ? box(t('Расхождения'), h('div', { class: 'rows' }, diff.slice(0, 20).map((d) => h('div', { class: 'row' },
-      h('div', { class: 'row-main' }, h('span', { class: 'row-title' }, fmt.date(d.rec.id))),
-      h('div', { class: 'row-side' }, h('span', {}, t('в приложении {a}', { a: fmt.fix(d.mine.kg) })), h('span', { class: 'muted small' }, t('в таблице {b}', { b: fmt.fix(d.rec.kg) }))))))) : null,
-    h('p', { class: 'muted small' }, t('«Добавить» не трогает уже записанные дни. «Заменить расхождения» возьмёт вес из таблицы там, где он отличается.'))), {
-    actions: [
-      btn(t('Отмена'), () => close()),
-      anything ? btn(t('Добавить'), () => apply(false), 'primary') : null,
-      diff.length || waistDiff.length ? btn(t('Заменить расхождения'), () => apply(true), 'danger') : null,
-    ].filter(Boolean),
   });
 }
 
@@ -786,7 +909,7 @@ function applyTheme() {
   const pref = themePref();
   const theme = pref === 'auto' ? (lightScheme.matches ? 'light' : 'dark') : pref;
   document.documentElement.dataset.theme = theme;
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'light' ? '#f4f2f7' : '#121019');
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'light' ? '#f1f4f9' : '#0c111a');
 }
 
 lightScheme.addEventListener('change', applyTheme);
@@ -794,7 +917,7 @@ lightScheme.addEventListener('change', applyTheme);
 function switchLang(code) {
   setLang(code);
   applyStatic();
-  renderSyncChip(sync.status);
+  renderSyncChip();
   render();
 }
 
@@ -814,50 +937,49 @@ function aboutPanel() {
     more(t('С чего начать'), h('ol', { class: 'about-steps' },
       h('li', {}, t('Задайте цель: стартовый вес, целевой и план, кг в неделю.')),
       h('li', {}, t('Взвешивайтесь каждое утро и записывайте вес на главной — поле само предложит прошлое значение.')),
-      h('li', {}, t('Историю из Google-таблицы загрузите через «Импорт из Google-таблицы».')),
-      h('li', {}, t('Поставьте напоминание в календаре, чтобы не пропускать дни.')))),
+      h('li', {}, t('Подключите Google Диск — записи будут одинаковыми на телефоне и компьютере.')),
+      h('li', {}, t('Включите напоминание — Telegram-бот или событие в календаре, чтобы не пропускать дни.')))),
     h('p', { class: 'muted small' },
       h('a', { href: 'https://github.com/VitaliyLobko/weight-log', target: '_blank', rel: 'noopener' }, t('Исходный код'))));
 }
 
 function renderSettings() {
   $('subtitle').textContent = t('версия {v}', { v: self.APP_VERSION });
-  const backupInput = h('input', { type: 'file', accept: '.json,application/json', hidden: true, onchange: (e) => { if (e.target.files[0]) importBackup(e.target.files[0]); e.target.value = ''; } });
-  const csvInput = h('input', { type: 'file', accept: '.csv,text/csv', hidden: true, onchange: (e) => { if (e.target.files[0]) importSheet(e.target.files[0]); e.target.value = ''; } });
   return h('div', {},
-    aboutPanel(),
-    goalPanel(),
-    checkpointsPanel(),
-    remindPanel(),
-    telegramPanel(),
-    h('section', { class: 'panel' }, h('h3', {}, withIcon('globe', 'Язык · Мова')), segmented(Object.entries(LANGS), lang(), switchLang)),
-    h('section', { class: 'panel' }, h('h3', {}, withIcon('theme', t('Тема'))),
-      segmented(THEMES.map(([k, label]) => [k, t(label)]), themePref(), (v) => { remember('weight-log:theme', v); applyTheme(); })),
-    syncPanel(),
-    h('section', { class: 'panel' }, h('h3', {}, withIcon('table', t('Импорт из Google-таблицы'))),
-      h('p', { class: 'muted small' }, t('В таблице: Файл → Скачать → CSV (текущий лист). Лист «Вес» даёт взвешивания, заметки, цель и контрольные точки; лист «Графики» — ещё и замеры талии. Повторный импорт ничего не задваивает: дни сверяются по дате.')),
-      h('div', { class: 'btn-row' }, btn(withIcon('table', t('Выбрать CSV')), () => csvInput.click(), 'primary')), csvInput),
-    h('section', { class: 'panel' },
-      h('h3', {}, withIcon('archive', t('Резервная копия'))),
-      h('p', { class: 'muted small' }, sync.enabled()
-        ? t('Основная копия — на Google Диске. Файл ниже — дополнительный снимок на всякий случай.')
-        : t('Без синхронизации данные хранятся только на этом устройстве. Время от времени сохраняйте копию — например, «Поделиться» → Google Диск или Telegram «Избранное».')),
-      h('div', { class: 'btn-row' },
-        btn(withIcon('share', t('Поделиться копией')), () => exportData(true), 'primary'),
-        btn(withIcon('download', t('Скачать файл')), () => exportData(false)),
-        btn(withIcon('upload', t('Импорт копии')), () => backupInput.click())),
-      h('p', { class: 'muted small' }, t('Взвешиваний: {w} · замеров талии: {c}', { w: state.weights.length, c: state.waists.length })),
-      backupInput),
-    h('section', { class: 'panel' },
-      h('h3', {}, withIcon('phone', t('Установка на телефон'))),
-      h('p', { class: 'muted small' }, t('Chrome → меню ⋮ → «Добавить на главный экран» / «Установить приложение». После установки работает без интернета.'))),
-    h('section', { class: 'panel' },
-      h('h3', {}, withIcon('warning', t('Опасная зона'))),
+    settingsGroup(t('О приложении'), [aboutPanel(),
+      h('section', { class: 'panel' },
+        h('h3', {}, withIcon('phone', t('Установка на телефон'))),
+        h('p', { class: 'muted small' }, t('Chrome → меню ⋮ → «Добавить на главный экран» / «Установить приложение». После установки работает без интернета.')))]),
+    settingsGroup(withIcon('target', t('Цель')), [goalPanel()], { fold: 'goal' }),
+    settingsGroup(withIcon('flag', t('Контрольные точки')), [checkpointsPanel()], { fold: 'checkpoints' }),
+    settingsGroup(withIcon('bell', t('Напоминание')), [remindPanel()], { fold: 'remind' }),
+    settingsGroup(withIcon('cloud', t('Данные')), [botPanel(), drivePanel(), filePanel()], { fold: 'data' }),
+    settingsGroup(withIcon('theme', t('Внешний вид')), [
+      h('section', { class: 'panel' }, h('h3', {}, withIcon('globe', 'Язык · Мова')), segmented(Object.entries(LANGS), lang(), switchLang)),
+      h('section', { class: 'panel' }, h('h3', {}, withIcon('theme', t('Тема'))),
+        segmented(THEMES.map(([k, label]) => [k, t(label)]), themePref(), (v) => { remember('weight-log:theme', v); applyTheme(); }))], { fold: 'look' }),
+    settingsGroup(t('Опасная зона'), [h('section', { class: 'panel' },
       btn(t('Удалить данные с устройства'), () => confirmSheet(t('Удалить данные с устройства?'), sync.enabled()
         ? t('Данные будут удалены с этого устройства. Копия на Google Диске останется и вернётся при следующей синхронизации — чтобы этого не было, сначала отключите синхронизацию.')
         : t('Все взвешивания, замеры и цель будут удалены с этого устройства. Отменить нельзя.'), t('Удалить'), async () => {
         await db.clearAll(); await refresh(); toast(t('Данные удалены'));
-      }), 'danger')));
+      }), 'danger'))], { danger: true }));
+}
+
+/**
+ * Група налаштувань, як у Стрілецькому журналі: рамка з назвою на лінії, розділи всередині — через лінію.
+ * fold — ключ: група згортається тапом по назві й пам'ятає, чи розгорнута.
+ */
+function settingsGroup(title, sections, { danger = false, fold: key } = {}) {
+  const cls = `settings-group${danger ? ' danger' : ''}`;
+  if (key) return foldFrame(cls, `settings:${key}`, title, sections.filter(Boolean));
+  return h('fieldset', { class: cls }, h('legend', {}, title), sections.filter(Boolean));
+}
+
+/** Перейти в налаштування з уже розгорнутою групою key. */
+function openSettings(key) {
+  unfold(`settings:${key}`);
+  location.hash = '#settings';
 }
 
 // ---------- навігація ----------
@@ -865,11 +987,25 @@ function renderSettings() {
 const VIEWS = {
   home: { title: 'Вес', render: renderHome, fab: () => weightForm() },
   chart: { title: 'График', render: renderChart, fab: () => weightForm() },
-  log: { title: 'Журнал', render: renderLog, fab: () => (logSeg === 'waist' ? waistForm() : weightForm()) },
+  log: { title: 'Журнал', render: renderLog, fab: () => ({ waist: waistForm, sizes: sizesForm, health: healthForm }[logSeg] ?? weightForm)() },
   settings: { title: 'Настройки', render: renderSettings },
 };
 
+// Остання вага — для «Сьогодні» в Хобі-плані на цьому ж пристрої (спільний localStorage сайту)
+const WEIGHT_SHARE = 'vitaliylobko:weight-today';
+
+function shareWeight() {
+  const last = rows.at(-1);
+  const prev = rows.at(-2);
+  const v = last ? JSON.stringify({ date: last.date, kg: last.kg, prevKg: prev?.kg ?? null, prevDate: prev?.date ?? null }) : null;
+  try {
+    if (v === null) localStorage.removeItem(WEIGHT_SHARE);
+    else if (localStorage.getItem(WEIGHT_SHARE) !== v) localStorage.setItem(WEIGHT_SHARE, v);
+  } catch { /* приватний режим */ }
+}
+
 function render() {
+  shareWeight();
   const view = VIEWS[tab];
   $('title').textContent = t(view.title);
   $('subtitle').textContent = '';
@@ -926,6 +1062,12 @@ window.addEventListener('online', () => runBot());
 // Записали вагу тут — бот має знати, щоб не нагадувати
 window.addEventListener('db-change', () => bot.scheduleBot());
 window.addEventListener('sync-applied', () => bot.scheduleBot());
+// Адреса й ключ прийшли з Диска (спільний bot-settings.json) — одразу обмін, статус у налаштуваннях оновить runBot
+window.addEventListener('bot-config', () => runBot());
+// Бот відкинув ключ — шукаємо новіший на Диску (його могли вставити на іншому пристрої) і показуємо плашку
+window.addEventListener('bot-key', () => { sync.botRound(); render(); });
+// Ключ вставили в іншому застосунку на цьому пристрої
+BK.onShared(() => { runBot(); render(); });
 
 applyStatic();
 applyTheme();
@@ -940,7 +1082,11 @@ navigator.storage?.persist?.().catch(() => {});
 state = await db.loadAll();
 derive();
 route();
-sync.onStatus(renderSyncChip);
+sync.onStatus(() => {
+  renderSyncChip();
+  if (tab === 'settings') render();
+});
+window.addEventListener('offline', renderSyncChip);
 sync.preload();
 sync.syncNow();
 runBot();

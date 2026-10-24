@@ -1,24 +1,24 @@
 :root {
-  --bg: #121019;
-  --bg-glow: #1f1830;
-  --surface: #19161f;
-  --surface-2: #231f2c;
-  --line: #322c3d;
-  --line-soft: #292433;
-  --text: #eeebf3;
-  --muted: #9d96a8;
-  --accent: #7d6bb8;
-  --accent-2: #a99cd6;
+  --bg: #0c111a;
+  --bg-glow: #132038;
+  --surface: #121926;
+  --surface-2: #1a2333;
+  --line: #26324a;
+  --line-soft: #1f2a3d;
+  --text: #e9eef7;
+  --muted: #8f9bb0;
+  --accent: #3f7fd9;
+  --accent-2: #79aaf0;
   --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
   --good: #4cc38a;
   --bad: #e2725b;
   --warn: #dbad3a;
-  /* серії графіка: середнє — акцент, план — рожевий, точки зважувань — нейтральні */
+  /* серії графіка: середнє — акцент, план — кораловий, точки зважувань — нейтральні */
   --c-avg: var(--accent-2);
-  --c-plan: #d99ab5;
+  --c-plan: #e39a7a;
   --c-kg: #b7c2ca;
   --c-ring: #e8b04a;
-  --c-waist: #6fb5e8;
+  --c-waist: #c3a3ea;
   --radius: 16px;
   --tabs-h: 64px;
   --shadow: 0 1px 0 rgb(255 255 255 / .03) inset, 0 6px 16px rgb(0 0 0 / .22);
@@ -27,24 +27,24 @@
 
 /* Тему ставить data-theme на <html>: скрипт у index.html ще до малювання, потім app.js. */
 :root[data-theme="light"] {
-  --bg: #f4f2f7;
-  --bg-glow: #e9e3f4;
+  --bg: #f1f4f9;
+  --bg-glow: #dfe8f6;
   --surface: #ffffff;
-  --surface-2: #eeebf2;
-  --line: #ddd8e4;
-  --line-soft: #e8e4ee;
-  --text: #1c1726;
-  --muted: #686175;
-  --accent: #63559e;
-  --accent-2: #54478c;
+  --surface-2: #e9eef5;
+  --line: #d5dce8;
+  --line-soft: #e3e8f0;
+  --text: #141b27;
+  --muted: #5d6878;
+  --accent: #2563b8;
+  --accent-2: #1d529c;
   --good: #1f8a55;
   --bad: #c2462d;
-  --c-avg: #63559e;
-  --c-plan: #a8577c;
+  --c-avg: #2563b8;
+  --c-plan: #b8603d;
   --c-kg: #7c8890;
   --c-ring: #b8790f;
-  --c-waist: #2b7fc0;
-  --shadow: 0 1px 2px rgb(35 20 50 / .06), 0 6px 16px rgb(35 20 50 / .06);
+  --c-waist: #7a4fb0;
+  --shadow: 0 1px 2px rgb(20 30 50 / .06), 0 6px 16px rgb(20 30 50 / .06);
   color-scheme: light;
 }
 
@@ -102,7 +102,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .sync-chip[hidden] { display: none; }
 .sync-chip.idle { color: var(--good); }
 .sync-chip.auth { color: var(--accent); border-color: var(--accent); }
-.sync-chip.error { color: var(--bad); border-color: var(--bad); }
+.sync-chip.error, .sync-chip.key { color: var(--bad); border-color: var(--bad); }
 .error-text { color: var(--bad); }
 .gear {
   display: grid;
@@ -147,6 +147,29 @@ button, input, select, textarea { font: inherit; color: inherit; }
   background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 22%, var(--surface)), var(--surface) 70%);
   border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
 }
+.plateau {
+  margin-bottom: 12px;
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--warn) 12%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line));
+}
+.plateau-head { display: flex; align-items: center; gap: 8px; color: color-mix(in srgb, var(--warn) 70%, var(--text)); }
+.plateau-head .ico { width: 18px; height: 18px; }
+.plateau p { margin: 4px 0 0; color: var(--muted); }
+.sizes .row-side { max-width: 60%; }
+.panel.health { display: block; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.health h4 { margin: 12px 0 4px; font-size: 15px; color: var(--accent-2); }
+.health h4:first-child { margin-top: 0; }
+.health p { margin: 0 0 4px; font-size: 15px; }
+.health-gap { height: 8px; }
+.size-value { font-weight: 700; text-align: right; overflow-wrap: anywhere; }
+.diet-group h4 { margin: 10px 0 6px; font-size: 14px; }
+.diet-group.good h4 { color: var(--good); }
+.diet-group.bad h4 { color: var(--bad); }
+.diet-group ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; font-size: 14px; }
+.diet-group li { display: flex; gap: 8px; align-items: baseline; }
+.diet-emoji { flex: none; width: 20px; text-align: center; }
 .hero-label { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
 .hero-value { display: flex; align-items: baseline; gap: 8px; margin-top: 2px; font-size: 48px; line-height: 1.1; font-weight: 800; letter-spacing: -.02em; }
 .hero-unit { font-size: 18px; font-weight: 600; color: var(--muted); }
@@ -230,7 +253,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* --- графік --- */
 .chart-panel { padding: 12px 10px 8px; }
 .chart-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin: 0 6px 8px; }
-.chart-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--muted); }
+.chart-legend { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 12px; color: var(--muted); }
 .chart-full {
   display: inline-flex;
   flex: none;
@@ -248,7 +271,14 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 .chart-full[hidden] { display: none; }
 .chart-full .ico { width: 16px; height: 16px; }
-.legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.legend-item { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.legend-item.toggle { padding: 2px 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
+.legend-item.toggle.off { opacity: .4; text-decoration: line-through; }
+.chart-stats { display: flex; flex-wrap: wrap; gap: 2px 12px; margin: 0 6px 8px; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.chart-stats:empty { display: none; }
+.day-line { display: flex; align-items: center; gap: 8px; margin: 8px 6px 0; padding-top: 8px; border-top: 1px solid var(--line-soft); font-size: 15px; font-variant-numeric: tabular-nums; }
+.day-line-main { flex: 1; min-width: 0; }
+.day-line .row-note { margin-top: 2px; }
 .key { display: inline-block; flex: none; }
 .key.line { width: 16px; height: 3px; border-radius: 2px; }
 .key.dot { width: 8px; height: 8px; border-radius: 50%; }
@@ -257,10 +287,12 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .key.s-avg { background: var(--c-avg); }
 .key.s-plan { background: var(--c-plan); }
 .key.line.dash { height: 2px; background: repeating-linear-gradient(90deg, var(--c-plan) 0 5px, transparent 5px 8px); }
+.key.line.dash.s-forecast { background: repeating-linear-gradient(90deg, var(--c-avg) 0 2px, transparent 2px 6px); }
 .key.s-kg { background: var(--c-kg); }
 .key.ring.s-kg { background: none; }
 .key.area.good { background: color-mix(in srgb, var(--good) 40%, transparent); }
 .key.area.bad { background: color-mix(in srgb, var(--bad) 40%, transparent); }
+.key.area.split { background: linear-gradient(90deg, color-mix(in srgb, var(--good) 45%, transparent) 50%, color-mix(in srgb, var(--bad) 45%, transparent) 50%); }
 .chart-stage { position: relative; }
 .chart-plot { width: 100%; }
 .chart-svg { display: block; overflow: visible; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
@@ -268,18 +300,26 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .chart-svg .tick { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .chart-svg .end-label { fill: var(--text); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .chart-svg .series-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
-.chart-svg .series-line.s-avg { stroke: var(--c-avg); stroke-width: 2.75; }
-.chart-svg .series-line.s-plan { stroke: var(--c-plan); stroke-width: 1.6; stroke-dasharray: 6 5; opacity: .9; }
+.chart-svg .series-line.s-avg { stroke: var(--c-avg); stroke-width: 3; }
+.chart-svg .series-line.s-plan { stroke: var(--c-plan); stroke-width: 1.4; stroke-dasharray: 6 5; opacity: .6; }
 .chart-svg .series-line.s-waist { stroke: var(--c-waist); }
-.chart-svg .series-band .ahead { fill: var(--good); opacity: .24; }
-.chart-svg .series-band .behind { fill: var(--bad); opacity: .3; }
-.chart-svg .series-dots circle { stroke: var(--surface); stroke-width: 1.5; }
-.chart-svg .series-dots.s-kg circle { fill: var(--c-kg); fill-opacity: .8; }
+.chart-svg .series-line.s-forecast { stroke: var(--c-avg); stroke-width: 2; stroke-dasharray: 2 5; opacity: .75; }
+.chart-svg .series-band .ahead { fill: var(--good); opacity: .12; }
+.chart-svg .series-band .behind { fill: var(--bad); opacity: .15; }
+.chart-svg .series-dots circle { stroke: var(--surface); stroke-width: 1; }
+.chart-svg .series-dots.s-kg circle { fill: var(--c-kg); fill-opacity: .55; stroke: none; }
 .chart-svg .series-dots.s-kg circle.last { fill: var(--text); fill-opacity: 1; stroke-width: 2; }
 .chart-svg .series-dots.s-waist circle { fill: var(--c-waist); stroke-width: 2; }
 .chart-svg .series-dots circle.ring { fill: none; stroke: var(--c-ring); stroke-width: 1.3; opacity: .85; }
-.chart-svg .hline line { stroke: var(--muted); stroke-width: 1; opacity: .5; }
+.chart-svg .hline line { stroke: var(--muted); stroke-width: 1; opacity: .35; }
 .chart-svg .hline.target line { stroke: var(--accent-2); opacity: .8; }
+.chart-svg .floor-label { fill: var(--accent-2); font-size: 12px; font-weight: 700; }
+.chart-svg .bars line { stroke: var(--line); stroke-width: 1; }
+.chart-svg .bars rect { fill: var(--muted); opacity: .5; }
+.chart-svg .bars rect.good { fill: var(--good); opacity: .7; }
+.chart-svg .bars rect.bad { fill: var(--bad); opacity: .7; }
+.chart-svg .bars .bar-label { fill: var(--muted); font-size: 10px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.chart-svg .picked circle { fill: none; stroke: var(--accent-2); stroke-width: 2.5; }
 .chart-svg .cursor line { stroke: var(--muted); stroke-width: 1; }
 .chart-svg .cursor .hit { stroke: var(--surface); stroke-width: 2; }
 .chart-svg .cursor .hit.s-avg { fill: var(--c-avg); }
@@ -305,14 +345,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 .chart-tip[hidden] { display: none; }
 .tip-head { font-weight: 700; margin-bottom: 2px; }
-.chart-note { margin: 6px 6px 2px; }
 .chart-plot.panning, .chart-plot.panning .chart-svg { cursor: grabbing; }
-/* Підказка про колесо — де є миша, про пальці — на сенсорному екрані */
-.chart-hint.touch { display: none; }
-@media (hover: none) {
-  .chart-hint.mouse { display: none; }
-  .chart-hint.touch { display: block; }
-}
 .waist-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: 4px 0 8px; }
 .waist-head b { font-size: 22px; }
 .box .chart { margin: 0 -6px 8px; }
@@ -403,6 +436,22 @@ button.row { cursor: pointer; }
   box-shadow: var(--shadow);
 }
 .panel h3 { margin: 0 0 10px; font-size: 16px; }
+
+/* налаштування групами, як у Стрілецькому журналі: рамка з назвою на лінії, всередині — розділи через лінію */
+.settings-group { min-width: 0; margin: 22px 0 14px; padding: 2px 16px 4px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); }
+.settings-group > legend { padding: 0 8px; margin-left: -6px; border-radius: 6px; background: var(--surface); color: var(--accent); font-size: 13px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.settings-group > .panel, .settings-group > .box-body > .panel { margin: 0; padding: 14px 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
+/* лінія між розділами — від кольору тексту: у темній темі var(--line) майже зливався з тлом */
+.settings-group > .panel + .panel, .settings-group > .box-body > .panel + .panel { border-top: 1px solid color-mix(in srgb, var(--text) 20%, transparent); }
+.settings-group.danger { border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
+.settings-group.danger > legend { color: var(--bad); }
+.settings-group.closed { padding-bottom: 0; }
+.settings-group.closed > .box-body { display: none; }
+.settings-group > legend .box-toggle { color: inherit; }
+.settings-group > legend .ico { width: 15px; height: 15px; }
+.settings-group.closed .box-chevron { transform: none; }
+.sub-head { display: flex; align-items: center; gap: 6px; margin: 14px 0 8px; font-size: 14px; }
+.sub-head .ico { width: 16px; height: 16px; color: var(--accent-2); }
 
 /* «Про застосунок» — як у shooting-log: фото автора ліворуч, текст поруч, розкривні розділи */
 .about-head { display: flex; align-items: center; gap: 12px; }
@@ -672,10 +721,10 @@ button.row { cursor: pointer; }
   margin: 0 auto;
   padding: 12px 14px;
   border-radius: 14px;
-  background: #2c2638;
-  color: #f1eef6;
+  background: #1f2a3f;
+  color: #eef2f9;
   box-shadow: 0 10px 24px rgb(0 0 0 / .35);
   animation: toast-in .18s ease;
 }
-.toast button { border: 0; background: none; color: #c6bde6; font-weight: 800; cursor: pointer; padding: 4px 8px; }
+.toast button { border: 0; background: none; color: #9cc0f5; font-weight: 800; cursor: pointer; padding: 4px 8px; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }

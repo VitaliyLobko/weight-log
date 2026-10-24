@@ -1,15 +1,19 @@
 // Синхронізація з файлом weight-log.json на Google Диску власника.
 // Офлайн-перший підхід: усе пишеться в IndexedDB, а сюди потрапляє, коли є мережа.
 // Злиття — по id: перемагає запис з пізнішим updated, надгробок перемагає старіший запис.
+// Підключено бота — журнал між телефонами возить його база (bot.js), а Диск раз на день зберігає копію.
 import * as db from './db.js';
+import * as bot from './bot.js';
 import { GOOGLE_CLIENT_ID } from './config.js';
 import { t } from './i18n.js';
+import { sharedToken, shareToken, dropSharedToken, noteEmail } from './google-token.js';
+import { locate, readJson, writeJson, syncBotFile } from './drive-files.js';
 
 const SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const FILE_NAME = 'weight-log.json';
 const DRIVE = 'https://www.googleapis.com/drive/v3';
-const UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
 const KEY = 'weight-log:sync';
+const BACKUP_EVERY = 24 * 3600_000;
 
 class AuthError extends Error {}
 
@@ -27,6 +31,7 @@ let authWaiter = null;
 let timer = null;
 let running = false;
 let again = false;
+let forceNext = false;
 const listeners = new Set();
 
 /** state: unconfigured | off | idle | syncing | offline | auth | error */
@@ -54,7 +59,16 @@ export function onStatus(fn) {
 
 export const configured = () => Boolean(GOOGLE_CLIENT_ID);
 export const enabled = () => Boolean(conf.enabled);
-const tokenValid = () => Boolean(conf.token) && conf.expires > Date.now() + 60_000;
+/** Свій ключ живий — його; ні — спільний з іншого застосунку автора (вхід там годиться й тут). */
+function tokenValid() {
+  if (conf.token && conf.expires > Date.now() + 60_000) return true;
+  const s = sharedToken(conf);
+  if (!s) return false;
+  conf.token = s.token;
+  conf.expires = s.expires;
+  save();
+  return true;
+}
 
 // ---------- вхід ----------
 
@@ -87,6 +101,7 @@ function client() {
       if (resp.error) { finishAuth(new Error(resp.error_description || resp.error)); return; }
       conf.token = resp.access_token;
       conf.expires = Date.now() + (Number(resp.expires_in) || 3600) * 1000;
+      shareToken(conf.token, conf.expires, conf.email);
       save();
       finishAuth();
     },
@@ -102,19 +117,22 @@ export function preload() {
 
 /** Викликати лише з обробника тапу/кліку — інакше браузер заблокує вікно входу. */
 export async function connect() {
-  const c = client();
-  if (!c) {
-    preload();
-    throw new Error(t('Google ещё загружается — нажмите ещё раз через секунду'));
+  // Увійшли в іншому застосунку автора менш ніж годину тому — вікно Google не потрібне
+  if (!tokenValid()) {
+    const c = client();
+    if (!c) {
+      preload();
+      throw new Error(t('Google ещё загружается — нажмите ещё раз через секунду'));
+    }
+    await new Promise((resolve, reject) => {
+      authWaiter = { resolve, reject, at: Date.now() };
+      c.requestAccessToken({ prompt: conf.consented ? '' : 'consent', hint: conf.email || undefined });
+    });
   }
-  await new Promise((resolve, reject) => {
-    authWaiter = { resolve, reject, at: Date.now() };
-    c.requestAccessToken({ prompt: conf.consented ? '' : 'consent', hint: conf.email || undefined });
-  });
   conf.enabled = true;
   conf.consented = true;
   save();
-  await syncNow();
+  await syncNow({ force: true });
 }
 
 /**
@@ -126,6 +144,8 @@ export function renewOnGesture() {
   // Вхід, що вже йде (connect чи попередній дотик), не перебиваємо; завислий понад хвилину — вже не рахується
   const busy = authWaiter && Date.now() - (authWaiter.at ?? 0) < 60_000;
   if (!configured() || !conf.enabled || !conf.consented || tokenValid() || !navigator.onLine || busy) return;
+  // З ботом Диск — щоденна копія: сьогоднішня вже є — вікно Google не потрібне
+  if (bot.botConfig().from && conf.lastSync && Date.now() - conf.lastSync < BACKUP_EVERY && !conf.restoreAt) return;
   const c = client();
   if (!c) { preload(); return; }
   authWaiter = { resolve: () => syncNow(), reject: () => {}, at: Date.now() };
@@ -133,7 +153,7 @@ export function renewOnGesture() {
 }
 
 export function disconnect() {
-  if (conf.token) window.google?.accounts?.oauth2?.revoke?.(conf.token, () => {});
+  // Вхід у Google не відкликаємо: він спільний з іншими застосунками автора — відключається лише цей
   conf = {};
   save();
   set('off');
@@ -144,6 +164,7 @@ export function disconnect() {
 async function api(url, options = {}) {
   const res = await fetch(url, { ...options, headers: { Authorization: `Bearer ${conf.token}`, ...options.headers } });
   if (res.status === 401) {
+    dropSharedToken(conf.token);
     conf.token = null;
     save();
     throw new AuthError(t('Сессия Google истекла'));
@@ -152,42 +173,56 @@ async function api(url, options = {}) {
   return res;
 }
 
-async function findFile() {
-  if (conf.fileId) {
-    try {
-      const meta = await (await api(`${DRIVE}/files/${conf.fileId}?fields=id,trashed`)).json();
-      if (!meta.trashed) return conf.fileId;
-    } catch (err) {
-      if (err instanceof AuthError) throw err;
-    }
-  }
-  const q = encodeURIComponent(`name='${FILE_NAME}' and trashed=false`);
-  const { files } = await (await api(`${DRIVE}/files?q=${q}&spaces=drive&orderBy=modifiedTime desc&fields=files(id)`)).json();
-  conf.fileId = files?.[0]?.id ?? null;
-  save();
-  return conf.fileId;
-}
-
+/** Записати знімок у weight-log.json. false — інший телефон щойно завів файл: синхронізуватись ще раз, із ним. */
 async function upload(fileId, data) {
   const content = JSON.stringify({ app: 'weight-log', format: 1, exportedAt: new Date().toISOString(), data });
-  if (fileId) {
-    await api(`${UPLOAD}/files/${fileId}?uploadType=media`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: content,
-    });
-    return fileId;
-  }
-  const boundary = `wl${Date.now()}`;
-  const body = [
-    `--${boundary}`, 'Content-Type: application/json; charset=UTF-8', '',
-    JSON.stringify({ name: FILE_NAME, mimeType: 'application/json', description: 'Weight Log' }),
-    `--${boundary}`, 'Content-Type: application/json', '', content, `--${boundary}--`,
-  ].join('\r\n');
-  const created = await (await api(`${UPLOAD}/files?uploadType=multipart&fields=id`, {
-    method: 'POST', headers: { 'Content-Type': `multipart/related; boundary=${boundary}` }, body,
-  })).json();
-  conf.fileId = created.id;
+  const res = await writeJson(api, { id: fileId, name: FILE_NAME, description: 'Weight Log', content });
+  conf.fileId = res.id;
   save();
-  return created.id;
+  return res.written;
+}
+
+/** Копія з Диска для «Відновити з Диска»: вміст weight-log.json (як файл копії) або null — файлу ще нема. */
+export async function fetchBackup() {
+  if (!tokenValid()) throw new AuthError(t('Нажмите, чтобы войти в Google'));
+  const id = await locate(api, FILE_NAME, conf.fileId);
+  return id ? readJson(api, id) : null;
+}
+
+// ---------- спільні налаштування бота ----------
+
+/**
+ * Адреса й ключ Telegram-бота — спільний bot-settings.json (drive-files.js). Перемагає новіший запис;
+ * «Відключити» діє лише на цьому пристрої й не відключає бота в інших застосунках.
+ */
+async function syncBotSettings() {
+  conf.botFileId = await syncBotFile(api, conf.botFileId, {
+    mine: bot.sharedConfig(),
+    declinedAt: bot.declinedAt(),
+    isBad: bot.isBadKey,
+    apply: (theirs) => {
+      bot.setBotConfig(theirs.url, theirs.key, theirs.updated);
+      window.dispatchEvent(new Event('bot-config'));
+    },
+  });
+  save();
+}
+
+/** Налаштування бота змінено тут — віднести на Диск з найближчою синхронізацією. */
+export function botChanged() {
+  if (conf.enabled) schedule(300, true);
+}
+
+let botRoundBusy = null;
+
+/**
+ * Лише bot-settings.json, без копії журналу: при відкритті й коли бот відкинув ключ — вставлений на іншому
+ * пристрої ключ приходить одразу, а не з добовою копією. Ключ Google мертвий — тихо до наступного разу.
+ */
+export function botRound() {
+  if (!configured() || !conf.enabled || !navigator.onLine || !tokenValid()) return Promise.resolve();
+  botRoundBusy ??= syncBotSettings().catch((err) => console.warn('bot-settings', err)).finally(() => { botRoundBusy = null; });
+  return botRoundBusy;
 }
 
 // ---------- злиття ----------
@@ -261,9 +296,16 @@ function localChanges(local, merged) {
 
 // ---------- цикл синхронізації ----------
 
-export async function syncNow() {
+/** force — зараз, навіть якщо сьогоднішня копія вже є (дотик людини, підключення, налаштування бота). */
+export async function syncNow({ force = false } = {}) {
   if (!configured()) { set('unconfigured'); return; }
   if (!conf.enabled) { set('off'); return; }
+  const fresh = conf.lastSync && Date.now() - conf.lastSync < BACKUP_EVERY;
+  if (!force && fresh && !conf.restoreAt && bot.botConfig().from) {
+    set('idle');
+    botRound();
+    return;
+  }
   if (!navigator.onLine) { set('offline'); return; }
   if (!tokenValid()) { set('auth', t('Нажмите, чтобы войти в Google')); return; }
   if (running) { again = true; return; }
@@ -274,18 +316,30 @@ export async function syncNow() {
     if (!conf.email || conf.photo === undefined) {
       const about = await (await api(`${DRIVE}/about?fields=user(emailAddress,displayName,photoLink)`)).json();
       conf.email = about.user?.emailAddress ?? conf.email ?? null;
+      noteEmail(conf.token, conf.email);
       conf.name = about.user?.displayName ?? null;
       conf.photo = about.user?.photoLink ?? null;
     }
     // Відновлення посеред цього проходу застосує наступний — тут уже прочитано старі дані
     const { restoreAt } = conf;
     const local = await db.loadAll();
-    const fileId = await findFile();
-    const remote = fileId ? ((await (await api(`${DRIVE}/files/${fileId}?alt=media`)).json())?.data ?? {}) : {};
+    const fileId = await locate(api, FILE_NAME, conf.fileId);
+    conf.fileId = fileId;
+    const remote = fileId ? ((await readJson(api, fileId))?.data ?? {}) : {};
     const merged = merge(local, restoreAt ? bury(local, remote, restoreAt) : remote);
     const changes = localChanges(local, merged);
-    if (changes) await db.writeMerged(changes);
-    if (!fileId || fingerprint(remote) !== fingerprint(merged)) await upload(fileId, merged);
+    if (changes) {
+      await db.writeMerged(changes);
+      bot.rewindPushed();
+    }
+    if ((!fileId || fingerprint(remote) !== fingerprint(merged)) && !(await upload(fileId, merged))) again = true;
+    // Бот — окремий файл: його збій не робить невдалою синхронізацію ваги
+    try {
+      await syncBotSettings();
+    } catch (err) {
+      if (err instanceof AuthError) throw err;
+      console.warn('bot-settings', err);
+    }
     if (restoreAt && conf.restoreAt === restoreAt) delete conf.restoreAt;
     conf.lastSync = Date.now();
     save();
@@ -296,13 +350,18 @@ export async function syncNow() {
     else set(navigator.onLine ? 'error' : 'offline', err.message);
   } finally {
     running = false;
-    if (again) { again = false; schedule(500); }
+    if (again) { again = false; schedule(500, true); }
   }
 }
 
-export function schedule(ms = 2000) {
+export function schedule(ms = 2000, force = false) {
+  forceNext ||= force;
   clearTimeout(timer);
-  timer = setTimeout(syncNow, ms);
+  timer = setTimeout(() => {
+    const f = forceNext;
+    forceNext = false;
+    syncNow({ force: f });
+  }, ms);
 }
 
 window.addEventListener('db-change', () => { if (conf.enabled) schedule(); });
