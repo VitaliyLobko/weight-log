@@ -189,6 +189,30 @@ export function checkpoints(rows, goal, sum) {
   });
 }
 
+/** Понеділок тижня, до якого належить дата. */
+export const weekStart = (iso) => addDays(iso, -((new Date(utc(iso)).getUTCDay() + 6) % 7));
+
+/**
+ * Зміна середнього за кожен тиждень (пн–нд): останнє середнє тижня мінус останнє середнє попереднього тижня
+ * з даними. Перший тиждень із середнім порівняти нема з чим — його немає. [{ from, to, v }]
+ */
+export function weeklyChanges(rows) {
+  const ends = new Map();
+  for (const r of rows) if (r.avg !== null) ends.set(weekStart(r.date), r.avg);
+  const weeks = [...ends].sort(([a], [b]) => (a < b ? -1 : 1));
+  return weeks.slice(1).map(([from, avg], i) => ({ from, to: addDays(from, 6), v: r2(avg - weeks[i][1]) }));
+}
+
+/** Зведення за дні [a, b]: зміна (за середнім, а де його ще нема — за вагою), мінімум і максимум ваги. */
+export function periodStats(rows, a, b) {
+  const list = rows.filter((r) => r.date >= a && r.date <= b);
+  if (!list.length) return null;
+  const avgs = list.filter((r) => r.avg !== null);
+  const by = avgs.length >= 2 ? avgs.map((r) => r.avg) : list.map((r) => r.kg);
+  const kgs = list.map((r) => r.kg);
+  return { change: by.length >= 2 ? r2(by.at(-1) - by[0]) : null, min: Math.min(...kgs), max: Math.max(...kgs) };
+}
+
 export const SIZES_ID = 'sizes';
 export const HEALTH_ID = 'health';
 const SIZE_LETTERS = /^(\d?X{0,3}[SML]|X{1,3}L|\d?XL)$/i;

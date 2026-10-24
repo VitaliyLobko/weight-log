@@ -61,6 +61,8 @@ const MIN_Y_SPAN = 0.6;
 /** Подвійний тап: між дотиками не довше, мс, і не далі, px. */
 const DOUBLE_TAP_MS = 320;
 const DOUBLE_TAP_PX = 30;
+/** Висота смуги тижневих стовпчиків під графіком, px. */
+const BARS_H = 38;
 let clipSeq = 0;
 
 /**
@@ -74,13 +76,29 @@ let clipSeq = 0;
  *   zoom — масштаб колесом миші, пальцями (вшир — дати, вгору — значення), подвійним тапом і зсув перетягуванням;
  *   view: [з, по] — початкове вікно (дати), ahead — скільки днів за останньою точкою можна показати,
  *   onView(з, по) — вікно змінилося, onFull + fullLabel — кнопка «весь графік», поки показано не все,
+ *   legend[].keys — пункт вмикає/вимикає ці серії, hidden — вимкнені спочатку, onHidden(ключі) — після тапу,
+ *   floor: { v, label } — стрілка «↓ label», коли v нижче шкали, bars: [{ from, to, v }] + barsLabel — тижневі стовпчики,
  * }
  */
 export function lineChart(spec) {
-  const legend = spec.legend?.length
-    ? h('div', { class: 'chart-legend' }, spec.legend.map((l) => h('span', { class: 'legend-item' },
-      h('span', { class: `key ${l.kind} ${l.cls}`, 'aria-hidden': 'true' }), l.label)))
-    : null;
+  /** Ключі серій, вимкнених тапом по легенді. */
+  const hidden = new Set(spec.hidden ?? []);
+  const legendItem = (l) => {
+    const body = [h('span', { class: `key ${l.kind} ${l.cls}`, 'aria-hidden': 'true' }), l.label];
+    if (!l.keys) return h('span', { class: 'legend-item' }, body);
+    const off = l.keys.every((k) => hidden.has(k));
+    const el = h('button', { type: 'button', class: `legend-item toggle ${off ? 'off' : ''}`, 'aria-pressed': String(!off) }, body);
+    el.addEventListener('click', () => {
+      const now = !el.classList.contains('off');
+      for (const k of l.keys) if (now) hidden.add(k); else hidden.delete(k);
+      el.classList.toggle('off', now);
+      el.setAttribute('aria-pressed', String(!now));
+      if (lastWidth) draw(lastWidth);
+      spec.onHidden?.([...hidden]);
+    });
+    return el;
+  };
+  const legend = spec.legend?.length ? h('div', { class: 'chart-legend' }, spec.legend.map(legendItem)) : null;
   const fullBtn = spec.onFull
     ? h('button', { type: 'button', class: 'chart-full', hidden: true, onclick: () => spec.onFull() }, withIcon('expand', spec.fullLabel))
     : null;
@@ -161,6 +179,8 @@ export function lineChart(spec) {
 
   function draw(width) {
     const height = spec.height ?? 220;
+    // Під підписами дат — смуга тижневих стовпчиків
+    const total = height + (spec.bars?.length ? BARS_H : 0);
     const pad = { l: 38, r: 46, t: 10, b: 24 };
     if (!allDates.length) { plot.replaceChildren(); cur = null; return; }
     const [v0, v1] = view;
@@ -170,6 +190,7 @@ export function lineChart(spec) {
     const inView = (p) => off(p.date) >= v0 - 1e-6 && off(p.date) <= v1 + 1e-6;
     // Лінії тягнемо до сусідньої точки за краєм — обрізає clipPath; крапки — лише видимі
     const shown = spec.series.map((se) => {
+      if (hidden.has(se.key)) return [];
       const pts = se.points.filter(se.kind === 'band' ? (p) => Number.isFinite(p.a) && Number.isFinite(p.b) : (p) => Number.isFinite(p.v));
       if (se.kind === 'dots') return pts.filter(inView);
       const first = pts.findIndex((p) => off(p.date) >= v0 - 1e-6);
@@ -200,9 +221,9 @@ export function lineChart(spec) {
     const y = (v) => pad.t + (1 - (v - lo) / (hi - lo)) * ih;
     const digits = step < 1 ? 1 : 0;
 
-    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+    svg.setAttribute('viewBox', `0 0 ${width} ${total}`);
     svg.setAttribute('width', width);
-    svg.setAttribute('height', height);
+    svg.setAttribute('height', total);
     svg.replaceChildren();
     const grid = s('g', { class: 'grid' });
     for (let v = Math.ceil(lo / step - 1e-9) * step; v <= hi + 1e-9; v += step) {
@@ -239,6 +260,34 @@ export function lineChart(spec) {
       svg.append(s('g', { class: `hline ${line.cls ?? ''}` },
         s('line', { x1: pad.l, x2: width - pad.r, y1: yy, y2: yy }),
         s('text', { x: width - pad.r + 4, y: yy + 4, class: 'tick' }, line.label)));
+    }
+    // Ціль нижче шкали — стрілка в лівому нижньому куті (там при схудненні порожньо)
+    if (spec.floor && spec.floor.v < lo) {
+      svg.append(s('text', { x: pad.l + 6, y: pad.t + ih - 6, class: 'floor-label' }, `↓ ${spec.floor.label}`));
+    }
+
+    if (spec.bars?.length) {
+      // Тижневі стовпчики: висота — модуль зміни, колір — знак; підпис, коли стовпчик досить широкий
+      const base = total - 3;
+      const dayPx = iw / spanDays;
+      const seen = spec.bars.filter((b) => off(b.to) >= v0 - 1 && off(b.from) <= v1 + 1);
+      const maxAbs = Math.max(0.3, ...seen.map((b) => Math.abs(b.v)));
+      const bars = s('g', { class: 'bars' });
+      bars.append(s('line', { x1: pad.l, x2: pad.l + iw, y1: base + 0.5, y2: base + 0.5 }),
+        s('text', { x: pad.l - 6, y: base, 'text-anchor': 'end', class: 'tick' }, spec.barsLabel ?? ''));
+      for (const b of seen) {
+        const x0 = Math.max(pad.l, x(b.from) - dayPx / 2 + 1.5);
+        const x1 = Math.min(pad.l + iw, x(b.to) + dayPx / 2 - 1.5);
+        if (x1 - x0 < 3) continue;
+        const bh = Math.max(2, (Math.abs(b.v) / maxAbs) * (BARS_H - 20));
+        bars.append(s('rect', { x: x0.toFixed(1), y: (base - bh).toFixed(1), width: (x1 - x0).toFixed(1), height: bh.toFixed(1), rx: 2,
+          class: b.v < 0 ? 'good' : b.v > 0 ? 'bad' : '' }));
+        if (x1 - x0 >= 24) {
+          bars.append(s('text', { x: ((x0 + x1) / 2).toFixed(1), y: (base - bh - 3).toFixed(1), 'text-anchor': 'middle', class: 'bar-label' },
+            fmt.signed(b.v, 1)));
+        }
+      }
+      svg.append(bars);
     }
 
     const clipId = `chart-clip-${++clipSeq}`;
@@ -279,7 +328,8 @@ export function lineChart(spec) {
     const picked = s('g', { class: 'picked' });
     svg.append(picked);
     const mark = (date) => {
-      const se = spec.series.find((x) => x.kind === 'dots' && !x.aside) ?? spec.series.find((x) => x.kind === 'line' && !x.aside);
+      const on = (x) => !x.aside && !hidden.has(x.key);
+      const se = spec.series.find((x) => x.kind === 'dots' && on(x)) ?? spec.series.find((x) => x.kind === 'line' && on(x));
       const p = date && dates.includes(date) ? se?.points.find((q) => q.date === date && Number.isFinite(q.v)) : null;
       picked.replaceChildren(...(p ? [s('circle', { cx: x(date).toFixed(1), cy: y(p.v).toFixed(1), r: 7 })] : []));
     };
@@ -297,7 +347,7 @@ export function lineChart(spec) {
       cursor.setAttribute('visibility', 'visible');
       cursor.querySelector('line').setAttribute('x1', cx);
       cursor.querySelector('line').setAttribute('x2', cx);
-      hits.replaceChildren(...spec.series.filter((se) => !se.aside).flatMap((se) => se.points.filter((p) => p.date === date && Number.isFinite(p.v))
+      hits.replaceChildren(...spec.series.filter((se) => !se.aside && !hidden.has(se.key)).flatMap((se) => se.points.filter((p) => p.date === date && Number.isFinite(p.v))
         .map((p) => s('circle', { cx, cy: y(p.v), r: 5, class: `hit ${se.cls}` }))));
       const lines = spec.tip?.(date) ?? [];
       tip.replaceChildren(...lines.map((l, i) => h('div', { class: i ? '' : 'tip-head' }, l)));
@@ -321,7 +371,7 @@ export function lineChart(spec) {
     /** Частка висоти області графіка під пальцем, згори, 0…1. */
     const fracY = (clientY) => {
       const rect = svg.getBoundingClientRect();
-      const py = ((clientY - rect.top) / rect.height) * height;
+      const py = ((clientY - rect.top) / rect.height) * total;
       return Math.max(0, Math.min(1, (py - pad.t) / ih));
     };
     if (svg.parentNode !== plot) plot.replaceChildren(svg);
