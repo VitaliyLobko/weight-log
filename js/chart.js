@@ -275,6 +275,16 @@ export function lineChart(spec) {
     });
     svg.append(marks, labels);
 
+    // Вибраний день — кільце навколо точки (зважування, а без точок — лінії), без курсора й підказки
+    const picked = s('g', { class: 'picked' });
+    svg.append(picked);
+    const mark = (date) => {
+      const se = spec.series.find((x) => x.kind === 'dots' && !x.aside) ?? spec.series.find((x) => x.kind === 'line' && !x.aside);
+      const p = date && dates.includes(date) ? se?.points.find((q) => q.date === date && Number.isFinite(q.v)) : null;
+      picked.replaceChildren(...(p ? [s('circle', { cx: x(date).toFixed(1), cy: y(p.v).toFixed(1), r: 7 })] : []));
+    };
+    mark(selected);
+
     const cursor = s('g', { class: 'cursor', visibility: 'hidden' }, s('line', { y1: pad.t, y2: height - pad.b }));
     const hits = s('g', {});
     cursor.append(hits);
@@ -315,7 +325,7 @@ export function lineChart(spec) {
       return Math.max(0, Math.min(1, (py - pad.t) / ih));
     };
     if (svg.parentNode !== plot) plot.replaceChildren(svg);
-    cur = { place, nearest, frac, fracY, y: [lo, hi], autoY, daysPerPx: spanDays / iw / (svg.getBoundingClientRect().width / width || 1) };
+    cur = { place, mark, nearest, frac, fracY, y: [lo, hi], autoY, daysPerPx: spanDays / iw / (svg.getBoundingClientRect().width / width || 1) };
     place(null);
   }
 
@@ -366,6 +376,7 @@ export function lineChart(spec) {
       lastTap = { at: now, x: e.clientX };
     }
     selected = cur.nearest(e.clientX);
+    cur.mark(selected);
     cur.place(was.mouse ? selected : null);
     if (selected) spec.onPick?.(selected);
   });
