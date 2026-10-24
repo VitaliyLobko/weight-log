@@ -91,9 +91,39 @@ export function bmiOf(kg, heightCm) {
   };
 }
 
+/** Недавній темп — за стільки днів; коротша історія середніх — темп від початку. */
+export const RECENT_DAYS = 28;
+const RECENT_MIN = 21;
+
+/** Темп, кг/тиж, за останні RECENT_DAYS днів: середнє тоді мінус середнє зараз. */
+export function recentRate(rows) {
+  const withAvg = rows.filter((r) => r.avg !== null);
+  const cur = withAvg.at(-1);
+  if (!cur) return null;
+  const from = addDays(cur.date, -RECENT_DAYS);
+  const then = withAvg.findLast((r) => r.date <= from) ?? withAvg[0];
+  const days = daysBetween(then.date, cur.date);
+  return days >= RECENT_MIN ? ((then.avg - cur.avg) / days) * 7 : null;
+}
+
+/** Плато — середнє стільки днів не опускається нижче свого мінімуму більш ніж на PLATEAU_KG. */
+export const PLATEAU_DAYS = 14;
+const PLATEAU_KG = 0.1;
+
+/** { days, since, low } — скільки днів середнє не оновлює мінімум; null — плато немає. */
+export function plateau(rows) {
+  const withAvg = rows.filter((r) => r.avg !== null);
+  if (!withAvg.length) return null;
+  let low = withAvg[0];
+  for (const r of withAvg) if (r.avg <= low.avg - PLATEAU_KG) low = r;
+  const days = daysBetween(low.date, withAvg.at(-1).date);
+  return days >= PLATEAU_DAYS ? { days, since: low.date, low: low.avg } : null;
+}
+
 /**
  * Зведення як у блоці «СВОДКА» таблиці.
  * База втрати й темпу — перше середнє за 7 днів (а не перше зважування): так у таблиці.
+ * Прогноз іде недавнім темпом (за 4 тижні), а поки історії менше — темпом від початку.
  */
 export function summary(rows, goal) {
   const g = effectiveGoal(goal, rows);
@@ -106,10 +136,13 @@ export function summary(rows, goal) {
   const lost = base && cur ? r2(base.avg - cur.avg) : null;
   const weeks = base && cur ? daysBetween(base.date, cur.date) / 7 : 0;
   const rate = weeks > 0 ? lost / weeks : null;
+  const recent = recentRate(rows);
+  const forecastRate = recent ?? rate;
   const target = Number.isFinite(g.target) ? g.target : null;
   const toGo = target !== null && current !== null ? r2(current - target) : null;
-  /** Дата, коли середнє дійде до kg при фактичному темпі; null — темп не на зниження. */
-  const eta = (kg) => (rate > 0 && current > kg ? addDays(currentDate, Math.round(((current - kg) / rate) * 7)) : null);
+  /** Дата, коли середнє дійде до kg темпом прогнозу; null — темп не на зниження. */
+  const eta = (kg) => (forecastRate > 0 && current > kg
+    ? addDays(currentDate, Math.round(((current - kg) / forecastRate) * 7)) : null);
   const plan = currentDate ? planAt(g, currentDate) : null;
   const span = base && target !== null ? base.avg - target : null;
   return {
@@ -121,10 +154,12 @@ export function summary(rows, goal) {
     base,
     lost,
     rate,
+    recent,
+    forecastRate,
     target,
     toGo,
     days: rows.length,
-    weeksLeft: rate > 0 && toGo > 0 ? Math.ceil(toGo / rate) : null,
+    weeksLeft: forecastRate > 0 && toGo > 0 ? Math.ceil(toGo / forecastRate) : null,
     finish: target !== null ? eta(target) : null,
     eta,
     plan,
@@ -151,6 +186,26 @@ export function checkpoints(rows, goal, sum) {
   return list.sort((a, b) => b.kg - a.kg).map((c) => {
     const reached = reachedOn(rows, c.kg);
     return { ...c, reached, eta: reached ? null : sum.eta(c.kg) };
+  });
+}
+
+export const SIZES_ID = 'sizes';
+const SIZE_LETTERS = /^(\d?X{0,3}[SML]|X{1,3}L|\d?XL)$/i;
+
+/**
+ * Розміри з тексту, рядок — один розмір: { label, value }. Назву від значення відділяє «:», « — »,
+ * табуляція, а без них — перше слово, що починається з цифри чи є літерним розміром (S…XXL).
+ * Рядок, що починається з числа («58/4 форма»), — навпаки: число — значення, решта — назва.
+ */
+export function parseSizes(text) {
+  return String(text ?? '').split('\n').map((s) => s.trim()).filter(Boolean).map((line) => {
+    const split = line.match(/^(.+?)\s*(?::|\t|\s[—–-]\s)\s*(.+)$/);
+    if (split) return { label: split[1], value: split[2] };
+    const lead = line.match(/^(\d\S*?)[.,;]?\s+(.+)$/);
+    if (lead) return { label: lead[2], value: lead[1] };
+    const words = line.split(/\s+/);
+    const at = words.findIndex((w, i) => i > 0 && (/^\d/.test(w) || SIZE_LETTERS.test(w)));
+    return at > 0 ? { label: words.slice(0, at).join(' '), value: words.slice(at).join(' ') } : { label: line, value: '' };
   });
 }
 

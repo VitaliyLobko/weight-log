@@ -20,6 +20,7 @@ const ASSETS = [
   './js/importer.js',
   './js/remind.js',
   './js/icons.js',
+  './js/diet.js',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-maskable-512.png',

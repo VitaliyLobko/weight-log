@@ -56,16 +56,23 @@ function band(pts, x, y, cls) {
 
 /** Найвужче вікно масштабу, днів. */
 const MIN_SPAN = 6;
+/** Найвужча шкала значень при масштабі по вертикалі. */
+const MIN_Y_SPAN = 0.6;
+/** Подвійний тап: між дотиками не довше, мс, і не далі, px. */
+const DOUBLE_TAP_MS = 320;
+const DOUBLE_TAP_PX = 30;
 let clipSeq = 0;
 
 /**
  * spec: {
- *   series: [{ key, label, kind: 'line' | 'dots' | 'band', cls, points: [{ date, v, ring, last }], endLabel }],
+ *   series: [{ key, label, kind: 'line' | 'dots' | 'band', cls, points: [{ date, v, ring, last }], endLabel, aside }],
  *     band — заливка між двома лініями, точки { date, a, b }: зелена, де a < b, червона — де a > b,
+ *     aside — лінія не впливає на шкалу й не вибирається дотиком (прогноз),
  *   extra: [числа, що мають влізти в шкалу], hlines: [{ v, label, cls }],
  *   legend: [{ label, cls, kind }], height, digits, unit,
  *   selected, onPick(date), tip(date) → [рядки],
- *   zoom — масштаб колесом миші, пальцями й зсув перетягуванням; view: [з, по] — початкове вікно (дати),
+ *   zoom — масштаб колесом миші, пальцями (вшир — дати, вгору — значення), подвійним тапом і зсув перетягуванням;
+ *   view: [з, по] — початкове вікно (дати),
  *   onView(з, по) — вікно змінилося, onFull + fullLabel — кнопка «весь графік», поки показано не все,
  * }
  */
@@ -94,6 +101,8 @@ export function lineChart(spec) {
   };
   const initial = spec.view && D0 ? clampView(spec.view.map((d) => daysBetween(D0, d))) : [0, full];
   let view = initial;
+  /** Шкала значень [від, до] після щипка вгору; null — підбирається під видимі точки. */
+  let yView = null;
   let selected = spec.selected ?? null;
   let cur = null;
   // svg один на весь час: дотик адресується елементу під пальцем, і якби svg замінювався
@@ -118,13 +127,44 @@ export function lineChart(spec) {
     spec.onView?.(addDays(D0, Math.ceil(a - 1e-6)), addDays(D0, Math.floor(b + 1e-6)));
   }
 
+  /** Шкала значень: не вужча за MIN_Y_SPAN, не ширша за автоматичну; ширша — знову автоматична. */
+  function setY(next) {
+    const [lo, hi] = cur.autoY;
+    const auto = hi - lo;
+    const span = Math.max(MIN_Y_SPAN, next[1] - next[0]);
+    if (span >= auto - 1e-6) yView = null;
+    else {
+      const from = Math.max(lo - auto / 2, Math.min(hi + auto / 2 - span, next[0]));
+      yView = [from, from + span];
+    }
+    if (lastWidth) draw(lastWidth);
+  }
+
+  const zoomed = () => Boolean(yView) || Math.abs(view[0] - initial[0]) > 1e-6 || Math.abs(view[1] - initial[1]) > 1e-6;
+
+  /** Подвійний тап / клік: наблизити втричі довкола точки, а вже наближене — повернути як було. */
+  function zoomAt(clientX) {
+    if (zoomed()) {
+      yView = null;
+      view = initial;
+      if (lastWidth) draw(lastWidth);
+      spec.onView?.(addDays(D0, Math.ceil(view[0] - 1e-6)), addDays(D0, Math.floor(view[1] + 1e-6)));
+      return;
+    }
+    const f = cur.frac(clientX);
+    const span = view[1] - view[0];
+    const at = view[0] + f * span;
+    const next = span / 3;
+    setView([at - f * next, at - f * next + next]);
+  }
+
   function draw(width) {
     const height = spec.height ?? 220;
     const pad = { l: 38, r: 46, t: 10, b: 24 };
     if (!allDates.length) { plot.replaceChildren(); cur = null; return; }
     const [v0, v1] = view;
     const spanDays = v1 - v0;
-    if (fullBtn) fullBtn.hidden = spanDays >= full - 1e-6;
+    if (fullBtn) fullBtn.hidden = spanDays >= full - 1e-6 && !yView;
     const off = (date) => daysBetween(D0, date);
     const inView = (p) => off(p.date) >= v0 - 1e-6 && off(p.date) <= v1 + 1e-6;
     // Лінії тягнемо до сусідньої точки за краєм — обрізає clipPath; крапки — лише видимі
@@ -136,17 +176,23 @@ export function lineChart(spec) {
       if (first < 0 || last < 0) return [];
       return pts.slice(Math.max(0, first - 1), last + 2);
     });
-    const visible = shown.flatMap((pts) => pts.filter(inView));
+    const main = shown.filter((_, i) => !spec.series[i].aside);
+    const visible = main.flatMap((pts) => pts.filter(inView));
     const dates = [...new Set(visible.map((p) => p.date))].sort();
     const d0 = addDays(D0, Math.ceil(v0 - 1e-6));
     const d1 = addDays(D0, Math.floor(v1 + 1e-6));
-    const vals = [...(visible.length ? visible : shown.flat()).map((p) => p.v), ...(spec.extra ?? [])].filter(Number.isFinite);
+    const vals = [...(visible.length ? visible : main.flat()).map((p) => p.v), ...(spec.extra ?? [])].filter(Number.isFinite);
     if (!vals.length) { plot.replaceChildren(); cur = null; return; }
     let lo = Math.min(...vals);
     let hi = Math.max(...vals);
-    const step = niceStep(Math.max(0.5, hi - lo));
+    let step = niceStep(Math.max(0.5, hi - lo));
     lo = Math.floor((lo - step * 0.3) / step) * step;
     hi = Math.ceil((hi + step * 0.3) / step) * step;
+    const autoY = [lo, hi];
+    if (yView) {
+      [lo, hi] = yView;
+      step = niceStep(hi - lo);
+    }
     const iw = width - pad.l - pad.r;
     const ih = height - pad.t - pad.b;
     const x = (date) => pad.l + ((off(date) - v0) / spanDays) * iw;
@@ -158,7 +204,7 @@ export function lineChart(spec) {
     svg.setAttribute('height', height);
     svg.replaceChildren();
     const grid = s('g', { class: 'grid' });
-    for (let v = lo; v <= hi + 1e-9; v += step) {
+    for (let v = Math.ceil(lo / step - 1e-9) * step; v <= hi + 1e-9; v += step) {
       const yy = Math.round(y(v)) + 0.5;
       grid.append(s('line', { x1: pad.l, x2: width - pad.r, y1: yy, y2: yy }),
         s('text', { x: pad.l - 6, y: yy + 4, 'text-anchor': 'end', class: 'tick' }, fmt.fix(v, digits)));
@@ -196,7 +242,7 @@ export function lineChart(spec) {
 
     const clipId = `chart-clip-${++clipSeq}`;
     svg.append(s('defs', {}, s('clipPath', { id: clipId },
-      s('rect', { x: pad.l - 6, y: 0, width: iw + 12, height: height - pad.b + 6 }))));
+      s('rect', { x: pad.l - 6, y: pad.t - 6, width: iw + 12, height: ih + 12 }))));
     const marks = s('g', { 'clip-path': `url(#${clipId})` });
     const labels = s('g', {});
     spec.series.forEach((se, i) => {
@@ -239,7 +285,7 @@ export function lineChart(spec) {
       cursor.setAttribute('visibility', 'visible');
       cursor.querySelector('line').setAttribute('x1', cx);
       cursor.querySelector('line').setAttribute('x2', cx);
-      hits.replaceChildren(...spec.series.flatMap((se) => se.points.filter((p) => p.date === date && Number.isFinite(p.v))
+      hits.replaceChildren(...spec.series.filter((se) => !se.aside).flatMap((se) => se.points.filter((p) => p.date === date && Number.isFinite(p.v))
         .map((p) => s('circle', { cx, cy: y(p.v), r: 5, class: `hit ${se.cls}` }))));
       const lines = spec.tip?.(date) ?? [];
       tip.replaceChildren(...lines.map((l, i) => h('div', { class: i ? '' : 'tip-head' }, l)));
@@ -261,15 +307,24 @@ export function lineChart(spec) {
       const target = v0 + frac(clientX) * spanDays;
       return dates.reduce((best, d) => (Math.abs(off(d) - target) < Math.abs(off(best) - target) ? d : best), dates[0]);
     };
+    /** Частка висоти області графіка під пальцем, згори, 0…1. */
+    const fracY = (clientY) => {
+      const rect = svg.getBoundingClientRect();
+      const py = ((clientY - rect.top) / rect.height) * height;
+      return Math.max(0, Math.min(1, (py - pad.t) / ih));
+    };
     if (svg.parentNode !== plot) plot.replaceChildren(svg);
-    cur = { place, nearest, frac, daysPerPx: spanDays / iw / (svg.getBoundingClientRect().width / width || 1) };
+    cur = { place, nearest, frac, fracY, y: [lo, hi], autoY, daysPerPx: spanDays / iw / (svg.getBoundingClientRect().width / width || 1) };
     place(selected, true);
   }
 
   // Події — на постійному контейнері: svg перемальовується під час масштабу й зсуву
   let down = null;
   let pinch = null;
+  let lastTap = null;
+  let lastPointer = 'mouse';
   plot.addEventListener('pointerdown', (e) => {
+    lastPointer = e.pointerType;
     if (!cur || !e.isPrimary || e.button > 0 || pinch) return;
     const mouse = e.pointerType === 'mouse';
     // Палець на графіку з масштабом: рух убік — зсув, дотик без руху — вибір дня (на pointerup)
@@ -300,6 +355,15 @@ export function lineChart(spec) {
     plot.classList.remove('panning');
     if (!cur || !was) return;
     if (was.moved) { cur.place(selected, true); return; }
+    if (was.touch) {
+      const now = e.timeStamp;
+      if (lastTap && now - lastTap.at < DOUBLE_TAP_MS && Math.abs(e.clientX - lastTap.x) < DOUBLE_TAP_PX) {
+        lastTap = null;
+        zoomAt(e.clientX);
+        return;
+      }
+      lastTap = { at: now, x: e.clientX };
+    }
     selected = cur.nearest(e.clientX);
     cur.place(selected, true);
     if (selected) spec.onPick?.(selected);
@@ -330,22 +394,39 @@ export function lineChart(spec) {
       const next = span * 1.0015 ** dy;
       setView([at - f * next, at - f * next + next]);
     }, { passive: false });
-    plot.addEventListener('dblclick', () => setView(initial));
+    // Подвійний тап пальцем ловить pointerup, тож dblclick, який браузер шле слідом, — лише від миші
+    plot.addEventListener('dblclick', (e) => { if (lastPointer === 'mouse' && cur) zoomAt(e.clientX); });
 
-    // Два пальці: розведення — масштаб, рух разом — зсув. День під серединою між пальцями лишається під нею.
+    // Два пальці: напрямок вирішується на дотику. Розведення вшир чи навскіс — масштаб дат, рух разом — зсув,
+    // день під серединою між пальцями лишається під нею; вгору-вниз — масштаб шкали ваги довкола середини.
     const touchMid = (e) => (e.touches[0].clientX + e.touches[1].clientX) / 2;
-    const touchDist = (e) => Math.abs(e.touches[0].clientX - e.touches[1].clientX);
+    const touchMidY = (e) => (e.touches[0].clientY + e.touches[1].clientY) / 2;
+    const touchDx = (e) => Math.abs(e.touches[0].clientX - e.touches[1].clientX);
+    const touchDy = (e) => Math.abs(e.touches[0].clientY - e.touches[1].clientY);
+    const touchDist = (e) => Math.hypot(touchDx(e), touchDy(e));
     plot.addEventListener('touchstart', (e) => {
       if (e.touches.length !== 2 || !cur) return;
       e.preventDefault();
-      const f = cur.frac(touchMid(e));
-      pinch = { dist: Math.max(20, touchDist(e)), view, at: view[0] + f * (view[1] - view[0]) };
+      if (touchDy(e) > touchDx(e)) {
+        const [lo, hi] = cur.y;
+        pinch = { axis: 'y', dist: Math.max(20, touchDy(e)), span: hi - lo, at: hi - cur.fracY(touchMidY(e)) * (hi - lo) };
+      } else {
+        const f = cur.frac(touchMid(e));
+        pinch = { axis: 'x', dist: Math.max(20, touchDist(e)), view, at: view[0] + f * (view[1] - view[0]) };
+      }
       down = null;
+      lastTap = null;
       cur.place(null);
     }, { passive: false });
     plot.addEventListener('touchmove', (e) => {
       if (!pinch || e.touches.length !== 2 || !cur) return;
       e.preventDefault();
+      if (pinch.axis === 'y') {
+        const next = pinch.span * (pinch.dist / Math.max(20, touchDy(e)));
+        const top = pinch.at + cur.fracY(touchMidY(e)) * next;
+        setY([top - next, top]);
+        return;
+      }
       const next = (pinch.view[1] - pinch.view[0]) * (pinch.dist / Math.max(20, touchDist(e)));
       const f = cur.frac(touchMid(e));
       setView([pinch.at - f * next, pinch.at - f * next + next]);

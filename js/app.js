@@ -11,6 +11,7 @@ import { lineChart } from './chart.js';
 import { icon, withIcon } from './icons.js';
 import { parseCsv, fromSheet } from './importer.js';
 import { remindTime, setRemindTime, googleCalendarUrl, icsFile } from './remind.js';
+import { dietMemo } from './diet.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -240,7 +241,8 @@ function statsGrid() {
   if (s.toGo !== null) tiles.push(stat('target', t('До цели'), kg(Math.max(0, s.toGo), 2), t('цель {kg}', { kg: kg(s.target) })));
   if (s.rate !== null) {
     tiles.push(stat('speed', t('Темп'), `${fmt.fix(s.rate, 2)} ${t('кг/нед')}`,
-      Number.isFinite(g.planRate) ? t('план {r}', { r: fmt.fix(g.planRate, 2) }) : null,
+      [s.recent !== null ? t('за 4 нед. {r}', { r: fmt.fix(s.recent, 2) }) : null,
+        Number.isFinite(g.planRate) ? t('план {r}', { r: fmt.fix(g.planRate, 2) }) : null].filter(Boolean).join(' · ') || null,
       Number.isFinite(g.planRate) && s.rate >= g.planRate ? 'good' : ''));
   }
   if (s.weekDelta !== null) tiles.push(stat('trend', t('За неделю'), kgd(s.weekDelta, 2), t('среднее к прошлой неделе'), trendClass(s.weekDelta)));
@@ -248,10 +250,25 @@ function statsGrid() {
     tiles.push(stat('route', t('От плана'), kgd(s.planDiff, 2),
       s.planDiff < -0.005 ? t('опережаете') : s.planDiff > 0.005 ? t('отстаёте') : t('точно по плану'), trendClass(s.planDiff)));
   }
-  if (s.finish) tiles.push(stat('flag', t('Прогноз финиша'), fmt.date(s.finish), t('≈ {n} нед.', { n: s.weeksLeft })));
+  const pace = s.recent !== null ? t('темпом за 4 нед.') : t('темпом с начала');
+  if (s.finish) tiles.push(stat('flag', t('Прогноз финиша'), fmt.date(s.finish), `${t('≈ {n} нед.', { n: s.weeksLeft })} · ${pace}`));
   else if (s.toGo !== null && s.toGo <= 0) tiles.push(stat('trophy', t('Цель'), t('достигнута'), null, 'good'));
+  else if (s.toGo !== null && s.rate !== null) {
+    tiles.push(stat('flag', t('Прогноз финиша'), '—', s.recent !== null ? t('за 4 нед. вес не снижается') : t('вес не снижается'), 'bad'));
+  }
   tiles.push(stat('calendar-check', t('Дней записано'), fmt.int(s.days), g.startDate ? t('с {date}', { date: fmt.date(g.startDate) }) : null));
   return h('div', { class: 'stats' }, tiles);
+}
+
+/** Плашка «Плато»: середнє давно не оновлює мінімум. */
+function plateauNote() {
+  const p = M.plateau(rows);
+  if (!p || (sum.toGo !== null && sum.toGo <= 0)) return null;
+  return h('section', { class: 'plateau' },
+    h('div', { class: 'plateau-head' }, icon('warning'),
+      h('b', {}, t('Плато {n} {days}', { n: p.days, days: plural(p.days, [t('день'), t('дня'), t('дней')]) }))),
+    h('p', { class: 'small' }, t('Среднее с {date} не опускается ниже {kg}. Обычно это вода и соль, а не жир: проверьте порции и сладкое, добавьте шагов — и подождите ещё неделю.',
+      { date: fmt.date(p.since), kg: kg(p.low, 2) })));
 }
 
 function checkpointsBox() {
@@ -304,14 +321,18 @@ function renderHome() {
   return h('div', {},
     todayRow ? todayDone(todayRow) : quickEntry(),
     hero(),
+    plateauNote(),
     statsGrid(),
     checkpointsBox(),
-    bmiBox());
+    bmiBox(),
+    box(withIcon('leaf', t('Питание при диабете')), dietMemo(), { fold: 'diet' }));
 }
 
 // ---------- графік ----------
 
 const PERIODS = [['30', 'Месяц'], ['90', '3 месяца'], ['all', 'Всё']];
+/** Лінію прогнозу до фінішу, дальшого за стільки днів, не малюємо. */
+const FORECAST_MAX_DAYS = 365;
 let period = PERIODS.some(([k]) => k === recall('weight-log:period')) ? recall('weight-log:period') : '90';
 let picked = null;
 /** Вікно, набране колесом миші; кнопка періоду його скидає. */
@@ -355,7 +376,12 @@ function renderChart() {
   const from = period === 'all' ? rows[0].date : M.addDays(lastDate, -(Number(period) - 1));
   const vis = rows.filter((r) => r.date >= from);
   const showRange = (a, b) => { $('subtitle').textContent = `${fmt.date(a)} — ${fmt.date(b)}`; };
-  const view = chartView ?? [vis[0].date, lastDate];
+  // Прогноз — пунктир від поточного середнього до цілі; фініш далі за рік не малюємо — стиснув би графік
+  const finish = sum.finish && M.daysBetween(sum.currentDate, sum.finish) <= FORECAST_MAX_DAYS ? sum.finish : null;
+  const forecast = finish ? [{ date: sum.currentDate, v: sum.current }, { date: finish, v: sum.target }] : [];
+  // Місяць і 3 місяці заглядають уперед на п'яту частину періоду, «усе» — до самого фінішу
+  const viewEnd = finish ? (period === 'all' ? finish : [finish, M.addDays(lastDate, Math.round(Number(period) / 5))].sort()[0]) : lastDate;
+  const view = chartView ?? [vis[0].date, viewEnd];
   showRange(...view);
   const g = sum.goal;
   const plan = rows.map((r) => ({ date: r.date, v: M.planAt(g, r.date) })).filter((p) => p.v !== null);
@@ -370,6 +396,7 @@ function renderChart() {
       { key: 'plan', kind: 'line', cls: 's-plan', points: plan },
       { key: 'kg', kind: 'dots', cls: 's-kg', points: rows.map((r, i) => ({ date: r.date, v: r.kg, ring: Boolean(r.note), last: i === rows.length - 1 })) },
       { key: 'avg', kind: 'line', cls: 's-avg', points: rows.filter((r) => r.avg !== null).map((r) => ({ date: r.date, v: r.avg })), endLabel: true },
+      { key: 'forecast', kind: 'line', cls: 's-forecast', points: forecast, aside: true },
     ],
     height: 260,
     zoom: true,
@@ -382,6 +409,7 @@ function renderChart() {
       { label: t('Вес'), kind: 'dot', cls: 's-kg' },
       { label: t('Среднее 7 дн'), kind: 'line', cls: 's-avg' },
       plan.length ? { label: t('План'), kind: 'line dash', cls: 's-plan' } : null,
+      finish ? { label: t('прогноз → {date}', { date: fmt.date(finish) }), kind: 'line dash', cls: 's-forecast' } : null,
       vis.some((r) => r.note) ? { label: t('с заметкой'), kind: 'ring', cls: 's-kg' } : null,
       ahead.length ? { label: t('опережаете'), kind: 'area', cls: 'good' } : null,
       ahead.length ? { label: t('отстаёте'), kind: 'area', cls: 'bad' } : null,
@@ -396,8 +424,8 @@ function renderChart() {
     : null;
   return h('div', {}, seg,
     h('section', { class: 'panel chart-panel' }, chart, below,
-      h('p', { class: 'muted small chart-note chart-hint mouse' }, t('Колесо мыши — масштаб, перетаскивание — сдвиг, двойной клик — сбросить.')),
-      h('p', { class: 'muted small chart-note chart-hint touch' }, t('Касание — выбрать день, палец вбок — сдвиг, два пальца — масштаб. Кнопка периода — сбросить.'))),
+      h('p', { class: 'muted small chart-note chart-hint mouse' }, t('Колесо мыши — масштаб, перетаскивание — сдвиг, двойной клик — приблизить или сбросить.')),
+      h('p', { class: 'muted small chart-note chart-hint touch' }, t('Касание — выбрать день, палец вбок — сдвиг. Два пальца вширь — масштаб дат, вверх-вниз — масштаб веса. Двойной тап — приблизить или сбросить.'))),
     box(withIcon('calendar', t('Выбранный день')), details),
     waistBox());
 }
@@ -423,7 +451,41 @@ function waistBox() {
 
 // ---------- журнал ----------
 
-let logSeg = recall('weight-log:log-seg') === 'waist' ? 'waist' : 'weight';
+const LOG_SEGS = [['weight', 'Вес'], ['waist', 'Талия'], ['sizes', 'Размеры']];
+let logSeg = LOG_SEGS.some(([k]) => k === recall('weight-log:log-seg')) ? recall('weight-log:log-seg') : 'weight';
+
+const sizesText = () => state.settings.find((s) => s.id === M.SIZES_ID)?.text ?? '';
+
+/** Розміри — одним текстом, рядок на розмір: так список можна вставити цілком. */
+function sizesForm() {
+  const input = h('textarea', { rows: 12, placeholder: t('Перчатки L\nОбувь 43/44, стелька 28,5 см\nГолова 59 см'), autocomplete: 'off' });
+  input.value = sizesText();
+  const save = async () => {
+    sync.renewOnGesture();
+    close();
+    const text = input.value.split('\n').map((s) => s.trimEnd()).join('\n').trim();
+    await db.write({ settings: { put: [{ id: M.SIZES_ID, text }] } });
+    toast(t('Размеры сохранены'));
+  };
+  const close = sheet(t('Мои размеры'), h('div', { class: 'form' },
+    h('label', { class: 'field' }, input,
+      h('small', { class: 'muted' }, t('Строка — один размер: название, потом значение. Можно вставить список целиком.')))), {
+    actions: [btn(t('Сохранить'), save, 'primary')],
+  });
+}
+
+function renderSizes(seg) {
+  const list = M.parseSizes(sizesText());
+  $('subtitle').textContent = t('размеров: {n}', { n: list.length });
+  if (!list.length) {
+    return h('div', {}, seg, empty('tape', t('Размеров нет'),
+      t('Перчатки, обувь, одежда, кольцо — чтобы всегда были под рукой в магазине.'),
+      btn(withIcon('plus', t('Указать размеры')), sizesForm)));
+  }
+  return h('div', {}, seg, h('div', { class: 'rows sizes' }, list.map((s) => h('button', { type: 'button', class: 'row log-row', onclick: sizesForm },
+    h('div', { class: 'row-main' }, h('span', { class: 'row-title' }, s.label)),
+    s.value ? h('div', { class: 'row-side' }, h('span', { class: 'size-value' }, s.value)) : null))));
+}
 
 function weightRow(r) {
   return h('button', { type: 'button', class: 'row log-row', onclick: () => weightForm(r.date) },
@@ -440,7 +502,8 @@ function weightRow(r) {
 }
 
 function renderLog() {
-  const seg = segmented([['weight', t('Вес')], ['waist', t('Талия')]], logSeg, (v) => { logSeg = v; remember('weight-log:log-seg', v); render(); });
+  const seg = segmented(LOG_SEGS.map(([k, l]) => [k, t(l)]), logSeg, (v) => { logSeg = v; remember('weight-log:log-seg', v); render(); });
+  if (logSeg === 'sizes') return renderSizes(seg);
   if (logSeg === 'waist') {
     const ws = M.waistSeries(state.waists).reverse();
     $('subtitle').textContent = t('замеров: {n}', { n: ws.length });
@@ -865,7 +928,7 @@ function renderSettings() {
 const VIEWS = {
   home: { title: 'Вес', render: renderHome, fab: () => weightForm() },
   chart: { title: 'График', render: renderChart, fab: () => weightForm() },
-  log: { title: 'Журнал', render: renderLog, fab: () => (logSeg === 'waist' ? waistForm() : weightForm()) },
+  log: { title: 'Журнал', render: renderLog, fab: () => ({ waist: waistForm, sizes: sizesForm }[logSeg] ?? weightForm)() },
   settings: { title: 'Настройки', render: renderSettings },
 };
 

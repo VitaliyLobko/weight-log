@@ -147,6 +147,24 @@ button, input, select, textarea { font: inherit; color: inherit; }
   background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 22%, var(--surface)), var(--surface) 70%);
   border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
 }
+.plateau {
+  margin-bottom: 12px;
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--warn) 12%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line));
+}
+.plateau-head { display: flex; align-items: center; gap: 8px; color: color-mix(in srgb, var(--warn) 70%, var(--text)); }
+.plateau-head .ico { width: 18px; height: 18px; }
+.plateau p { margin: 4px 0 0; color: var(--muted); }
+.sizes .row-side { max-width: 60%; }
+.size-value { font-weight: 700; text-align: right; overflow-wrap: anywhere; }
+.diet-group h4 { margin: 10px 0 6px; font-size: 14px; }
+.diet-group.good h4 { color: var(--good); }
+.diet-group.bad h4 { color: var(--bad); }
+.diet-group ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; font-size: 14px; }
+.diet-group li { display: flex; gap: 8px; align-items: baseline; }
+.diet-emoji { flex: none; width: 20px; text-align: center; }
 .hero-label { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
 .hero-value { display: flex; align-items: baseline; gap: 8px; margin-top: 2px; font-size: 48px; line-height: 1.1; font-weight: 800; letter-spacing: -.02em; }
 .hero-unit { font-size: 18px; font-weight: 600; color: var(--muted); }
@@ -257,6 +275,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .key.s-avg { background: var(--c-avg); }
 .key.s-plan { background: var(--c-plan); }
 .key.line.dash { height: 2px; background: repeating-linear-gradient(90deg, var(--c-plan) 0 5px, transparent 5px 8px); }
+.key.line.dash.s-forecast { background: repeating-linear-gradient(90deg, var(--c-avg) 0 2px, transparent 2px 6px); }
 .key.s-kg { background: var(--c-kg); }
 .key.ring.s-kg { background: none; }
 .key.area.good { background: color-mix(in srgb, var(--good) 40%, transparent); }
@@ -271,6 +290,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .chart-svg .series-line.s-avg { stroke: var(--c-avg); stroke-width: 2.75; }
 .chart-svg .series-line.s-plan { stroke: var(--c-plan); stroke-width: 1.6; stroke-dasharray: 6 5; opacity: .9; }
 .chart-svg .series-line.s-waist { stroke: var(--c-waist); }
+.chart-svg .series-line.s-forecast { stroke: var(--c-avg); stroke-width: 2; stroke-dasharray: 2 5; opacity: .75; }
 .chart-svg .series-band .ahead { fill: var(--good); opacity: .24; }
 .chart-svg .series-band .behind { fill: var(--bad); opacity: .3; }
 .chart-svg .series-dots circle { stroke: var(--surface); stroke-width: 1.5; }

@@ -1,2 +1,2 @@
 // Підняти при кожному релізі: від цього залежить оновлення кешу service worker.
-self.APP_VERSION = '0.1.9';
+self.APP_VERSION = '0.1.10';
