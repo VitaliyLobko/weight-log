@@ -14,6 +14,7 @@ const ASSETS = [
   './js/sync.js',
   './js/google-token.js',
   './js/drive-files.js',
+  './js/bot-key.js',
   './js/bot.js',
   './js/cloud.js',
   './js/model.js',

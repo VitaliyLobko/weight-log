@@ -182,6 +182,13 @@ async function upload(fileId, data) {
   return res.written;
 }
 
+/** Копія з Диска для «Відновити з Диска»: вміст weight-log.json (як файл копії) або null — файлу ще нема. */
+export async function fetchBackup() {
+  if (!tokenValid()) throw new AuthError(t('Нажмите, чтобы войти в Google'));
+  const id = await locate(api, FILE_NAME, conf.fileId);
+  return id ? readJson(api, id) : null;
+}
+
 // ---------- спільні налаштування бота ----------
 
 /**
@@ -192,6 +199,7 @@ async function syncBotSettings() {
   conf.botFileId = await syncBotFile(api, conf.botFileId, {
     mine: bot.sharedConfig(),
     declinedAt: bot.declinedAt(),
+    isBad: bot.isBadKey,
     apply: (theirs) => {
       bot.setBotConfig(theirs.url, theirs.key, theirs.updated);
       window.dispatchEvent(new Event('bot-config'));
@@ -203,6 +211,18 @@ async function syncBotSettings() {
 /** Налаштування бота змінено тут — віднести на Диск з найближчою синхронізацією. */
 export function botChanged() {
   if (conf.enabled) schedule(300, true);
+}
+
+let botRoundBusy = null;
+
+/**
+ * Лише bot-settings.json, без копії журналу: при відкритті й коли бот відкинув ключ — вставлений на іншому
+ * пристрої ключ приходить одразу, а не з добовою копією. Ключ Google мертвий — тихо до наступного разу.
+ */
+export function botRound() {
+  if (!configured() || !conf.enabled || !navigator.onLine || !tokenValid()) return Promise.resolve();
+  botRoundBusy ??= syncBotSettings().catch((err) => console.warn('bot-settings', err)).finally(() => { botRoundBusy = null; });
+  return botRoundBusy;
 }
 
 // ---------- злиття ----------
@@ -281,7 +301,11 @@ export async function syncNow({ force = false } = {}) {
   if (!configured()) { set('unconfigured'); return; }
   if (!conf.enabled) { set('off'); return; }
   const fresh = conf.lastSync && Date.now() - conf.lastSync < BACKUP_EVERY;
-  if (!force && fresh && !conf.restoreAt && bot.botConfig().from) { set('idle'); return; }
+  if (!force && fresh && !conf.restoreAt && bot.botConfig().from) {
+    set('idle');
+    botRound();
+    return;
+  }
   if (!navigator.onLine) { set('offline'); return; }
   if (!tokenValid()) { set('auth', t('Нажмите, чтобы войти в Google')); return; }
   if (running) { again = true; return; }

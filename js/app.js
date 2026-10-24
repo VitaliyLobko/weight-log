@@ -1,6 +1,7 @@
 import * as db from './db.js';
 import * as sync from './sync.js';
 import * as bot from './bot.js';
+import * as BK from './bot-key.js';
 import * as M from './model.js';
 import {
   h, fmt, sheet, toast, form, btn, toolBtn, confirmSheet, fold, box, foldFrame, unfold, segmented,
@@ -260,6 +261,15 @@ function statsGrid() {
 }
 
 /** Плашка «Плато»: середнє давно не оновлює мінімум. */
+/** Бот відкидає ключ — на головній, а не лише в налаштуваннях: інакше записи тихо не їдуть на інші пристрої. */
+function keyNote() {
+  if (!bot.keyProblem()) return null;
+  return h('section', { class: 'plateau key-note' },
+    h('div', { class: 'plateau-head' }, icon('warning'), h('b', {}, t('Ключ доступа не подходит'))),
+    h('p', { class: 'small' }, t('Записи не уходят на другие устройства. Возьмите новый ключ командой /key в Telegram-боте и вставьте в любом приложении — Хобі-план, Вага или Марнотрат: остальные на этом устройстве возьмут его сами, другие — с Google Диска.')),
+    h('div', { class: 'btn-row' }, btn(t('Вставить ключ'), () => openSettings('data'), 'primary')));
+}
+
 function plateauNote() {
   const p = M.plateau(rows);
   if (!p || (sum.toGo !== null && sum.toGo <= 0)) return null;
@@ -312,12 +322,13 @@ function bmiBox() {
 
 function renderHome() {
   if (!rows.length) {
-    return h('div', {}, quickEntry(), empty('scale', t('Начнём'),
+    return h('div', {}, keyNote(), quickEntry(), empty('scale', t('Начнём'),
       t('Записывайте вес каждое утро — среднее за 7 дней, темп и прогноз посчитаются сами. Уже вели учёт на другом устройстве — подключите Google Диск в настройках.'),
-      btn(withIcon('cloud', t('Подключить Google Диск')), () => openSettings('sync'))));
+      btn(withIcon('cloud', t('Подключить Google Диск')), () => openSettings('data'))));
   }
   const todayRow = rows.find((r) => r.date === M.today());
   return h('div', {},
+    keyNote(),
     todayRow ? todayDone(todayRow) : quickEntry(),
     hero(),
     plateauNote(),
@@ -648,7 +659,7 @@ function remindPanel() {
     connected
       ? segmented([['on', t('Напоминать')], ['off', t('Не напоминать')]], bot.remindOn() ? 'on' : 'off',
         (v) => { bot.setRemindOn(v === 'on'); bot.scheduleBot(300); })
-      : h('p', { class: 'muted small' }, t('Бот не подключён — это в группе «Telegram» ниже.')),
+      : h('p', { class: 'muted small' }, t('Синхронизация не включена — это в группе «Данные» ниже.')),
     fold('remind-calendar', withIcon('calendar', t('Календарь телефона')), h('div', {},
       h('p', { class: 'muted small' }, t('Запасной вариант без бота: ежедневное событие «Взвеситься» с уведомлением — будит телефон сам календарь.')),
       h('div', { class: 'btn-row' },
@@ -677,18 +688,19 @@ async function runBot() {
 }
 
 function botStatus(cfg) {
-  if (!cfg.from) return t('Не подключён. Проще всего — подключить бота в Хобі-плане на этом же телефоне: адрес и ключ подхватятся сами. Или укажите их ниже.');
-  if (botError === 'key') return t('Бот не принял ключ — возьмите новый командой /key и укажите его здесь и в Хобі-плане.');
-  if (botError) return t('Нет связи с ботом: {e}', { e: botError });
-  const via = cfg.from === 'hobby' ? t('Подключён через Хобі-план.') : t('Подключён.');
-  return `${via} ${t('Последний обмен: {time}', { time: syncTime(bot.lastSync()) })}`;
+  if (bot.keyProblem()) return t('Ключ доступа не подходит — возьмите новый командой /key в Telegram-боте и вставьте ниже.');
+  if (!cfg.from) return t('Не включена. Вставьте адрес сервера и ключ доступа ниже — или включите синхронизацию в Хобі-плане на этом устройстве, она подхватится сама.');
+  if (botError === 'key') return t('Ключ доступа не подходит — возьмите новый командой /key в Telegram-боте и вставьте ниже.');
+  if (botError) return t('Нет связи с сервером: {e}', { e: botError });
+  return t('Обмен: {time}', { time: syncTime(bot.lastSync()) });
 }
 
-function telegramPanel() {
+/** «Синхронізація»: стан обміну, адреса й ключ (спільні для застосунків на пристрої), обмін і від'єднання. */
+function botPanel() {
   const cfg = bot.botConfig();
   const f = form([
-    { name: 'url', label: t('Адрес бота'), value: cfg.from === 'own' ? cfg.url : '', placeholder: 'https://….workers.dev' },
-    { name: 'key', label: t('Ключ — команда /key в боте'), type: 'password', value: cfg.from === 'own' ? cfg.key : '' },
+    { name: 'url', label: t('Адрес сервера'), value: cfg.url, placeholder: 'https://….workers.dev' },
+    { name: 'key', label: t('Ключ доступа'), type: 'password', value: cfg.key },
   ]);
   const save = async () => {
     const v = f.values();
@@ -697,26 +709,23 @@ function telegramPanel() {
     sync.botChanged();
     await runBot();
     render();
-    toast(botError ? botStatus(bot.botConfig()) : t('Бот подключён'));
+    toast(botError ? botStatus(bot.botConfig()) : t('Синхронизация включена'));
   };
-  const own = h('div', {}, f.el, h('div', { class: 'btn-row' },
-    btn(t('Сохранить'), save, cfg.from ? '' : 'primary'),
-    cfg.from === 'own' ? btn(t('Отключить'), () => { bot.setBotConfig('', ''); botError = ''; render(); }) : null));
+  const exchange = async () => {
+    await runBot();
+    render();
+    if (!botError) toast(t('Обмен прошёл'));
+  };
+  const bad = Boolean(botError) || bot.keyProblem();
   return h('section', { class: 'panel' },
-    h('p', { class: 'muted small' }, t('Бот Хобі-плана во время напоминания пишет «пора взвеситься» и принимает вес сообщением — числом, например 82,4, можно с заметкой. Запись сама появится в журнале, когда откроете приложение.')),
-    h('p', { class: 'muted small' }, t('В базе бота хранится весь журнал — вес, талия и настройки: так он совпадает на всех телефонах. Без интернета всё записывается как обычно и уйдёт, когда появится связь.')),
-    h('p', { class: 'muted small' }, sync.enabled()
-      ? t('Адрес и ключ лежат на Google Диске в общем файле bot-settings.json — подключите один раз, и бот будет подключён на всех устройствах и во всех приложениях с этим Диском.')
-      : t('Подключите Google Диск — и адрес с ключом будут общими для всех ваших устройств и приложений.')),
-    h('p', { class: `small ${botError ? 'error-text' : 'muted'}` }, botStatus(cfg)),
-    cfg.from ? [
-      h('div', { class: 'btn-row' }, btn(withIcon('sync', t('Проверить связь')), async () => {
-        await runBot();
-        render();
-        if (!botError) toast(t('Связь с ботом есть'));
-      }, 'primary')),
-    ] : null,
-    cfg.from === 'hobby' ? fold('bot-own', t('Свой адрес и ключ'), own) : own);
+    h('h3', {}, withIcon('sync', t('Синхронизация'))),
+    h('p', { class: `small ${bad ? 'error-text' : 'muted'}` }, botStatus(cfg)),
+    h('p', { class: 'muted small' }, t('Весь журнал (вес, талия, настройки) лежит в общей базе на сервере — одинаковый на всех устройствах; без интернета всё уйдёт позже. Эту же базу читает Telegram-бот: напоминает взвеситься и принимает вес сообщением. Ключ доступа даёт команда /key в боте; достаточно вставить в одном приложении — Хобі-план, Вага или Марнотрат.')),
+    f.el,
+    h('div', { class: 'btn-row' },
+      btn(t('Сохранить'), save, cfg.from ? '' : 'primary'),
+      cfg.from ? btn(withIcon('sync', t('Обменяться сейчас')), exchange, 'primary') : null,
+      cfg.from ? btn(t('Выключить синхронизацию'), () => { bot.setBotConfig('', ''); botError = ''; render(); }) : null));
 }
 
 const CHIP = {
@@ -768,28 +777,48 @@ function connectGoogle() {
   sync.connect().then(() => toast(t('Google Диск подключён'))).catch((err) => toast(err.message));
 }
 
-function syncPanel() {
+/** «Google Диск»: з ботом — щоденна копія, без бота — синхронізація між пристроями. */
+function drivePanel() {
   const s = sync.status;
-  const panel = h('section', { class: 'panel' }, h('h3', {}, withIcon('cloud', t('Синхронизация · Google Диск'))));
+  const daily = Boolean(bot.botConfig().from);
+  const panel = h('section', { class: 'panel' }, h('h3', {}, withIcon('cloud', daily ? t('Google Диск · ежедневная копия') : t('Google Диск · синхронизация'))));
   if (!sync.configured()) {
     panel.append(h('p', { class: 'muted small' }, t('Не настроена: в js/config.js не указан Google Client ID.')));
   } else if (!sync.enabled()) {
     panel.append(
-      h('p', { class: 'muted small' }, t('Данные будут храниться в файле weight-log.json на вашем Google Диске и совпадать на телефоне и компьютере. Приложение видит только свои файлы, остальной Диск ему недоступен.')),
+      h('p', { class: 'muted small' }, t('Копия журнала — файл weight-log.json на вашем Google Диске; там же адрес сервера и ключ доступа для других устройств. Приложение видит только свои файлы.')),
       h('div', { class: 'btn-row' }, btn(withIcon('cloud', t('Подключить Google Диск')), connectGoogle, 'primary')));
   } else {
+    const restore = async () => {
+      try {
+        const parsed = await sync.fetchBackup();
+        if (!parsed) { toast(t('На Диске ещё нет копии')); return; }
+        importParsed(parsed, t('Копия с Google Диска'));
+      } catch (err) { toast(err.message); }
+    };
     panel.append(
       h('div', { class: 'account' }, avatar(s.photo, 'big'),
         h('div', { class: 'account-text' }, h('b', {}, s.name ?? s.email ?? '—'), s.name && s.email ? h('span', { class: 'muted small' }, s.email) : null)),
-      h('dl', { class: 'kv' },
-        h('dt', {}, t('Последняя')), h('dd', {}, syncTime(s.lastSync)),
-        s.message ? [h('dt', {}, t('Статус')), h('dd', {}, s.message)] : null),
-      bot.botConfig().from ? h('p', { class: 'muted small' }, t('Подключён бот: записи между устройствами передаёт он, а сюда раз в день сохраняется резервная копия.')) : null,
+      h('p', { class: `small ${s.state === 'error' ? 'error-text' : 'muted'}` },
+        s.message || t('Последняя копия: {time}', { time: syncTime(s.lastSync) })),
       h('div', { class: 'btn-row' },
-        s.state === 'auth' ? btn(t('Войти в Google'), connectGoogle, 'primary') : btn(withIcon('sync', t('Синхронизировать')), () => { sync.syncNow({ force: true }); runBot(); }, 'primary'),
-        btn(t('Отключить'), () => confirmSheet(t('Отключить синхронизацию?'), t('Данные останутся и на устройстве, и на Google Диске, просто перестанут обмениваться.'), t('Отключить'), () => sync.disconnect()))));
+        s.state === 'auth' ? btn(t('Войти в Google'), connectGoogle, 'primary') : btn(withIcon('sync', t('Сохранить сейчас')), () => sync.syncNow({ force: true }), 'primary'),
+        btn(withIcon('download', t('Восстановить с Диска')), restore),
+        btn(t('Отключить'), () => confirmSheet(t('Отключить Google Диск?'), t('Копия на Диске останется, просто перестанет обновляться. Вход в Google в других приложениях не тронем.'), t('Отключить'), () => sync.disconnect()))));
   }
   return panel;
+}
+
+/** «Копія у файл»: зберегти (на телефоні — «Поділитися», на комп'ютері — завантажити) і відновити. */
+function filePanel() {
+  const input = h('input', { type: 'file', accept: '.json,application/json', hidden: true, onchange: (e) => { if (e.target.files[0]) importBackup(e.target.files[0]); e.target.value = ''; } });
+  return h('section', { class: 'panel' },
+    h('h3', {}, withIcon('archive', t('Копия в файл'))),
+    h('p', { class: 'muted small' }, t('Взвешиваний: {w} · замеров талии: {c}', { w: state.weights.length, c: state.waists.length })),
+    h('div', { class: 'btn-row' },
+      btn(withIcon('download', t('Сохранить копию')), () => exportData(true)),
+      btn(withIcon('upload', t('Восстановить из файла')), () => input.click())),
+    input);
 }
 
 async function exportData(share) {
@@ -810,6 +839,11 @@ function readText(file) {
 async function importBackup(file) {
   let parsed;
   try { parsed = JSON.parse(await readText(file)); } catch { toast(t('Файл не похож на JSON')); return; }
+  importParsed(parsed, t('Импорт копии'));
+}
+
+/** Копія (з файлу чи з Диска): «Объединить» або «Заменить всё». */
+function importParsed(parsed, title) {
   const data = parsed?.data;
   if (parsed?.app !== 'weight-log' || !data || !db.STORES.every((s) => !data[s] || Array.isArray(data[s]))) {
     toast(t('Это не резервная копия Weight Log'));
@@ -817,16 +851,16 @@ async function importBackup(file) {
   }
   const count = db.STORES.reduce((s, k) => s + (data[k]?.length ?? 0), 0);
   const changes = Object.fromEntries(db.STORES.map((s) => [s, { put: (data[s] ?? []).filter((x) => x && x.id) }]));
-  const close = sheet(t('Импорт копии'), h('div', {},
+  const close = sheet(title, h('div', {},
     h('p', {}, t('В файле {n} записей.', { n: count })),
     h('p', { class: 'muted small' }, t('«Объединить» — добавит новые записи и обновит те, что в файле новее: более поздние правки на устройстве останутся. «Заменить всё» — сначала удалит текущие данные.')),
-    sync.enabled() ? h('p', { class: 'muted small' }, t('Включена синхронизация: «Заменить всё» заменит данные и на Google Диске, и на других устройствах. «Объединить» не откатит более новые данные с Диска.')) : null), {
+    sync.enabled() || bot.botConfig().from ? h('p', { class: 'muted small' }, t('«Заменить всё» заменит данные и на других устройствах. «Объединить» не откатит более новые правки с них.')) : null), {
     actions: [
       btn(t('Отмена'), () => close()),
       btn(t('Объединить'), async () => { close(); await db.mergeImport(changes); bot.rewindPushed(); toast(t('Импортировано')); }, 'primary'),
       btn(t('Заменить всё'), () => {
         close();
-        confirmSheet(t('Заменить все данные?'), t('Текущие данные будут удалены. Сначала сделайте экспорт, если они нужны.'), t('Заменить'), async () => {
+        confirmSheet(t('Заменить все данные?'), t('Текущие данные будут удалены. Сначала сохраните копию, если они нужны.'), t('Заменить'), async () => {
           const at = await db.replaceAll(changes);
           sync.markRestore(at);
           bot.markRestore(at);
@@ -886,7 +920,6 @@ function aboutPanel() {
 
 function renderSettings() {
   $('subtitle').textContent = t('версия {v}', { v: self.APP_VERSION });
-  const backupInput = h('input', { type: 'file', accept: '.json,application/json', hidden: true, onchange: (e) => { if (e.target.files[0]) importBackup(e.target.files[0]); e.target.value = ''; } });
   return h('div', {},
     settingsGroup(t('О приложении'), [aboutPanel(),
       h('section', { class: 'panel' },
@@ -895,19 +928,7 @@ function renderSettings() {
     settingsGroup(withIcon('target', t('Цель')), [goalPanel()], { fold: 'goal' }),
     settingsGroup(withIcon('flag', t('Контрольные точки')), [checkpointsPanel()], { fold: 'checkpoints' }),
     settingsGroup(withIcon('bell', t('Напоминание')), [remindPanel()], { fold: 'remind' }),
-    settingsGroup(withIcon('note', 'Telegram'), [telegramPanel()], { fold: 'telegram' }),
-    settingsGroup(withIcon('cloud', t('Google Диск и копия')), [syncPanel(),
-      h('section', { class: 'panel' },
-        h('h3', {}, withIcon('archive', t('Резервная копия'))),
-        h('p', { class: 'muted small' }, sync.enabled()
-          ? t('Основная копия — на Google Диске. Файл ниже — дополнительный снимок на всякий случай.')
-          : t('Без синхронизации данные хранятся только на этом устройстве. Время от времени сохраняйте копию — например, «Поделиться» → Google Диск или Telegram «Избранное».')),
-        h('div', { class: 'btn-row' },
-          btn(withIcon('share', t('Поделиться копией')), () => exportData(true), 'primary'),
-          btn(withIcon('download', t('Скачать файл')), () => exportData(false)),
-          btn(withIcon('upload', t('Импорт копии')), () => backupInput.click())),
-        h('p', { class: 'muted small' }, t('Взвешиваний: {w} · замеров талии: {c}', { w: state.weights.length, c: state.waists.length })),
-        backupInput)], { fold: 'sync' }),
+    settingsGroup(withIcon('cloud', t('Данные')), [botPanel(), drivePanel(), filePanel()], { fold: 'data' }),
     settingsGroup(withIcon('theme', t('Внешний вид')), [
       h('section', { class: 'panel' }, h('h3', {}, withIcon('globe', 'Язык · Мова')), segmented(Object.entries(LANGS), lang(), switchLang)),
       h('section', { class: 'panel' }, h('h3', {}, withIcon('theme', t('Тема'))),
@@ -1004,6 +1025,10 @@ window.addEventListener('db-change', () => bot.scheduleBot());
 window.addEventListener('sync-applied', () => bot.scheduleBot());
 // Адреса й ключ прийшли з Диска (спільний bot-settings.json) — одразу обмін, статус у налаштуваннях оновить runBot
 window.addEventListener('bot-config', () => runBot());
+// Бот відкинув ключ — шукаємо новіший на Диску (його могли вставити на іншому пристрої) і показуємо плашку
+window.addEventListener('bot-key', () => { sync.botRound(); render(); });
+// Ключ вставили в іншому застосунку на цьому пристрої
+BK.onShared(() => { runBot(); render(); });
 
 applyStatic();
 applyTheme();
