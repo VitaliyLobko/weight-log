@@ -2,6 +2,7 @@
 // Офлайн-перший підхід: усе пишеться в IndexedDB, а сюди потрапляє, коли є мережа.
 // Злиття — по id: перемагає запис з пізнішим updated, надгробок перемагає старіший запис.
 import * as db from './db.js';
+import * as bot from './bot.js';
 import { GOOGLE_CLIENT_ID } from './config.js';
 import { t } from './i18n.js';
 
@@ -190,6 +191,62 @@ async function upload(fileId, data) {
   return created.id;
 }
 
+// ---------- спільні налаштування бота ----------
+
+/**
+ * Адреса й ключ Telegram-бота — один файл bot-settings.json на всі застосунки автора: вони входять у Google
+ * одним клієнтом, а drive.file бачить файли свого клієнта. Перемагає новіший запис; порожній не пишемо —
+ * «Відключити» діє лише на цьому пристрої й не відключає бота в інших застосунках.
+ */
+const BOT_FILE = 'bot-settings.json';
+
+async function syncBotSettings() {
+  let fileId = conf.botFileId;
+  if (fileId) {
+    try {
+      const meta = await (await api(`${DRIVE}/files/${fileId}?fields=id,trashed`)).json();
+      if (meta.trashed) fileId = null;
+    } catch (err) {
+      if (err instanceof AuthError) throw err;
+      fileId = null;
+    }
+  }
+  if (!fileId) {
+    const q = encodeURIComponent(`name='${BOT_FILE}' and trashed=false`);
+    const { files } = await (await api(`${DRIVE}/files?q=${q}&spaces=drive&orderBy=modifiedTime desc&fields=files(id)`)).json();
+    fileId = files?.[0]?.id ?? null;
+  }
+  const remote = fileId ? await (await api(`${DRIVE}/files/${fileId}?alt=media`)).json() : null;
+  const mine = bot.sharedConfig();
+  const theirs = remote?.url && remote?.key ? remote : null;
+  if (theirs && (!mine || stamp(theirs) > mine.updated)) {
+    bot.setBotConfig(theirs.url, theirs.key, stamp(theirs));
+    window.dispatchEvent(new Event('bot-config'));
+  } else if (mine && (!theirs || mine.updated > stamp(theirs))) {
+    const content = JSON.stringify({ app: 'bot-settings', format: 1, url: mine.url, key: mine.key, updated: mine.updated || Date.now() });
+    if (fileId) {
+      await api(`${UPLOAD}/files/${fileId}?uploadType=media`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: content });
+    } else {
+      const boundary = `bs${Date.now()}`;
+      const body = [
+        `--${boundary}`, 'Content-Type: application/json; charset=UTF-8', '',
+        JSON.stringify({ name: BOT_FILE, mimeType: 'application/json', description: 'Telegram-бот: адреса й ключ для застосунків' }),
+        `--${boundary}`, 'Content-Type: application/json', '', content, `--${boundary}--`,
+      ].join('\r\n');
+      fileId = (await (await api(`${UPLOAD}/files?uploadType=multipart&fields=id`, {
+        method: 'POST', headers: { 'Content-Type': `multipart/related; boundary=${boundary}` }, body,
+      })).json()).id;
+    }
+  }
+  conf.botFileId = fileId;
+  save();
+}
+
+/** Налаштування бота змінено тут — віднести на Диск з найближчою синхронізацією. */
+export function botChanged() {
+  if (conf.enabled) schedule(300);
+}
+
 // ---------- злиття ----------
 
 const stamp = (x) => Number(x?.updated) || 0;
@@ -286,6 +343,13 @@ export async function syncNow() {
     const changes = localChanges(local, merged);
     if (changes) await db.writeMerged(changes);
     if (!fileId || fingerprint(remote) !== fingerprint(merged)) await upload(fileId, merged);
+    // Бот — окремий файл: його збій не робить невдалою синхронізацію ваги
+    try {
+      await syncBotSettings();
+    } catch (err) {
+      if (err instanceof AuthError) throw err;
+      console.warn('bot-settings', err);
+    }
     if (restoreAt && conf.restoreAt === restoreAt) delete conf.restoreAt;
     conf.lastSync = Date.now();
     save();

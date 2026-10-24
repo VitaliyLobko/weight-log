@@ -13,6 +13,7 @@ const KEYS = {
   since: 'weight-log:bot-since',
   pushed: 'weight-log:bot-pushed',
   last: 'weight-log:bot-last',
+  at: 'weight-log:bot-at',
 };
 const HOBBY = { url: 'hobby-planner:bot-url', key: 'hobby-planner:bot-key' };
 // Боту досить свіжих записів: різниця з минулим разом і «чи вже зважувались сьогодні»
@@ -37,11 +38,27 @@ export function botConfig() {
   return { url: '', key: '', from: null };
 }
 
-/** Нова адреса чи ключ — обмін з нуля: свіжі записи їдуть у бот ще раз. */
-export function setBotConfig(url, key) {
-  set(KEYS.url, url ? url.trim().replace(/\/+$/, '') : null);
-  set(KEYS.key, key ? key.trim() : null);
-  for (const k of [KEYS.since, KEYS.pushed, KEYS.last]) set(k, null);
+/**
+ * Нова адреса чи ключ — обмін з нуля: свіжі записи їдуть у бот ще раз.
+ * at — коли налаштування змінено (своє — зараз, з Диска — час того запису); за ним вирішується, хто новіший.
+ */
+export function setBotConfig(url, key, at = Date.now()) {
+  const next = { url: url ? url.trim().replace(/\/+$/, '') : '', key: key ? key.trim() : '' };
+  const changed = next.url !== (get(KEYS.url) ?? '') || next.key !== (get(KEYS.key) ?? '');
+  set(KEYS.url, next.url || null);
+  set(KEYS.key, next.key || null);
+  set(KEYS.at, next.url && next.key ? at : null);
+  if (changed) for (const k of [KEYS.since, KEYS.pushed, KEYS.last]) set(k, null);
+}
+
+/**
+ * Налаштування для спільного файлу на Диску: своє (з часом зміни) або, поки свого нема, — з Хобі-плану
+ * на цьому телефоні з часом 0, щоб будь-який запис з Диска його переміг. null — бот не підключений.
+ */
+export function sharedConfig() {
+  const cfg = botConfig();
+  if (!cfg.from) return null;
+  return { url: cfg.url, key: cfg.key, updated: cfg.from === 'own' ? Number(get(KEYS.at) || 0) : 0 };
 }
 
 export const remindOn = () => get(KEYS.remind) !== 'off';

@@ -17,7 +17,6 @@ const ASSETS = [
   './js/ui.js',
   './js/i18n.js',
   './js/chart.js',
-  './js/importer.js',
   './js/remind.js',
   './js/icons.js',
   './js/diet.js',
