@@ -704,6 +704,7 @@ function telegramPanel() {
     cfg.from === 'own' ? btn(t('Отключить'), () => { bot.setBotConfig('', ''); botError = ''; render(); }) : null));
   return h('section', { class: 'panel' },
     h('p', { class: 'muted small' }, t('Бот Хобі-плана во время напоминания пишет «пора взвеситься» и принимает вес сообщением — числом, например 82,4, можно с заметкой. Запись сама появится в журнале, когда откроете приложение.')),
+    h('p', { class: 'muted small' }, t('В базе бота хранится весь журнал — вес, талия и настройки: так он совпадает на всех телефонах. Без интернета всё записывается как обычно и уйдёт, когда появится связь.')),
     h('p', { class: 'muted small' }, sync.enabled()
       ? t('Адрес и ключ лежат на Google Диске в общем файле bot-settings.json — подключите один раз, и бот будет подключён на всех устройствах и во всех приложениях с этим Диском.')
       : t('Подключите Google Диск — и адрес с ключом будут общими для всех ваших устройств и приложений.')),
@@ -751,7 +752,8 @@ function onSyncChip() {
   const { state: st, message } = sync.status;
   if (st === 'auth') connectGoogle();
   else if (st === 'offline') toast(t('Нет интернета — синхронизация произойдёт, когда появится связь'));
-  else if (st === 'error') { toast(message || t('Ошибка синхронизации')); sync.syncNow(); } else sync.syncNow();
+  else if (st === 'error') { toast(message || t('Ошибка синхронизации')); sync.syncNow({ force: true }); } else sync.syncNow({ force: true });
+  runBot();
 }
 
 function syncTime(ms) {
@@ -782,8 +784,9 @@ function syncPanel() {
       h('dl', { class: 'kv' },
         h('dt', {}, t('Последняя')), h('dd', {}, syncTime(s.lastSync)),
         s.message ? [h('dt', {}, t('Статус')), h('dd', {}, s.message)] : null),
+      bot.botConfig().from ? h('p', { class: 'muted small' }, t('Подключён бот: записи между устройствами передаёт он, а сюда раз в день сохраняется резервная копия.')) : null,
       h('div', { class: 'btn-row' },
-        s.state === 'auth' ? btn(t('Войти в Google'), connectGoogle, 'primary') : btn(withIcon('sync', t('Синхронизировать')), () => sync.syncNow(), 'primary'),
+        s.state === 'auth' ? btn(t('Войти в Google'), connectGoogle, 'primary') : btn(withIcon('sync', t('Синхронизировать')), () => { sync.syncNow({ force: true }); runBot(); }, 'primary'),
         btn(t('Отключить'), () => confirmSheet(t('Отключить синхронизацию?'), t('Данные останутся и на устройстве, и на Google Диске, просто перестанут обмениваться.'), t('Отключить'), () => sync.disconnect()))));
   }
   return panel;
@@ -820,11 +823,14 @@ async function importBackup(file) {
     sync.enabled() ? h('p', { class: 'muted small' }, t('Включена синхронизация: «Заменить всё» заменит данные и на Google Диске, и на других устройствах. «Объединить» не откатит более новые данные с Диска.')) : null), {
     actions: [
       btn(t('Отмена'), () => close()),
-      btn(t('Объединить'), async () => { close(); await db.mergeImport(changes); toast(t('Импортировано')); }, 'primary'),
+      btn(t('Объединить'), async () => { close(); await db.mergeImport(changes); bot.rewindPushed(); toast(t('Импортировано')); }, 'primary'),
       btn(t('Заменить всё'), () => {
         close();
         confirmSheet(t('Заменить все данные?'), t('Текущие данные будут удалены. Сначала сделайте экспорт, если они нужны.'), t('Заменить'), async () => {
-          sync.markRestore(await db.replaceAll(changes)); toast(t('Данные заменены'));
+          const at = await db.replaceAll(changes);
+          sync.markRestore(at);
+          bot.markRestore(at);
+          toast(t('Данные заменены'));
         });
       }, 'danger'),
     ],
