@@ -3,7 +3,7 @@ import * as sync from './sync.js';
 import * as bot from './bot.js';
 import * as M from './model.js';
 import {
-  h, fmt, sheet, toast, form, btn, toolBtn, confirmSheet, fold, box, foldFrame, segmented,
+  h, fmt, sheet, toast, form, btn, toolBtn, confirmSheet, fold, box, foldFrame, unfold, segmented,
   remember, recall, refreshSheets, saveFile, parseNum,
 } from './ui.js';
 import { t, plural, lang, setLang, LANGS, applyStatic } from './i18n.js';
@@ -281,7 +281,7 @@ function checkpointsBox() {
       c.reached ? h('span', { class: 'good cp-done' }, icon('check'), fmt.date(c.reached))
         : c.eta ? [h('span', {}, `≈ ${fmt.date(c.eta)}`), h('span', { class: 'muted small' }, weeksText(M.daysBetween(sum.currentDate, c.eta)))]
           : h('span', { class: 'muted' }, '—'))))),
-  { tools: [toolBtn('edit', t('Изменить'), () => { location.hash = '#settings'; })] });
+  { tools: [toolBtn('edit', t('Изменить'), () => openSettings('checkpoints'))] });
 }
 
 function weeksText(days) {
@@ -298,7 +298,7 @@ function bmiBox() {
   if (!b) {
     return box(withIcon('person', t('ИМТ')), h('div', {},
       h('p', { class: 'muted small' }, t('Индекс массы тела = вес ÷ рост². Укажите рост — и он будет считаться по среднему весу.')),
-      btn(t('Указать рост'), () => { location.hash = '#settings'; })));
+      btn(t('Указать рост'), () => openSettings('goal'))));
   }
   const at = (v) => `${((Math.min(BMI_MAX, Math.max(BMI_MIN, v)) - BMI_MIN) / (BMI_MAX - BMI_MIN)) * 100}%`;
   return box(withIcon('person', t('ИМТ')), h('div', { class: 'bmi' },
@@ -314,7 +314,7 @@ function renderHome() {
   if (!rows.length) {
     return h('div', {}, quickEntry(), empty('scale', t('Начнём'),
       t('Записывайте вес каждое утро — среднее за 7 дней, темп и прогноз посчитаются сами. Уже вели учёт на другом устройстве — подключите Google Диск в настройках.'),
-      btn(withIcon('cloud', t('Подключить Google Диск')), () => { location.hash = '#settings'; })));
+      btn(withIcon('cloud', t('Подключить Google Диск')), () => openSettings('sync'))));
   }
   const todayRow = rows.find((r) => r.date === M.today());
   return h('div', {},
@@ -901,7 +901,7 @@ function renderSettings() {
           btn(withIcon('download', t('Скачать файл')), () => exportData(false)),
           btn(withIcon('upload', t('Импорт копии')), () => backupInput.click())),
         h('p', { class: 'muted small' }, t('Взвешиваний: {w} · замеров талии: {c}', { w: state.weights.length, c: state.waists.length })),
-        backupInput)]),
+        backupInput)], { fold: 'sync' }),
     settingsGroup(withIcon('theme', t('Внешний вид')), [
       h('section', { class: 'panel' }, h('h3', {}, withIcon('globe', 'Язык · Мова')), segmented(Object.entries(LANGS), lang(), switchLang)),
       h('section', { class: 'panel' }, h('h3', {}, withIcon('theme', t('Тема'))),
@@ -922,6 +922,12 @@ function settingsGroup(title, sections, { danger = false, fold: key } = {}) {
   const cls = `settings-group${danger ? ' danger' : ''}`;
   if (key) return foldFrame(cls, `settings:${key}`, title, sections.filter(Boolean));
   return h('fieldset', { class: cls }, h('legend', {}, title), sections.filter(Boolean));
+}
+
+/** Перейти в налаштування з уже розгорнутою групою key. */
+function openSettings(key) {
+  unfold(`settings:${key}`);
+  location.hash = '#settings';
 }
 
 // ---------- навігація ----------

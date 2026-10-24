@@ -275,6 +275,11 @@ function setUnfolded(key, open) {
   remember(UNFOLDED, JSON.stringify([...unfolded]));
 }
 
+/** Розгорнути групу заздалегідь — для переходу до неї з іншого екрана. */
+export function unfold(key) {
+  setUnfolded(key, true);
+}
+
 /** Група, що згортається: за замовчуванням згорнута, розгорнуту запам'ятовує. */
 export function fold(key, head, body) {
   const el = h('details', { class: 'fold', open: unfolded.has(key), dataset: { key } },
