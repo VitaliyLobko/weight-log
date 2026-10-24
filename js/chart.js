@@ -72,7 +72,7 @@ let clipSeq = 0;
  *   legend: [{ label, cls, kind }], height, digits, unit,
  *   selected, onPick(date), tip(date) → [рядки],
  *   zoom — масштаб колесом миші, пальцями (вшир — дати, вгору — значення), подвійним тапом і зсув перетягуванням;
- *   view: [з, по] — початкове вікно (дати),
+ *   view: [з, по] — початкове вікно (дати), ahead — скільки днів за останньою точкою можна показати,
  *   onView(з, по) — вікно змінилося, onFull + fullLabel — кнопка «весь графік», поки показано не все,
  * }
  */
@@ -89,10 +89,11 @@ export function lineChart(spec) {
   const head = legend || fullBtn ? h('div', { class: 'chart-head' }, legend ?? h('span'), fullBtn) : null;
   const wrap = h('div', { class: 'chart' }, head, h('div', { class: 'chart-stage' }, plot, tip));
 
-  // Вікно перегляду — у днях від першої дати всіх даних; дробове, щоб масштаб ішов плавно
-  const allDates = [...new Set(spec.series.flatMap((se) => se.points.map((p) => p.date)))].sort();
+  // Вікно перегляду — у днях від першої дати даних; дробове, щоб масштаб ішов плавно.
+  // Лінії aside (прогноз) меж не розсувають: за останнім днем лише spec.ahead днів запасу
+  const allDates = [...new Set(spec.series.filter((se) => !se.aside).flatMap((se) => se.points.map((p) => p.date)))].sort();
   const D0 = allDates[0];
-  const full = allDates.length ? Math.max(1, daysBetween(D0, allDates.at(-1))) : 1;
+  const full = allDates.length ? Math.max(1, daysBetween(D0, allDates.at(-1)) + (spec.ahead ?? 0)) : 1;
   const minSpan = Math.min(MIN_SPAN, full);
   const clampView = ([a, b]) => {
     const span = Math.min(full, Math.max(minSpan, b - a));

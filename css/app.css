@@ -158,6 +158,11 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .plateau-head .ico { width: 18px; height: 18px; }
 .plateau p { margin: 4px 0 0; color: var(--muted); }
 .sizes .row-side { max-width: 60%; }
+.panel.health { display: block; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.health h4 { margin: 12px 0 4px; font-size: 15px; color: var(--accent-2); }
+.health h4:first-child { margin-top: 0; }
+.health p { margin: 0 0 4px; font-size: 15px; }
+.health-gap { height: 8px; }
 .size-value { font-weight: 700; text-align: right; overflow-wrap: anywhere; }
 .diet-group h4 { margin: 10px 0 6px; font-size: 14px; }
 .diet-group.good h4 { color: var(--good); }

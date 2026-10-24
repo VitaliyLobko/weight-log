@@ -190,6 +190,7 @@ export function checkpoints(rows, goal, sum) {
 }
 
 export const SIZES_ID = 'sizes';
+export const HEALTH_ID = 'health';
 const SIZE_LETTERS = /^(\d?X{0,3}[SML]|X{1,3}L|\d?XL)$/i;
 
 /**

@@ -333,6 +333,8 @@ function renderHome() {
 const PERIODS = [['30', 'Месяц'], ['90', '3 месяца'], ['all', 'Всё']];
 /** Лінію прогнозу до фінішу, дальшого за стільки днів, не малюємо. */
 const FORECAST_MAX_DAYS = 365;
+/** Запас праворуч під хвостик прогнозу — частка видимого періоду. */
+const FORECAST_PEEK = 0.15;
 let period = PERIODS.some(([k]) => k === recall('weight-log:period')) ? recall('weight-log:period') : '90';
 let picked = null;
 /** Вікно, набране колесом миші; кнопка періоду його скидає. */
@@ -379,9 +381,9 @@ function renderChart() {
   // Прогноз — пунктир від поточного середнього до цілі; фініш далі за рік не малюємо — стиснув би графік
   const finish = sum.finish && M.daysBetween(sum.currentDate, sum.finish) <= FORECAST_MAX_DAYS ? sum.finish : null;
   const forecast = finish ? [{ date: sum.currentDate, v: sum.current }, { date: finish, v: sum.target }] : [];
-  // Місяць і 3 місяці заглядають уперед на п'яту частину періоду, «усе» — до самого фінішу
-  const viewEnd = finish ? (period === 'all' ? finish : [finish, M.addDays(lastDate, Math.round(Number(period) / 5))].sort()[0]) : lastDate;
-  const view = chartView ?? [vis[0].date, viewEnd];
+  // Графік заглядає вперед лише на кілька днів — прогноз видно хвостиком, дані лишаються на всю ширину
+  const peek = finish ? Math.min(M.daysBetween(lastDate, finish), Math.max(3, Math.round(M.daysBetween(vis[0].date, lastDate) * FORECAST_PEEK))) : 0;
+  const view = chartView ?? [vis[0].date, M.addDays(lastDate, peek)];
   showRange(...view);
   const g = sum.goal;
   const plan = rows.map((r) => ({ date: r.date, v: M.planAt(g, r.date) })).filter((p) => p.v !== null);
@@ -401,6 +403,7 @@ function renderChart() {
     height: 260,
     zoom: true,
     view,
+    ahead: peek,
     onView: (a, b) => { chartView = [a, b]; showRange(a, b); },
     fullLabel: t('Весь график'),
     onFull: () => { period = 'all'; chartView = null; remember('weight-log:period', period); render(); },
@@ -451,31 +454,62 @@ function waistBox() {
 
 // ---------- журнал ----------
 
-const LOG_SEGS = [['weight', 'Вес'], ['waist', 'Талия'], ['sizes', 'Размеры']];
+const LOG_SEGS = [['weight', 'Вес'], ['waist', 'Талия'], ['sizes', 'Размеры'], ['health', 'Здоровье']];
 let logSeg = LOG_SEGS.some(([k]) => k === recall('weight-log:log-seg')) ? recall('weight-log:log-seg') : 'weight';
 
-const sizesText = () => state.settings.find((s) => s.id === M.SIZES_ID)?.text ?? '';
+const settingText = (id) => state.settings.find((s) => s.id === id)?.text ?? '';
 
-/** Розміри — одним текстом, рядок на розмір: так список можна вставити цілком. */
-function sizesForm() {
-  const input = h('textarea', { rows: 12, placeholder: t('Перчатки L\nОбувь 43/44, стелька 28,5 см\nГолова 59 см'), autocomplete: 'off' });
-  input.value = sizesText();
+/** Запис налаштувань одним текстом (розміри, діагнози): так список можна вставити цілком. */
+function textForm(id, { title, hint, placeholder, saved, rows = 12 }) {
+  const input = h('textarea', { rows, placeholder, autocomplete: 'off' });
+  input.value = settingText(id);
   const save = async () => {
     sync.renewOnGesture();
     close();
     const text = input.value.split('\n').map((s) => s.trimEnd()).join('\n').trim();
-    await db.write({ settings: { put: [{ id: M.SIZES_ID, text }] } });
-    toast(t('Размеры сохранены'));
+    await db.write({ settings: { put: [{ id, text }] } });
+    toast(saved);
   };
-  const close = sheet(t('Мои размеры'), h('div', { class: 'form' },
-    h('label', { class: 'field' }, input,
-      h('small', { class: 'muted' }, t('Строка — один размер: название, потом значение. Можно вставить список целиком.')))), {
+  const close = sheet(title, h('div', { class: 'form' },
+    h('label', { class: 'field' }, input, h('small', { class: 'muted' }, hint))), {
     actions: [btn(t('Сохранить'), save, 'primary')],
   });
 }
 
+const sizesForm = () => textForm(M.SIZES_ID, {
+  title: t('Мои размеры'),
+  hint: t('Строка — один размер: название, потом значение. Можно вставить список целиком.'),
+  placeholder: t('Перчатки L\nОбувь 43/44, стелька 28,5 см\nГолова 59 см'),
+  saved: t('Размеры сохранены'),
+});
+
+const healthForm = () => textForm(M.HEALTH_ID, {
+  title: t('Здоровье'),
+  hint: t('Диагнозы, операции, уколы — как удобно. Строка с 🔹 или двоеточием в конце станет заголовком.'),
+  placeholder: t('🔹 Позвоночник:\nГрыжа L5–S1\nОперация 2010\n\nДиабет 2 типа'),
+  saved: t('Сохранено'),
+  rows: 16,
+});
+
+/** Текст діагнозів як є: рядки з 🔹 чи двокрапкою в кінці — заголовки, порожній рядок — відступ. */
+function renderHealth(seg) {
+  const lines = settingText(M.HEALTH_ID).split('\n');
+  $('subtitle').textContent = '';
+  if (!lines.some((l) => l.trim())) {
+    return h('div', {}, seg, empty('heart', t('Записей нет'),
+      t('Диагнозы, операции, хронические болячки — чтобы были под рукой у врача.'),
+      btn(withIcon('plus', t('Записать')), healthForm)));
+  }
+  return h('div', {}, seg, h('button', { type: 'button', class: 'panel health', onclick: healthForm },
+    lines.map((l) => {
+      const s = l.trim();
+      if (!s) return h('div', { class: 'health-gap' });
+      return /^🔹|:$/u.test(s) ? h('h4', {}, s.replace(/^🔹\s*/u, '')) : h('p', {}, s);
+    })));
+}
+
 function renderSizes(seg) {
-  const list = M.parseSizes(sizesText());
+  const list = M.parseSizes(settingText(M.SIZES_ID));
   $('subtitle').textContent = t('размеров: {n}', { n: list.length });
   if (!list.length) {
     return h('div', {}, seg, empty('tape', t('Размеров нет'),
@@ -504,6 +538,7 @@ function weightRow(r) {
 function renderLog() {
   const seg = segmented(LOG_SEGS.map(([k, l]) => [k, t(l)]), logSeg, (v) => { logSeg = v; remember('weight-log:log-seg', v); render(); });
   if (logSeg === 'sizes') return renderSizes(seg);
+  if (logSeg === 'health') return renderHealth(seg);
   if (logSeg === 'waist') {
     const ws = M.waistSeries(state.waists).reverse();
     $('subtitle').textContent = t('замеров: {n}', { n: ws.length });
@@ -928,7 +963,7 @@ function renderSettings() {
 const VIEWS = {
   home: { title: 'Вес', render: renderHome, fab: () => weightForm() },
   chart: { title: 'График', render: renderChart, fab: () => weightForm() },
-  log: { title: 'Журнал', render: renderLog, fab: () => ({ waist: waistForm, sizes: sizesForm }[logSeg] ?? weightForm)() },
+  log: { title: 'Журнал', render: renderLog, fab: () => ({ waist: waistForm, sizes: sizesForm, health: healthForm }[logSeg] ?? weightForm)() },
   settings: { title: 'Настройки', render: renderSettings },
 };
 
