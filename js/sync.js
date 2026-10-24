@@ -219,7 +219,7 @@ async function syncBotSettings() {
   const remote = fileId ? await (await api(`${DRIVE}/files/${fileId}?alt=media`)).json() : null;
   const mine = bot.sharedConfig();
   const theirs = remote?.url && remote?.key ? remote : null;
-  if (theirs && (!mine || stamp(theirs) > mine.updated)) {
+  if (theirs && stamp(theirs) > bot.declinedAt() && (!mine || stamp(theirs) > mine.updated)) {
     bot.setBotConfig(theirs.url, theirs.key, stamp(theirs));
     window.dispatchEvent(new Event('bot-config'));
   } else if (mine && (!theirs || mine.updated > stamp(theirs))) {

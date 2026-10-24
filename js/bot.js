@@ -14,6 +14,7 @@ const KEYS = {
   pushed: 'weight-log:bot-pushed',
   last: 'weight-log:bot-last',
   at: 'weight-log:bot-at',
+  declined: 'weight-log:bot-declined',
 };
 const HOBBY = { url: 'hobby-planner:bot-url', key: 'hobby-planner:bot-key' };
 // Боту досить свіжих записів: різниця з минулим разом і «чи вже зважувались сьогодні»
@@ -48,6 +49,8 @@ export function setBotConfig(url, key, at = Date.now()) {
   set(KEYS.url, next.url || null);
   set(KEYS.key, next.key || null);
   set(KEYS.at, next.url && next.key ? at : null);
+  // «Відключити» тут — запис з Диска, старіший за цю мить, бота назад не підключає
+  set(KEYS.declined, next.url && next.key ? null : Date.now());
   if (changed) for (const k of [KEYS.since, KEYS.pushed, KEYS.last]) set(k, null);
 }
 
@@ -60,6 +63,9 @@ export function sharedConfig() {
   if (!cfg.from) return null;
   return { url: cfg.url, key: cfg.key, updated: cfg.from === 'own' ? Number(get(KEYS.at) || 0) : 0 };
 }
+
+/** Коли бота відключено на цьому пристрої (0 — не відключали). */
+export const declinedAt = () => Number(get(KEYS.declined) || 0);
 
 export const remindOn = () => get(KEYS.remind) !== 'off';
 export const setRemindOn = (on) => set(KEYS.remind, on ? null : 'off');
