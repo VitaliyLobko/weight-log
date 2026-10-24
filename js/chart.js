@@ -258,7 +258,7 @@ export function lineChart(spec) {
         marks.append(s('path', { d, class: `series-line ${se.cls}` }));
       } else {
         const g = s('g', { class: `series-dots ${se.cls}` });
-        const r = pts.length > 120 ? 2.5 : 3.5;
+        const r = pts.length > 120 ? 2 : 2.8;
         for (const p of pts) {
           const cx = x(p.date).toFixed(1);
           const cy = y(p.v).toFixed(1);
@@ -280,7 +280,8 @@ export function lineChart(spec) {
     cursor.append(hits);
     svg.append(cursor);
 
-    const place = (date, sticky) => {
+    // Курсор і підказка — лише поки миша над графіком чи палець тримає точку; вибраний день їх не лишає
+    const place = (date) => {
       if (!date || !dates.includes(date)) { cursor.setAttribute('visibility', 'hidden'); tip.hidden = true; return; }
       const cx = x(date);
       cursor.setAttribute('visibility', 'visible');
@@ -291,7 +292,6 @@ export function lineChart(spec) {
       const lines = spec.tip?.(date) ?? [];
       tip.replaceChildren(...lines.map((l, i) => h('div', { class: i ? '' : 'tip-head' }, l)));
       tip.hidden = !lines.length;
-      tip.classList.toggle('sticky', Boolean(sticky));
       // Підказка — над графіком з того боку, де більше місця
       const left = cx > width / 2;
       tip.style.left = left ? '' : `${Math.min(cx + 10, width - 150)}px`;
@@ -316,7 +316,7 @@ export function lineChart(spec) {
     };
     if (svg.parentNode !== plot) plot.replaceChildren(svg);
     cur = { place, nearest, frac, fracY, y: [lo, hi], autoY, daysPerPx: spanDays / iw / (svg.getBoundingClientRect().width / width || 1) };
-    place(selected, true);
+    place(null);
   }
 
   // Події — на постійному контейнері: svg перемальовується під час масштабу й зсуву
@@ -355,7 +355,7 @@ export function lineChart(spec) {
     down = null;
     plot.classList.remove('panning');
     if (!cur || !was) return;
-    if (was.moved) { cur.place(selected, true); return; }
+    if (was.moved) { cur.place(null); return; }
     if (was.touch) {
       const now = e.timeStamp;
       if (lastTap && now - lastTap.at < DOUBLE_TAP_MS && Math.abs(e.clientX - lastTap.x) < DOUBLE_TAP_PX) {
@@ -366,11 +366,11 @@ export function lineChart(spec) {
       lastTap = { at: now, x: e.clientX };
     }
     selected = cur.nearest(e.clientX);
-    cur.place(selected, true);
+    cur.place(was.mouse ? selected : null);
     if (selected) spec.onPick?.(selected);
   });
-  plot.addEventListener('pointercancel', () => { down = null; plot.classList.remove('panning'); cur?.place(selected, true); });
-  plot.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse' && !down) cur?.place(selected, true); });
+  plot.addEventListener('pointercancel', () => { down = null; plot.classList.remove('panning'); cur?.place(null); });
+  plot.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse' && !down) cur?.place(null); });
 
   if (spec.zoom) {
     plot.addEventListener('wheel', (e) => {
@@ -433,7 +433,7 @@ export function lineChart(spec) {
       setView([pinch.at - f * next, pinch.at - f * next + next]);
     }, { passive: false });
     plot.addEventListener('touchend', (e) => {
-      if (pinch && e.touches.length === 0) { pinch = null; cur?.place(selected, true); }
+      if (pinch && e.touches.length === 0) { pinch = null; cur?.place(null); }
     });
   }
   return wrap;
