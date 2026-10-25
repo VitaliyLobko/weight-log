@@ -37,7 +37,7 @@
   --muted: #5d6878;
   --accent: #2563b8;
   --accent-2: #1d529c;
-  --good: #1f8a55;
+  --good: #1a7a4b;
   --bad: #c2462d;
   --c-avg: #2563b8;
   --c-plan: #b8603d;
@@ -157,7 +157,14 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .plateau-head { display: flex; align-items: center; gap: 8px; color: color-mix(in srgb, var(--warn) 70%, var(--text)); }
 .plateau-head .ico { width: 18px; height: 18px; }
 .plateau p { margin: 4px 0 0; color: var(--muted); }
+.plateau > summary { list-style: none; cursor: pointer; }
+.plateau > summary::-webkit-details-marker { display: none; }
+.plateau > summary .plateau-head::after { content: '›'; margin-left: auto; font-size: 20px; line-height: 1; color: var(--muted); transform: rotate(90deg); transition: transform .15s; }
+.plateau[open] > summary .plateau-head::after { transform: rotate(-90deg); }
 .sizes .row-side { max-width: 60%; }
+.sizes .row.stacked { flex-direction: column; align-items: stretch; gap: 2px; }
+.sizes .row.stacked .row-side { max-width: none; align-items: flex-start; }
+.sizes .row.stacked .size-value { text-align: left; }
 .panel.health { display: block; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer; }
 .health h4 { margin: 12px 0 4px; font-size: 15px; color: var(--accent-2); }
 .health h4:first-child { margin-top: 0; }
@@ -169,8 +176,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .diet-group.bad h4 { color: var(--bad); }
 .diet-group ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; font-size: 14px; }
 .diet-group li { display: flex; gap: 8px; align-items: baseline; }
-.diet-emoji { flex: none; width: 20px; text-align: center; }
-.hero-label { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.diet-dot { flex: none; width: 7px; height: 7px; margin: 0 4px; border-radius: 50%; background: currentColor; transform: translateY(-2px); }
+.diet-group.good .diet-dot { color: var(--good); }
+.diet-group.bad .diet-dot { color: var(--bad); }
+.hero-label { font-size: 14px; font-weight: 600; color: var(--muted); }
 .hero-value { display: flex; align-items: baseline; gap: 8px; margin-top: 2px; font-size: 48px; line-height: 1.1; font-weight: 800; letter-spacing: -.02em; }
 .hero-unit { font-size: 18px; font-weight: 600; color: var(--muted); }
 .hero-sub { margin-top: 4px; font-size: 14px; color: var(--muted); }
@@ -213,21 +222,31 @@ button, input, select, textarea { font: inherit; color: inherit; }
   font-variant-numeric: tabular-nums;
 }
 .big-input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.big-input::placeholder { font-size: 18px; font-weight: 600; color: var(--muted); opacity: 1; }
 
-.today-done {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: baseline;
-  gap: 2px 12px;
+.today-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
   width: 100%;
+  min-height: 44px;
+  margin-top: 14px;
+  padding: 12px 0 0;
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--accent) 25%, var(--line));
+  background: none;
+  color: inherit;
+  font: inherit;
   text-align: left;
   cursor: pointer;
 }
-.today-label { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.today-line > .ico { margin-left: auto; width: 18px; height: 18px; color: var(--muted); }
+.today-label { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; color: var(--muted); }
 .today-label .ico { color: var(--good); width: 17px; height: 17px; }
-.today-kg { grid-row: span 2; font-size: 28px; font-weight: 800; white-space: nowrap; }
-.today-delta { font-size: 14px; }
-.today-note { grid-column: 1 / -1; overflow-wrap: anywhere; }
+.today-kg { font-size: 18px; font-weight: 800; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.today-delta { font-size: 14px; white-space: nowrap; }
+.today-note { flex-basis: 100%; overflow-wrap: anywhere; }
 
 .stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin: 0 0 12px; }
 .stat { padding: 10px 12px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line-soft); min-width: 0; }
@@ -298,7 +317,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .chart-svg { display: block; overflow: visible; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
 .chart-svg .grid line { stroke: var(--line-soft); stroke-width: 1; }
 .chart-svg .tick { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
-.chart-svg .end-label { fill: var(--text); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.chart-svg .end-label { fill: var(--text); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }
 .chart-svg .series-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
 .chart-svg .series-line.s-avg { stroke: var(--c-avg); stroke-width: 3; }
 .chart-svg .series-line.s-plan { stroke: var(--c-plan); stroke-width: 1.4; stroke-dasharray: 6 5; opacity: .6; }
@@ -411,7 +430,7 @@ button.row { cursor: pointer; }
 
 /* Блок із заголовком на лінії рамки (fieldset + legend, як в 1С). */
 .box { min-width: 0; margin: 16px 0 12px; padding: 4px 12px 12px; border: 1px solid var(--line); border-radius: 12px; }
-.box > legend { display: flex; align-items: center; gap: 6px; padding: 0 6px; margin-left: -4px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.box > legend { display: flex; align-items: center; gap: 6px; padding: 0 6px; margin-left: -4px; font-size: 14px; font-weight: 700; color: var(--muted); }
 .box-tools .icon-btn.tool { width: 30px; height: 30px; background: none; color: var(--muted); }
 .box-tools .icon-btn.tool svg { width: 16px; height: 16px; }
 .box > .muted:last-child, .box-body > .muted:last-child { margin: 4px 0 0; }
@@ -439,13 +458,15 @@ button.row { cursor: pointer; }
 
 /* налаштування групами, як у Стрілецькому журналі: рамка з назвою на лінії, всередині — розділи через лінію */
 .settings-group { min-width: 0; margin: 22px 0 14px; padding: 2px 16px 4px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); }
-.settings-group > legend { padding: 0 8px; margin-left: -6px; border-radius: 6px; background: var(--surface); color: var(--accent); font-size: 13px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.settings-group > legend { padding: 0 8px; margin-left: -6px; border-radius: 6px; background: var(--surface); color: var(--accent); font-size: 15px; font-weight: 800; }
 .settings-group > .panel, .settings-group > .box-body > .panel { margin: 0; padding: 14px 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
 /* лінія між розділами — від кольору тексту: у темній темі var(--line) майже зливався з тлом */
 .settings-group > .panel + .panel, .settings-group > .box-body > .panel + .panel { border-top: 1px solid color-mix(in srgb, var(--text) 20%, transparent); }
 .settings-group.danger { border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
 .settings-group.danger > legend { color: var(--bad); }
-.settings-group.closed { padding-bottom: 0; }
+/* Згорнута група — лише назва на лінії, як «Харчування при діабеті» на головній, без порожньої рамки */
+.settings-group.closed { padding: 0; border-width: 1px 0 0; border-radius: 0; background: none; box-shadow: none; }
+.settings-group.closed > legend { margin-left: 0; padding-left: 0; background: none; }
 .settings-group.closed > .box-body { display: none; }
 .settings-group > legend .box-toggle { color: inherit; }
 .settings-group > legend .ico { width: 15px; height: 15px; }
@@ -577,7 +598,7 @@ button.row { cursor: pointer; }
   background: var(--surface-2);
   border: 1px solid var(--line);
 }
-.chips.segmented button { min-height: 38px; border: 0; border-radius: 10px; background: transparent; font-weight: 650; color: var(--muted); }
+.chips.segmented button { min-height: 38px; white-space: nowrap; border: 0; border-radius: 10px; background: transparent; font-weight: 650; color: var(--muted); }
 .chips.segmented button.on { background: var(--surface); color: var(--text); box-shadow: 0 1px 4px rgb(0 0 0 / .25); }
 .panel .chips.segmented { margin-bottom: 0; }
 
@@ -728,3 +749,13 @@ button.row { cursor: pointer; }
 }
 .toast button { border: 0; background: none; color: #9cc0f5; font-weight: 800; cursor: pointer; padding: 4px 8px; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
+
+.nowrap { white-space: nowrap; }
+
+/* Фокус з клавіатури видно на всіх кнопках і вкладках; дотик пальцем рамки не лишає */
+button:focus-visible, a:focus-visible, summary:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 2px; }
+
+/* Системне «зменшити рух» — без анімацій і переходів */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}

@@ -42,7 +42,7 @@ const findWeight = (date) => state.weights.find((w) => w.id === date);
 const appUrl = () => location.href.split('#')[0];
 
 function empty(name, title, text, ...actions) {
-  return h('div', { class: 'empty' }, icon(name, 'empty-ico'), h('h3', {}, title), h('p', { class: 'muted' }, text),
+  return h('div', { class: 'empty' }, name ? icon(name, 'empty-ico') : null, title ? h('h3', {}, title) : null, h('p', { class: 'muted' }, text),
     actions.length ? h('div', { class: 'btn-col' }, actions) : null);
 }
 
@@ -60,6 +60,11 @@ async function restore(store, snap) {
 
 function undoToast(message, store, snap) {
   toast(message, { action: t('Отменить'), onAction: () => restore(store, snap) });
+}
+
+/** Короткий відгук пальцю після запису; на iPhone вібрації з браузера немає — тоді нічого. */
+function buzz() {
+  try { navigator.vibrate?.(15); } catch { /* заборонено політикою сторінки */ }
 }
 
 // ---------- запис ваги й талії ----------
@@ -106,6 +111,7 @@ function weightForm(date = M.today()) {
           del: existing && existing.id !== v.date ? [existing.id] : [],
         },
       });
+      buzz();
       undoToast(t('Записано {kg} за {date}', { kg: kg(v.kg), date: fmt.date(v.date) }), 'weights', snap);
     };
     if (clash && clash.id !== existing?.id) {
@@ -142,6 +148,7 @@ function waistForm(record) {
     sync.renewOnGesture();
     close();
     await db.write({ waists: { put: [{ id, date: v.date, cm: Math.round(v.cm * 10) / 10 }], del: record && record.id !== id ? [record.id] : [] } });
+    buzz();
     undoToast(t('Записано {cm} см за {date}', { cm: fmt.fix(v.cm), date: fmt.date(v.date) }), 'waists', snap);
   };
   const remove = async () => {
@@ -161,7 +168,7 @@ function waistForm(record) {
 /** Швидкий запис просто на головній: відкрив, поправив останню цифру, зберіг. */
 function quickEntry() {
   const lastKg = rows.at(-1)?.kg;
-  const input = h('input', { type: 'text', inputmode: 'decimal', class: 'big-input', autocomplete: 'off', 'aria-label': t('Вес, кг') });
+  const input = h('input', { type: 'text', inputmode: 'decimal', class: 'big-input', autocomplete: 'off', 'aria-label': t('Вес, кг'), placeholder: t('Вес, кг') });
   input.value = lastKg ? fmt.fix(lastKg) : '';
   const note = h('input', { type: 'text', autocomplete: 'off', placeholder: t('Заметка (необязательно)') });
   const field = h('div', { class: 'quick-kg' }, input);
@@ -173,6 +180,7 @@ function quickEntry() {
     // Ключ Google сплив — оновлюємо з цього ж дотику, поки браузер дозволяє відкрити вікно входу
     sync.renewOnGesture();
     await db.write({ weights: { put: [{ id: date, kg: Math.round(v * 100) / 100, note: note.value.trim() }] } });
+    buzz();
     undoToast(t('Записано {kg} за {date}', { kg: kg(v), date: fmt.date(date) }), 'weights', snap);
   };
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); });
@@ -186,12 +194,14 @@ function quickEntry() {
   return panel;
 }
 
-function todayDone(row) {
+/** Сьогоднішня вага рядком усередині картки середнього: головне число одне — середнє. */
+function todayLine(row) {
   const prev = rows[rows.indexOf(row) - 1];
-  return h('button', { type: 'button', class: 'panel today-done', onclick: () => weightForm(row.date) },
+  return h('button', { type: 'button', class: 'today-line', onclick: () => weightForm(row.date) },
     h('span', { class: 'today-label' }, icon('check'), t('Сегодня')),
-    h('span', { class: 'today-kg' }, kg(row.kg)),
+    h('b', { class: 'today-kg' }, kg(row.kg)),
     prev ? h('span', { class: `today-delta ${trendClass(row.day)}` }, t('{d} к {date}', { d: fmt.signed(row.day), date: fmt.short(prev.date) })) : null,
+    icon('edit'),
     row.note ? h('span', { class: 'today-note muted small' }, row.note) : null);
 }
 
@@ -208,7 +218,7 @@ function stat(name, label, value, sub, cls = '') {
     sub ? h('div', { class: 'stat-sub muted' }, sub) : null);
 }
 
-function hero() {
+function hero(todayRow) {
   const s = sum;
   if (!s.hasAvg) {
     const left = 7 - (M.daysBetween(rows[0].date, M.today()) + 1);
@@ -217,7 +227,8 @@ function hero() {
       h('div', { class: 'hero-value' }, fmt.fix(s.last.kg), h('span', { class: 'hero-unit' }, t('кг'))),
       h('div', { class: 'hero-sub' }, left > 0
         ? t('Среднее за 7 дней появится через {n} {days}', { n: left, days: plural(left, [t('день'), t('дня'), t('дней')]) })
-        : t('Для среднего нужно хотя бы {n} взвешивания за неделю', { n: M.AVG_MIN })));
+        : t('Для среднего нужно хотя бы {n} взвешивания за неделю', { n: M.AVG_MIN })),
+      todayRow ? todayLine(todayRow) : null);
   }
   const span = s.base && s.target !== null ? s.base.avg - s.target : null;
   const pos = (k) => `${Math.min(100, Math.max(0, ((s.base.avg - k) / span) * 100))}%`;
@@ -231,29 +242,34 @@ function hero() {
       h('div', { class: 'goal-bar' },
         h('div', { class: 'goal-fill', style: `width:${pos(s.current)}` }),
         M.checkpoints(rows, goal, s).filter((c) => !c.isTarget).map((c) => h('span', { class: `goal-tick ${c.reached ? 'done' : ''}`, style: `left:${pos(c.kg)}` }))),
-      h('div', { class: 'goal-ends' }, h('span', {}, fmt.fix(s.base.avg, 2)), h('span', {}, t('цель {kg}', { kg: fmt.fix(s.target) })))) : null);
+      h('div', { class: 'goal-ends' }, h('span', {}, fmt.fix(s.base.avg, 2)), h('span', {}, s.toGo > 0
+        ? t('цель {kg} · ещё {d}', { kg: fmt.fix(s.target), d: fmt.fix(s.toGo, 1) })
+        : t('цель {kg}', { kg: fmt.fix(s.target) })))) : null,
+    todayRow ? todayLine(todayRow) : null);
 }
 
 function statsGrid() {
   const s = sum;
   const g = s.goal;
   const tiles = [];
-  if (s.toGo !== null) tiles.push(stat('target', t('До цели'), kg(Math.max(0, s.toGo), 2), t('цель {kg}', { kg: kg(s.target) })));
+  // «До цілі» — уже в картці середнього (смужка і «ще …»), тут не повторюємо
   if (s.rate !== null) {
-    tiles.push(stat('speed', t('Темп'), `${fmt.fix(s.rate, 2)} ${t('кг/нед')}`,
-      [s.recent !== null ? t('за 4 нед. {r}', { r: fmt.fix(s.recent, 2) }) : null,
+    // Крупно — темп за 4 тижні: ним рахується прогноз, і на плато він не хвалить загальним темпом
+    const rate = s.recent ?? s.rate;
+    const planOk = Number.isFinite(g.planRate) && rate >= g.planRate;
+    tiles.push(stat('speed', s.recent !== null ? t('Темп за 4 нед.') : t('Темп'), `${fmt.fix(rate, 2)} ${t('кг/нед')}`,
+      [s.recent !== null ? t('с начала {r}', { r: fmt.fix(s.rate, 2) }) : null,
         Number.isFinite(g.planRate) ? t('план {r}', { r: fmt.fix(g.planRate, 2) }) : null].filter(Boolean).join(' · ') || null,
-      Number.isFinite(g.planRate) && s.rate >= g.planRate ? 'good' : ''));
+      planOk ? 'good' : rate <= 0 ? 'bad' : ''));
   }
   if (s.weekDelta !== null) tiles.push(stat('trend', t('За неделю'), kgd(s.weekDelta, 2), t('среднее к прошлой неделе'), trendClass(s.weekDelta)));
   if (s.planDiff !== null) {
     tiles.push(stat('route', t('От плана'), kgd(s.planDiff, 2),
       s.planDiff < -0.005 ? t('опережаете') : s.planDiff > 0.005 ? t('отстаёте') : t('точно по плану'), trendClass(s.planDiff)));
   }
-  const pace = s.recent !== null ? t('темпом за 4 нед.') : t('темпом с начала');
-  if (s.finish) tiles.push(stat('flag', t('Прогноз финиша'), fmt.date(s.finish), `${t('≈ {n} нед.', { n: s.weeksLeft })} · ${pace}`));
-  else if (s.toGo !== null && s.toGo <= 0) tiles.push(stat('trophy', t('Цель'), t('достигнута'), null, 'good'));
-  else if (s.toGo !== null && s.rate !== null) {
+  // Дата фінішу з прогнозом — у «Контрольних точках» рядком цілі; плитка лишається для «ціль досягнута» і «не знижується»
+  if (s.toGo !== null && s.toGo <= 0) tiles.push(stat('trophy', t('Цель'), t('достигнута'), null, 'good'));
+  else if (!s.finish && s.toGo !== null && s.rate !== null) {
     tiles.push(stat('flag', t('Прогноз финиша'), '—', s.recent !== null ? t('за 4 нед. вес не снижается') : t('вес не снижается'), 'bad'));
   }
   tiles.push(stat('calendar-check', t('Дней записано'), fmt.int(s.days), g.startDate ? t('с {date}', { date: fmt.date(g.startDate) }) : null));
@@ -273,11 +289,13 @@ function keyNote() {
 function plateauNote() {
   const p = M.plateau(rows);
   if (!p || (sum.toGo !== null && sum.toGo <= 0)) return null;
-  return h('section', { class: 'plateau' },
-    h('div', { class: 'plateau-head' }, icon('warning'),
-      h('b', {}, t('Плато {n} {days}', { n: p.days, days: plural(p.days, [t('день'), t('дня'), t('дней')]) }))),
-    h('p', { class: 'small' }, t('Среднее с {date} не опускается ниже {kg}. Обычно это вода и соль, а не жир: проверьте порции и сладкое, добавьте шагов — и подождите ещё неделю.',
-      { date: fmt.date(p.since), kg: kg(p.low, 2) })));
+  // На виду — що сталося, порада — по тапу
+  return h('details', { class: 'plateau' },
+    h('summary', {},
+      h('div', { class: 'plateau-head' }, icon('warning'),
+        h('b', {}, t('Плато {n} {days}', { n: p.days, days: plural(p.days, [t('день'), t('дня'), t('дней')]) }))),
+      h('p', { class: 'small' }, t('Среднее с {date} не опускается ниже {kg}.', { date: fmt.date(p.since), kg: kg(p.low, 2) }))),
+    h('p', { class: 'small' }, t('Обычно это вода и соль, а не жир: проверьте порции и сладкое, добавьте шагов — и подождите ещё неделю.')));
 }
 
 function checkpointsBox() {
@@ -322,15 +340,16 @@ function bmiBox() {
 
 function renderHome() {
   if (!rows.length) {
-    return h('div', {}, keyNote(), quickEntry(), empty('scale', t('Начнём'),
+    // Заголовок і значок уже є у формі запису вище — тут лише підказка
+    return h('div', {}, keyNote(), quickEntry(), empty(null, null,
       t('Записывайте вес каждое утро — среднее за 7 дней, темп и прогноз посчитаются сами. Уже вели учёт на другом устройстве — подключите Google Диск в настройках.'),
       btn(withIcon('cloud', t('Подключить Google Диск')), () => openSettings('data'))));
   }
   const todayRow = rows.find((r) => r.date === M.today());
   return h('div', {},
     keyNote(),
-    todayRow ? todayDone(todayRow) : quickEntry(),
-    hero(),
+    todayRow ? null : quickEntry(),
+    hero(todayRow),
     plateauNote(),
     statsGrid(),
     checkpointsBox(),
@@ -346,7 +365,9 @@ const HIDDEN_KEY = 'weight-log:hidden-series';
 function hiddenSeries() {
   try {
     const v = JSON.parse(recall(HIDDEN_KEY) ?? '[]');
-    return Array.isArray(v) ? v : [];
+    if (!Array.isArray(v)) return [];
+    // До 0.1.12 заливка вимикалась окремо — тепер вона йде за планом
+    return [...v.filter((k) => k !== 'gap'), ...(v.includes('plan') ? ['gap'] : [])];
   } catch {
     return [];
   }
@@ -378,14 +399,16 @@ function dayLine(date) {
   const r = rows.find((x) => x.date === date);
   if (!r) return null;
   const plan = M.planAt(sum.goal, date);
-  const sep = () => h('span', { class: 'muted' }, ' · ');
+  const parts = [
+    h('span', { class: 'muted' }, `${fmt.weekday(date)} ${fmt.short(date)}`),
+    [h('b', {}, kg(r.kg)), r.day !== null ? [' ', h('span', { class: `small ${trendClass(r.day)}` }, fmt.signed(r.day))] : null],
+    r.avg !== null ? t('сред. {v}', { v: fmt.fix(r.avg, 2) }) : null,
+    plan !== null && r.avg !== null ? h('span', { class: trendClass(r.avg - plan) }, t('план {d}', { d: fmt.signed(r.avg - plan, 2) })) : null,
+  ].filter(Boolean);
+  // Шматок не рветься всередині, «·» тримається за попередній — новий рядок не починається з крапки
   return h('div', { class: 'day-line' },
     h('div', { class: 'day-line-main' },
-      h('span', { class: 'muted' }, `${fmt.weekday(date)} ${fmt.short(date)}`), sep(),
-      h('b', {}, kg(r.kg)),
-      r.day !== null ? [' ', h('span', { class: `small ${trendClass(r.day)}` }, fmt.signed(r.day))] : null,
-      r.avg !== null ? [sep(), h('span', {}, t('сред. {v}', { v: fmt.fix(r.avg, 2) }))] : null,
-      plan !== null && r.avg !== null ? [sep(), h('span', { class: trendClass(r.avg - plan) }, t('план {d}', { d: fmt.signed(r.avg - plan, 2) }))] : null,
+      parts.map((p, i) => [h('span', { class: 'nowrap' }, p, i < parts.length - 1 ? h('span', { class: 'muted' }, ' ·') : null), ' ']),
       r.note ? h('div', { class: 'row-note' }, icon('note'), h('span', {}, r.note)) : null),
     toolBtn('edit', t('Изменить'), () => weightForm(date)));
 }
@@ -449,10 +472,10 @@ function renderChart() {
     legend: [
       { label: t('Вес'), kind: 'dot', cls: 's-kg', keys: ['kg'] },
       { label: t('Среднее 7 дн'), kind: 'line', cls: 's-avg', keys: ['avg'] },
-      plan.length ? { label: t('План'), kind: 'line dash', cls: 's-plan', keys: ['plan'] } : null,
-      finish ? { label: t('прогноз → {date}', { date: fmt.date(finish) }), kind: 'line dash', cls: 's-forecast', keys: ['forecast'] } : null,
+      // Заливка без плану сенсу не має — вмикається й вимикається разом із ним; дата фінішу — в «Контрольних точках»
+      plan.length ? { label: t('План'), kind: 'line dash', cls: 's-plan', keys: ['plan', 'gap'] } : null,
+      finish ? { label: t('прогноз'), kind: 'line dash', cls: 's-forecast', keys: ['forecast'] } : null,
       vis.some((r) => r.note) ? { label: t('с заметкой'), kind: 'ring', cls: 's-kg' } : null,
-      ahead.length ? { label: t('опережаете / отстаёте'), kind: 'area', cls: 'split', keys: ['gap'] } : null,
     ].filter(Boolean),
     hidden: hiddenSeries(),
     onHidden: (keys) => remember(HIDDEN_KEY, JSON.stringify(keys)),
@@ -549,7 +572,8 @@ function renderSizes(seg) {
       t('Перчатки, обувь, одежда, кольцо — чтобы всегда были под рукой в магазине.'),
       btn(withIcon('plus', t('Указать размеры')), sizesForm)));
   }
-  return h('div', {}, seg, h('div', { class: 'rows sizes' }, list.map((s) => h('button', { type: 'button', class: 'row log-row', onclick: sizesForm },
+  // Довге значення — під назвою на всю ширину, а не притиснуте вправо в кілька рядків
+  return h('div', {}, seg, h('div', { class: 'rows sizes' }, list.map((s) => h('button', { type: 'button', class: `row log-row ${s.value?.length > 16 ? 'stacked' : ''}`, onclick: sizesForm },
     h('div', { class: 'row-main' }, h('span', { class: 'row-title' }, s.label)),
     s.value ? h('div', { class: 'row-side' }, h('span', { class: 'size-value' }, s.value)) : null))));
 }
@@ -589,6 +613,12 @@ function renderLog() {
     const ym = r.date.slice(0, 7);
     if (!months.has(ym)) months.set(ym, []);
     months.get(ym).push(r);
+  }
+  // Новий місяць розгортається сам один раз — далі пам'ятається, як його лишили
+  const latest = months.keys().next().value;
+  if (recall('weight-log:log-month') !== latest) {
+    unfold(`log:${latest}`);
+    remember('weight-log:log-month', latest);
   }
   return h('div', {}, seg, [...months].map(([ym, list]) => {
     const avg = list.reduce((s, r) => s + r.kg, 0) / list.length;
@@ -928,7 +958,6 @@ function aboutPanel() {
     h('div', { class: 'about-head' },
       h('img', { class: 'about-avatar', src: './icons/author.jpg', alt: '', width: 64, height: 64, loading: 'lazy' }),
       h('div', {},
-        h('h3', {}, t('О приложении')),
         h('p', { class: 'muted small' }, t('Weight Log — ежедневный вес, среднее за 7 дней, темп и прогноз цели. Работает без интернета: всё считается на устройстве.')))),
     more(t('Где мои данные'), h('div', { class: 'muted small' },
       h('p', {}, t('Записи лежат в браузере на этом устройстве. Сервера у приложения нет, автор не получает ни данных, ни статистики.')),
@@ -985,8 +1014,10 @@ function openSettings(key) {
 // ---------- навігація ----------
 
 const VIEWS = {
-  home: { title: 'Вес', render: renderHome, fab: () => weightForm() },
-  chart: { title: 'График', render: renderChart, fab: () => weightForm() },
+  // Сьогоднішня вага пишеться формою вгорі головної, за інший день — у «Журналі»; «+» тут лише перекривав блоки
+  home: { title: 'Вес', render: renderHome },
+  // На графіку «+» перекривав блок талії, а запис дня там і так є — олівцем під графіком
+  chart: { title: 'График', render: renderChart },
   log: { title: 'Журнал', render: renderLog, fab: () => ({ waist: waistForm, sizes: sizesForm, health: healthForm }[logSeg] ?? weightForm)() },
   settings: { title: 'Настройки', render: renderSettings },
 };
@@ -1011,8 +1042,7 @@ function render() {
   $('subtitle').textContent = '';
   if (tab === 'home') $('subtitle').textContent = new Date().toLocaleDateString(lang() === 'uk' ? 'uk-UA' : 'ru-RU', { weekday: 'long', day: 'numeric', month: 'long' });
   $('view').replaceChildren(view.render());
-  // На головній поле запису вже стоїть угорі — друга кнопка «+» там лише заважала б
-  $('fab').hidden = !view.fab || (tab === 'home' && !rows.some((r) => r.date === M.today()));
+  $('fab').hidden = !view.fab;
   document.querySelectorAll('.tabs a').forEach((a) => a.classList.toggle('active', a.dataset.tab === tab));
   $('settings-btn').classList.toggle('active', tab === 'settings');
   // Точка на вкладці: за сьогодні ще не зважувались
