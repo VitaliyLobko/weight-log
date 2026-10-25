@@ -316,10 +316,12 @@ export function lineChart(spec) {
         }
         marks.append(g);
       }
-      // Підпис на кінці — лише коли кінець лінії у вікні
+      // Підпис на кінці — лише коли кінець лінії у вікні; над точкою, щоб не лягав на хвостик прогнозу
       const p = pts.at(-1);
       if (se.endLabel && inView(p)) {
-        labels.append(s('text', { x: x(p.date) + 6, y: y(p.v) + 4, class: 'end-label' }, fmt.fix(p.v, spec.digits ?? 1)));
+        const lx = Math.min(x(p.date), pad.l + iw - 16);
+        const ly = y(p.v) - 16 < pad.t + 4 ? y(p.v) + 24 : y(p.v) - 16;
+        labels.append(s('text', { x: lx, y: ly, 'text-anchor': 'middle', class: 'end-label' }, fmt.fix(p.v, spec.digits ?? 1)));
       }
     });
     svg.append(marks, labels);
