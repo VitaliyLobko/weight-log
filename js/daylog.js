@@ -78,6 +78,17 @@ export async function toggleSkipped(date, item) {
     : t('«{name}» не съели: −{k}', { name: item.name, k: kcal(item.kcal) }), date, before);
 }
 
+/** Увесь прийом: не з'їли нічого (усі продукти — у «не з'їв») або, якщо вже так, повернути всі. */
+export async function toggleMealSkipped(date, meal) {
+  const ids = meal.items.map((x) => x.id);
+  const list = dayOf(await db.loadAll(), date)?.skipped ?? [];
+  const all = ids.every((id) => list.includes(id));
+  const next = all ? list.filter((id) => !ids.includes(id)) : [...new Set([...list, ...ids])];
+  const before = await saveDay(date, { skipped: next });
+  const k = meal.items.reduce((a, x) => a + (Number(x.kcal) || 0), 0);
+  undo(all ? t('«{name}» снова в итоге дня', { name: meal.name }) : t('«{name}» не съели: −{k}', { name: meal.name, k: kcal(k) }), date, before);
+}
+
 const toggleTag = (state, date, tag) => {
   const list = dayOf(state, date)?.tags ?? [];
   return saveDay(date, { tags: list.includes(tag) ? list.filter((x) => x !== tag) : [...list, tag] });
@@ -312,7 +323,7 @@ function dayBody(state, date) {
         return h('button', { type: 'button', class: on ? 'on' : '', 'aria-pressed': String(on), onclick: () => toggleTag(state, date, tag) }, tag);
       })) : null,
     skipped.length ? h('p', { class: 'small day-skipped' }, t('Не съел из плана: {list} · −{k}', {
-      list: skipped.map((x) => x.name).join(', '), k: kcal(skipped.reduce((a, x) => a + (Number(x.kcal) || 0), 0)),
+      list: skippedNames(state, rec.skipped), k: kcal(skipped.reduce((a, x) => a + (Number(x.kcal) || 0), 0)),
     })) : null,
     extras.length ? h('div', { class: 'rows day-extras' }, extras.map((x, i) => h('button', {
       type: 'button', class: 'row food-row', onclick: () => editor(date, [x], { index: i }),
@@ -329,6 +340,22 @@ function skippedItems(state, ids) {
   const plan = planOf(state);
   const all = [...(plan?.meals ?? []).flatMap((m) => m.items ?? []), ...(plan?.day?.items ?? []), ...(plan?.pauseItems ?? [])];
   return ids.map((id) => all.find((x) => x.id === id)).filter(Boolean);
+}
+
+/** Що не з'їли — назвами; прийом, пропущений цілком, — одним словом «Обід — цілком». */
+function skippedNames(state, ids) {
+  const set = new Set(ids);
+  const out = [];
+  const used = new Set();
+  for (const m of planOf(state)?.meals ?? []) {
+    const items = m.items ?? [];
+    if (items.length > 1 && items.every((x) => set.has(x.id))) {
+      out.push(t('{name} — целиком', { name: m.name }));
+      for (const x of items) used.add(x.id);
+    }
+  }
+  for (const x of skippedItems(state, ids)) if (!used.has(x.id)) out.push(x.name);
+  return out.join(', ');
 }
 
 function daySheet(date) {

@@ -63,6 +63,70 @@ export function vibrate(ms = 12) {
   navigator.vibrate?.(ms);
 }
 
+// Смуга біля країв екрана, звідки Android веде жест «Назад»
+const EDGE_PX = 24;
+
+/**
+ * Свайп уліво по body: протягнув далі третини ширини — onSwipe. Короткий рух — ще прокрутка.
+ * label — що написано під рядком, canStart(e) — звідки можна почати; тап після свайпу не спрацьовує.
+ */
+export function swipeLeft(body, { onSwipe, label, canStart = () => true }) {
+  const wrap = h('div', { class: 'swipe' }, h('div', { class: 'swipe-bg', 'aria-hidden': 'true' }, label), body);
+  let start = null;
+  let axis = null;
+  let dx = 0;
+  let armed = false;
+  let swallow = false;
+  const reset = () => {
+    body.style.transition = 'transform .18s ease';
+    body.style.transform = '';
+    wrap.classList.remove('moving', 'armed');
+    start = null; axis = null; dx = 0; armed = false;
+  };
+  wrap.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || !canStart(e) || e.clientX < EDGE_PX || e.clientX > window.innerWidth - EDGE_PX) return;
+    start = { x: e.clientX, y: e.clientY, id: e.pointerId };
+    axis = null; dx = 0;
+    body.style.transition = 'none';
+  });
+  wrap.addEventListener('pointermove', (e) => {
+    if (!start || e.pointerId !== start.id) return;
+    const mx = e.clientX - start.x;
+    const my = e.clientY - start.y;
+    if (!axis) {
+      if (Math.abs(mx) < 8 && Math.abs(my) < 8) return;
+      axis = Math.abs(mx) > Math.abs(my) && mx < 0 ? 'x' : 'y';
+      if (axis === 'x') wrap.setPointerCapture(start.id); else { start = null; return; }
+    }
+    dx = Math.max(Math.min(0, mx), -wrap.clientWidth * 0.7);
+    body.style.transform = `translateX(${dx}px)`;
+    wrap.classList.add('moving');
+    const now = -dx > wrap.clientWidth * 0.3;
+    if (now !== armed) { armed = now; wrap.classList.toggle('armed', armed); if (armed) vibrate(); }
+  });
+  const finish = (e) => {
+    if (!start || e.pointerId !== start.id) return;
+    const was = axis;
+    const fire = armed;
+    reset();
+    if (was === 'x') {
+      swallow = true;
+      setTimeout(() => { swallow = false; }, 400);
+      if (fire) { vibrate(40); onSwipe(); }
+    }
+  };
+  wrap.addEventListener('pointerup', finish);
+  wrap.addEventListener('pointercancel', finish);
+  // Відпустив палець після свайпу — браузер шле click; він не має відкрити шторку чи згорнути блок
+  wrap.addEventListener('click', (e) => {
+    if (!swallow) return;
+    swallow = false;
+    e.stopPropagation();
+    e.preventDefault();
+  }, true);
+  return wrap;
+}
+
 // Відкриті «живі» шторки: картка під іншою шторкою має побачити, що там змінили чи видалили.
 const liveSheets = new Set();
 

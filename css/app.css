@@ -983,3 +983,19 @@ button.food-pick .chevron-right { font-size: 22px; line-height: 1; color: var(--
 .cal-key.much { background: color-mix(in srgb, var(--warn) 45%, var(--bad) 25%); }
 .cal-key.slip { background: color-mix(in srgb, var(--bad) 55%, var(--surface)); }
 .cal p { margin: 8px 0 0; }
+/* --- свайп «не з'їв» --- */
+.swipe { position: relative; touch-action: pan-y; }
+.swipe > :not(.swipe-bg) { position: relative; }
+.swipe-bg {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: flex-end; padding: 0 16px;
+  border-radius: 10px; font-size: 13px; font-weight: 700; color: var(--muted);
+  background: color-mix(in srgb, var(--warn) 14%, var(--surface-2)); opacity: 0; transition: opacity .12s, background .12s;
+}
+.swipe.moving > .swipe-bg { opacity: 1; }
+.swipe.armed > .swipe-bg { color: #1b1300; background: var(--warn); }
+.swipe.moving > .row { background: var(--bg); }
+.swipe.moving > .box { background: var(--bg); }
+.box .rows > .swipe + .swipe > .row { border-top: 1px solid var(--line-soft); }
+.box > legend .food-tag.skip { margin-left: 2px; }
+.food-swipe-hint { margin: 8px 2px 0; }
+@media (prefers-reduced-motion: reduce) { .swipe-bg { transition: none; } }
