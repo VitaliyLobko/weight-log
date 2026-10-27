@@ -150,17 +150,22 @@ export async function syncBot() {
 }
 
 /**
- * Калорійність їжі з тексту через бота (/api/food): { items: [{ name, qty, grams, kcal, p, f, c }], note, source }.
+ * Калорійність їжі з тексту через бота (/api/food): { items: [{ name, base, qty, grams, k100, p100, f100, c100, kcal, p, f, c }], note, source }.
  * Помилка: message 'no-bot' — бот не підключений, 'limit' — ліміт на день, 'offline', інакше — бот чи модель.
  */
-export async function askFood(text) {
+export const askFood = (text) => askBot('/api/food', { text });
+
+/** Фото етикетки (data URL JPEG) → { name, k100, p100, f100, c100, serving, note, source }; помилки — як в askFood. */
+export const askLabel = (image) => askBot('/api/food-label', { image });
+
+async function askBot(path, body) {
   const { url, key } = botConfig();
   if (!url || !key) throw new Error('no-bot');
   if (!navigator.onLine) throw new Error('offline');
-  const r = await fetch(`${url}/api/food`, {
+  const r = await fetch(`${url}${path}`, {
     method: 'POST',
     headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify(body),
   });
   if (!r.ok) {
     const e = await r.json().catch(() => ({}));

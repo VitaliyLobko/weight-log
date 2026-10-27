@@ -87,6 +87,9 @@ export function swipeLeft(body, { onSwipe, label, canStart = () => true }) {
     if (e.button !== 0 || !canStart(e) || e.clientX < EDGE_PX || e.clientX > window.innerWidth - EDGE_PX) return;
     start = { x: e.clientX, y: e.clientY, id: e.pointerId };
     axis = null; dx = 0;
+    // У рамки з назвою лінія йде по середині legend: вище неї фону блоку немає — підкладка теж з лінії
+    const legend = body.matches('fieldset') ? body.querySelector(':scope > legend') : null;
+    wrap.firstChild.style.top = legend ? `${legend.offsetHeight / 2}px` : '';
     body.style.transition = 'none';
   });
   wrap.addEventListener('pointermove', (e) => {

@@ -910,7 +910,7 @@ button:focus-visible, a:focus-visible, summary:focus-visible, [tabindex]:focus-v
 .food-card { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
 .food-card-head { display: flex; align-items: flex-end; gap: 6px; }
 .food-card-head .field { flex: 1; }
-.food-card-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.food-card-row { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 8px; }
 .food-card-macros { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .food-card input { width: 100%; min-width: 0; }
 .food-edit .btn-row { margin: 0; }
@@ -1008,3 +1008,13 @@ button.food-pick .chevron-right { font-size: 22px; line-height: 1; color: var(--
 .food-missed { display: flex; flex-direction: column; gap: 10px; padding: 4px 2px 0; }
 .food-missed p { display: flex; flex-direction: column; gap: 2px; margin: 0; }
 .food-missed .btn.food-meal-btn { align-self: flex-start; color: var(--accent-2); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.food-src-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+.food-src-btns .btn { min-height: 44px; font-size: 14px; }
+.food-check[hidden] { display: none; }
+.food-check { display: flex; gap: 6px; align-items: flex-start; margin: 0; color: color-mix(in srgb, var(--warn) 70%, var(--text)); }
+.food-check .ico { flex: none; width: 15px; height: 15px; margin-top: 2px; }
+.scan { display: flex; flex-direction: column; gap: 10px; }
+.scan-frame { position: relative; overflow: hidden; aspect-ratio: 4 / 3; border-radius: 12px; background: #000; }
+.scan-video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.scan-line { position: absolute; left: 10%; right: 10%; top: 50%; height: 2px; background: var(--bad); box-shadow: 0 0 8px var(--bad); }
+.scan-status { margin: 0; }

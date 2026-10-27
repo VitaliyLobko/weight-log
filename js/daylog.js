@@ -8,6 +8,8 @@ import { h, fmt, sheet, toast, btn, toolBtn, box, parseNum } from './ui.js';
 import { t, plural } from './i18n.js';
 import { icon, withIcon } from './icons.js';
 import { planOf, tagLists, slipRule, plannedKcal } from './nutrition.js';
+import { resolveLocal, fromModel, fromPer100, per100Of, kcalMismatch, withoutStats } from './foods.js';
+import { scanSheet, lookupBarcode, pickLabelPhoto, labelItem } from './scan.js';
 
 export const DAY_PREFIX = 'day:';
 /** «Мої продукти»: що вже рахували — кнопки швидкого додавання і кеш, щоб не питати модель вдруге. */
@@ -96,16 +98,18 @@ const toggleTag = (state, date, tag) => {
 
 // ---------- «Мої продукти» ----------
 
-const foodKey = (x) => `${String(x.name ?? '').trim().toLowerCase()}|${String(x.qty ?? '').trim().toLowerCase()}`;
 const norm = (s) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+// Той самий продукт: штрихкод, або назва — а з вагою на 100 г порція вже не важлива (інакше дві порції — дві кнопки)
+const sameFood = (a, b) => (a.barcode && a.barcode === b.barcode)
+  || (norm(a.name) === norm(b.name) && (a.per100 || b.per100 || norm(a.qty) === norm(b.qty)));
 
 /** Запам'ятати пораховане: частіші й свіжіші — першими на кнопках. */
 async function rememberFoods(items) {
   const list = [...foodsOf(await db.loadAll())];
   const now = Date.now();
   for (const it of items) {
-    const i = list.findIndex((x) => foodKey(x) === foodKey(it));
-    const { id, at, ...food } = it;
+    const i = list.findIndex((x) => sameFood(x, it));
+    const { id, at, src, ...food } = it;
     if (i >= 0) list[i] = { ...list[i], ...food, used: (list[i].used ?? 0) + 1, last: now };
     else list.push({ ...food, used: 1, last: now });
   }
@@ -115,12 +119,6 @@ async function rememberFoods(items) {
 
 const topFoods = (state) => [...foodsOf(state)]
   .sort((a, b) => ((b.used ?? 0) - (a.used ?? 0)) || ((b.last ?? 0) - (a.last ?? 0))).slice(0, FOODS_SHOWN);
-
-/** Той самий текст уже рахували — назва чи «назва порція» з «Моїх продуктів». */
-function cached(state, text) {
-  const q = norm(text);
-  return foodsOf(state).find((x) => norm(x.name) === q || norm(`${x.name} ${x.qty}`) === q) ?? null;
-}
 
 async function addExtras(date, items) {
   const stamped = items.map((x) => ({ ...x, id: newId(), at: Date.now() }));
@@ -138,7 +136,23 @@ const AI_ERRORS = {
   'no-ai': 'Бот не может посчитать — введите вручную.',
 };
 
-/** «З'їв поза планом»: текст → модель рахує → перевірити; «Мої продукти» — одним тапом. */
+// Звідки значення — підпис над продуктами в редакторі
+const SOURCE_NOTE = {
+  table: 'По справочнику — значения примерные, проверьте граммы.',
+  my: 'Из «Моих продуктов».',
+  off: 'Из базы Open Food Facts по штрихкоду — значения с упаковки.',
+  label: 'С фото этикетки — сверьте с упаковкой.',
+};
+const sourceNote = (items) => {
+  const srcs = new Set(items.map((x) => x.src).filter(Boolean));
+  return srcs.size === 1 ? t(SOURCE_NOTE[[...srcs][0]] ?? '') || null : srcs.size ? t('Часть — по справочнику, часть — из «Моих продуктов».') : null;
+};
+const errorText = (err) => t(AI_ERRORS[err?.message] ?? 'Не удалось посчитать — введите вручную.');
+
+/**
+ * «З'їв поза планом»: текст → спершу «Мої продукти» й довідник без мережі, решта — модель через бота;
+ * штрихкод і фото етикетки — точні значення з упаковки. Усе потім перевірити в редакторі.
+ */
 export function foodSheet(date = M.today()) {
   const state = current;
   const text = h('textarea', {
@@ -147,20 +161,30 @@ export function foodSheet(date = M.today()) {
   });
   const connected = Boolean(bot.botConfig().from);
   const foods = state ? topFoods(state) : [];
+  const mine = state ? foodsOf(state) : [];
   const quick = async (f) => {
     close();
-    const { used, last, ...item } = f;
+    const item = withoutStats(f);
     const before = await addExtras(date, [item]);
     undo(t('Добавлено: {name} · {k}', { name: f.name, k: kcal(f.kcal) }), date, before);
   };
   const count = async () => {
     const q = text.value.trim();
     if (!q) { text.focus(); toast(t('Напишите, что съели')); return; }
-    const hit = state && cached(state, q);
-    if (hit) {
+    const local = resolveLocal(q, mine);
+    if (local.items.length && !local.missing.length) {
       close();
-      const { used, last, ...item } = hit;
-      editor(date, [item], { note: t('Из «Моих продуктов»') });
+      editor(date, local.items, { note: sourceNote(local.items), source: 'local' });
+      return;
+    }
+    // Без бота — що впізнали, плюс порожні рядки для решти
+    if (!connected) {
+      close();
+      editor(date, [...local.items, ...local.missing.map((name) => ({ name }))], {
+        note: t(local.items.length
+          ? 'Не всё нашлось в справочнике — допишите калории. ИИ-подсчёт работает через Telegram-бот.'
+          : 'В справочнике не нашлось — введите калории. ИИ-подсчёт работает через Telegram-бот.'),
+      });
       return;
     }
     go.disabled = true;
@@ -169,20 +193,62 @@ export function foodSheet(date = M.today()) {
       const r = await bot.askFood(q);
       close();
       if (!r.items?.length) editor(date, [{ name: q }], { note: r.note || t('Не похоже на еду — введите вручную.') });
-      else editor(date, r.items, { note: r.note, source: r.source });
+      else editor(date, r.items.map(fromModel), { note: r.note, source: r.source });
     } catch (err) {
       close();
-      const msg = AI_ERRORS[err.message] ?? t('Не удалось посчитать — введите вручную.');
-      editor(date, [{ name: q }], { note: t(msg), error: true });
+      // Модель недоступна — хоча б те, що знайшлось у довіднику
+      editor(date, [...local.items, ...local.missing.map((name) => ({ name }))], { note: errorText(err), error: true });
+    }
+  };
+  const scan = () => {
+    close();
+    scanSheet(async (code) => {
+      const known = mine.find((x) => x.barcode === code);
+      if (known) { editor(date, [withoutStats(known)], { note: t(SOURCE_NOTE.my) }); return; }
+      toast(t('Ищу штрихкод {code}…', { code }));
+      try {
+        const it = await lookupBarcode(code);
+        if (!it) {
+          editor(date, [{ name: '', barcode: code }], {
+            note: t('Штрихкода {code} нет в Open Food Facts — сфотографируйте таблицу на упаковке или введите вручную.', { code }), error: true,
+          });
+          return;
+        }
+        editor(date, [{ ...it, qty: '', ...fromPer100(it.per100, it.grams), src: 'off' }], { note: t(SOURCE_NOTE.off), source: 'off' });
+      } catch (err) {
+        editor(date, [{ name: '', barcode: code }], { note: errorText(err), error: true });
+      }
+    });
+  };
+  const photo = async () => {
+    if (!connected) { toast(t('Фото этикетки читает Telegram-бот — подключите его в «Данных».')); return; }
+    const image = await pickLabelPhoto();
+    if (!image) return;
+    close();
+    toast(t('Читаю этикетку…'), { timeout: 20000 });
+    try {
+      const r = await bot.askLabel(image);
+      const it = labelItem(r);
+      document.querySelector('.toast')?.remove();
+      if (!it) { editor(date, [{ name: r.name ?? '' }], { note: r.note || t('Таблицу не удалось прочитать — введите вручную.'), error: true }); return; }
+      editor(date, [{ ...it, qty: '', ...fromPer100(it.per100, it.grams), src: 'label' }], {
+        note: [t(SOURCE_NOTE.label), r.note].filter(Boolean).join(' '), source: 'label',
+      });
+    } catch (err) {
+      document.querySelector('.toast')?.remove();
+      editor(date, [{ name: '' }], { note: errorText(err), error: true });
     }
   };
   const manual = () => { close(); editor(date, [{ name: text.value.trim() }], {}); };
-  const go = btn(withIcon('spark', connected ? t('Посчитать') : t('Дальше')), () => (connected ? count() : manual()), 'primary');
+  const go = btn(withIcon('spark', t('Посчитать')), count, 'primary');
   const body = h('div', { class: 'food-ask' },
     h('label', { class: 'field' }, h('span', { class: 'field-label' }, t('Что съели')), text,
       h('small', { class: 'muted' }, connected
-        ? t('Можно несколько продуктов сразу. ИИ посчитает калории и БЖУ — потом проверите.')
-        : t('ИИ-подсчёт работает через Telegram-бот — его можно подключить в «Данных». Пока — вручную.'))),
+        ? t('Можно несколько продуктов с граммами или штуками. Сначала — «Мои продукты» и справочник, остальное посчитает ИИ.')
+        : t('Можно несколько продуктов с граммами или штуками — посчитаю по справочнику. Для остального подключите Telegram-бот в «Данных».'))),
+    h('div', { class: 'food-src-btns' },
+      btn(withIcon('barcode', t('Штрихкод')), scan),
+      btn(withIcon('camera', t('Фото этикетки')), photo)),
     foods.length ? [h('h4', { class: 'food-sub' }, t('Мои продукты')),
       h('div', { class: 'chips food-quick' }, foods.map((f) => h('button', { type: 'button', onclick: () => quick(f) },
         h('span', {}, f.name), h('span', { class: 'muted' }, fmt.int(f.kcal)))))] : null);
@@ -192,37 +258,71 @@ export function foodSheet(date = M.today()) {
   setTimeout(() => text.focus(), 250);
 }
 
-/** Один продукт у редакторі: назва, порція, ккал і БЖВ. */
+/**
+ * Один продукт у редакторі: назва, порція, грами, ккал і БЖВ.
+ * Є значення на 100 г — зміна грамів перераховує решту; правка ккал чи БЖВ вручну від них відв'язує.
+ */
 function itemCard(item, onChange, onRemove) {
   const num = (v) => (Number.isFinite(Number(v)) && v !== '' && v != null ? fmt.fix(Number(v), Number(v) % 1 ? 1 : 0) : '');
-  const field = (name, label, value, cls = '') => {
+  let per100 = item.per100 ?? null;
+  let lastGrams = Number(item.grams) || null;
+  const field = (name, label, value, cls = '', onInput = onChange) => {
     const input = h('input', {
       name, value, autocomplete: 'off',
       ...(name === 'name' || name === 'qty' ? { type: 'text' } : { type: 'text', inputmode: 'decimal' }),
-      oninput: onChange,
+      oninput: onInput,
     });
     return { input, el: h('label', { class: `field ${cls}` }, h('span', { class: 'field-label' }, label), input) };
   };
+  const nums = () => Object.fromEntries(NUMS.map((k) => [k, parseNum(f[k].input.value)]));
+  const onGrams = () => {
+    const g = parseNum(f.grams.input.value);
+    if (Number.isFinite(g) && g > 0) {
+      const base = per100 ?? per100Of({ ...nums(), grams: lastGrams });
+      if (base) {
+        per100 = base;
+        const v = fromPer100(base, g);
+        for (const k of NUMS) f[k].input.value = num(v[k]);
+      }
+      lastGrams = g;
+    }
+    onChange();
+  };
+  const onNum = () => { per100 = null; onChange(); };
   const f = {
     name: field('name', t('Название'), item.name ?? ''),
-    qty: field('qty', t('Порция'), item.qty ?? '', 'half'),
-    kcal: field('kcal', t('Ккал'), num(item.kcal), 'half'),
-    p: field('p', t('Б'), num(item.p)),
-    f: field('f', t('Ж'), num(item.f)),
-    c: field('c', t('У'), num(item.c)),
+    qty: field('qty', t('Порция'), item.qty ?? '', 'third'),
+    grams: field('grams', t('Граммы'), num(item.grams), 'third', onGrams),
+    kcal: field('kcal', t('Ккал'), num(item.kcal), 'third', onNum),
+    p: field('p', t('Б'), num(item.p), '', onNum),
+    f: field('f', t('Ж'), num(item.f), '', onNum),
+    c: field('c', t('У'), num(item.c), '', onNum),
   };
+  const check = h('p', { class: 'small food-check', hidden: true }, icon('warning'),
+    h('span', {}, t('Калории не сходятся с БЖУ (4·Б + 9·Ж + 4·У) — проверьте цифры.')));
   const el = h('div', { class: 'food-card' },
     h('div', { class: 'food-card-head' }, f.name.el, onRemove ? toolBtn('delete', t('Удалить'), onRemove, 'danger') : null),
-    h('div', { class: 'food-card-row' }, f.qty.el, f.kcal.el),
-    h('div', { class: 'food-card-macros' }, f.p.el, f.f.el, f.c.el));
+    h('div', { class: 'food-card-row' }, f.qty.el, f.grams.el, f.kcal.el),
+    h('div', { class: 'food-card-macros' }, f.p.el, f.f.el, f.c.el),
+    check);
   const read = () => {
-    const out = { name: f.name.input.value.trim(), qty: f.qty.input.value.trim(), ...(item.grams ? { grams: item.grams } : {}) };
+    const g = parseNum(f.grams.input.value);
+    const out = {
+      name: f.name.input.value.trim(), qty: f.qty.input.value.trim(),
+      ...(Number.isFinite(g) && g > 0 ? { grams: g } : {}),
+      ...(per100 ? { per100 } : {}),
+      ...(item.barcode ? { barcode: item.barcode } : {}),
+      ...(item.src ? { src: item.src } : {}),
+    };
     for (const k of NUMS) {
       const v = parseNum(f[k].input.value);
       out[k] = Number.isFinite(v) && v >= 0 ? v : (k === 'kcal' ? NaN : 0);
     }
     return out;
   };
+  const paintCheck = () => { check.hidden = !kcalMismatch(read()); };
+  el.addEventListener('input', paintCheck);
+  paintCheck();
   return { el, read, focus: () => f.name.input.focus() };
 }
 

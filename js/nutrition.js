@@ -473,6 +473,19 @@ function swipeRow(item) {
   });
 }
 
+/** Іконка прийому: за назвою (сніданок, обід, вечеря, перекус), інакше — за годиною початку. */
+function mealIcon(meal) {
+  if (meal.isPause) return 'calendar';
+  const name = meal.name.toLowerCase();
+  if (/перекус|полдник|підвечір/.test(name)) return 'apple';
+  if (/завтрак|сніданок/.test(name)) return 'cup';
+  if (/ужин|вечер/.test(name)) return 'moon';
+  if (/обед|обід/.test(name)) return 'plate';
+  const hour = Number(/(\d{1,2}):\d{2}/.exec(meal.time ?? '')?.[1]);
+  if (Number.isNaN(hour)) return 'plate';
+  return hour < 11 ? 'cup' : hour < 16 ? 'plate' : 'moon';
+}
+
 function mealBox(meal, index) {
   const eaten = meal.items.filter((x) => !x.skipped);
   const s = totals(eaten);
@@ -486,7 +499,7 @@ function mealBox(meal, index) {
   const key = `meal:${meal.id}`;
   openFirstTime(key);
   const toggleMeal = () => toggleMealSkipped(M.today(), meal);
-  const title2 = [withIcon(meal.isPause ? 'calendar' : 'leaf', title), missed ? h('span', { class: 'food-tag skip' }, t('пропущено')) : null];
+  const title2 = [withIcon(mealIcon(meal), title), missed ? h('span', { class: 'food-tag skip' }, t('пропущено')) : null];
   if (!meal.items.length) {
     return box(title2, h('p', { class: 'muted small' }, t('Пусто — добавьте продукт «+»')), { fold: key, tools });
   }
