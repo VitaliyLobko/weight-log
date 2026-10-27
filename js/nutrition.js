@@ -3,11 +3,11 @@
 import * as db from './db.js';
 import * as sync from './sync.js';
 import * as M from './model.js';
-import { h, fmt, sheet, toast, form, btn, toolBtn, box, confirmSheet, remember, recall, unfold, swipeLeft } from './ui.js';
+import { h, fmt, sheet, toast, form, btn, toolBtn, box, confirmSheet, remember, recall, unfold, swipeLeft, segmented } from './ui.js';
 import { t, plural } from './i18n.js';
 import { icon, withIcon } from './icons.js';
 import { dietMemo } from './diet.js';
-import { dayCard, monthBox, extrasSum, dayOf, STATUS, toggleSkipped, toggleMealSkipped, calendarBox } from './daylog.js';
+import { dayCard, monthBox, extrasSum, dayOf, STATUS, toggleSkipped, toggleMealSkipped, calendarPanel } from './daylog.js';
 
 export const PLAN_ID = 'nutrition';
 /** Вибір продукту дня — окремим записом: тап на телефоні не перетирає правку плану з іншого пристрою. */
@@ -485,21 +485,36 @@ function mealBox(meal, index) {
   ];
   const key = `meal:${meal.id}`;
   openFirstTime(key);
-  const hint = index === 0 && meal.items.length && !recall(SWIPE_SEEN)
-    ? h('p', { class: 'muted small food-swipe-hint' }, t('Свайп влево по продукту — не съел, по заголовку — весь приём.')) : null;
-  // Згорнутий прийом показує ккал у заголовку
-  const el = box([withIcon(meal.isPause ? 'calendar' : 'leaf', title), missed ? h('span', { class: 'food-tag skip' }, t('пропущено')) : null], h('div', {},
-    meal.items.length ? h('div', { class: 'rows' }, meal.items.map((x) => swipeRow(missed ? { ...x, inMissed: true } : x))) : h('p', { class: 'muted small' }, t('Пусто — добавьте продукт «+»')),
-    meal.items.length ? h('div', { class: 'food-sum' }, h('b', {}, kcal(s.kcal)), h('span', { class: 'muted' }, macros(s))) : null,
-    meal.note ? h('p', { class: 'muted small food-note' }, meal.note) : null,
-    hint), { fold: key, count: eaten.length ? Math.round(s.kcal) : null, tools });
-  if (!meal.items.length) return el;
-  // Свайп по заголовку — увесь прийом: не з'їв (або повернути, якщо вже пропущено)
+  const toggleMeal = () => toggleMealSkipped(M.today(), meal);
+  const title2 = [withIcon(meal.isPause ? 'calendar' : 'leaf', title), missed ? h('span', { class: 'food-tag skip' }, t('пропущено')) : null];
+  if (!meal.items.length) {
+    return box(title2, h('p', { class: 'muted small' }, t('Пусто — добавьте продукт «+»')), { fold: key, tools });
+  }
+  let el;
+  if (missed) {
+    // Пропущений прийом — один рядок замість закреслених продуктів
+    const all = totals(meal.items);
+    el = box(title2, h('div', { class: 'food-missed' },
+      h('p', {}, h('b', {}, t('Не ели · −{k}', { k: kcal(all.kcal) })),
+        h('span', { class: 'muted small' }, meal.items.map((x) => x.name).join(', '))),
+      h('button', { type: 'button', class: 'btn food-meal-btn', onclick: toggleMeal }, t('Вернуть приём'))), { fold: key, tools });
+  } else {
+    const hint = index === 0 && !recall(SWIPE_SEEN)
+      ? h('p', { class: 'muted small food-swipe-hint' }, t('Свайп влево по продукту — не съел, по заголовку — весь приём.')) : null;
+    // Згорнутий прийом показує ккал у заголовку
+    el = box(title2, h('div', {},
+      h('div', { class: 'rows' }, meal.items.map(swipeRow)),
+      h('div', { class: 'food-sum' }, h('b', {}, kcal(s.kcal)), h('span', { class: 'muted' }, macros(s))),
+      meal.note ? h('p', { class: 'muted small food-note' }, meal.note) : null,
+      hint), { fold: key, count: Math.round(s.kcal), tools });
+  }
+  el.classList.add('food-meal');
+  // Свайп по заголовку — увесь прийом; смуга на всю ширину блоку, заголовок великий
   return swipeLeft(el, {
     label: missed ? t('Вернуть приём') : t('Не ел'),
-    // Уся верхня смуга блоку (заголовок вузький), крім кнопок «+» і «✎»
-    canStart: (e) => e.clientY - el.getBoundingClientRect().top < 36 && !e.target.closest('.box-tools, .rows'),
-    onSwipe: () => { swiped(); toggleMealSkipped(M.today(), meal); },
+    canStart: (e) => e.clientY < el.querySelector('legend').getBoundingClientRect().bottom + 8
+      && !e.target.closest('.rows, .food-missed'),
+    onSwipe: () => { swiped(); toggleMeal(); },
   });
 }
 
@@ -597,10 +612,25 @@ function pausesBox(plan) {
 // Останній стан — для живої шторки вибору продукту дня
 let current = null;
 
-export function renderRation(state, { noPlan }) {
+// Підрозділи «Раціону»: день — щоденна робота, календар — історія, довідка — рідко
+const RATION_SEGS = [['today', 'Сегодня'], ['calendar', 'Календарь'], ['refs', 'Справка']];
+const SEG_KEY = 'weight-log:ration-seg';
+let rationSeg = RATION_SEGS.some(([k]) => k === recall(SEG_KEY)) ? recall(SEG_KEY) : 'today';
+
+export function renderRation(state, { noPlan, render }) {
   current = state;
   const day = today(state);
   if (!day) return h('div', {}, noPlan(), box(withIcon('leaf', t('Питание при диабете')), dietMemo(), { fold: 'diet' }));
+  const seg = segmented(RATION_SEGS.map(([k, l]) => [k, t(l)]), rationSeg, (v) => {
+    rationSeg = v;
+    remember(SEG_KEY, v);
+    render();
+  });
+  const body = { today: rationToday, calendar: rationCalendar, refs: rationRefs }[rationSeg];
+  return h('div', {}, seg, body(state, day));
+}
+
+function rationToday(state, day) {
   const { plan, pause, meals, planned, extra, sum } = day;
   const norm = plan.norm;
   return h('div', {},
@@ -614,18 +644,25 @@ export function renderRation(state, { noPlan }) {
       windowEl(plan, Boolean(pause.now))),
     pauseNote(pause),
     dayCard(state),
-    calendarBox(state),
     meals.map(mealBox),
     h('div', { class: 'btn-row' }, btn(withIcon('plus', t('Приём еды')), () => mealForm(null))),
-    norm ? h('p', { class: 'muted small food-norm' }, t('Норма в среднем за неделю: {k} · {m}', { k: kcal(norm.kcal), m: macros(norm) })) : null,
-    pausesBox(plan),
+    norm ? h('p', { class: 'muted small food-norm' }, t('Норма в среднем за неделю: {k} · {m}', { k: kcal(norm.kcal), m: macros(norm) })) : null);
+}
+
+function rationCalendar(state, { plan }) {
+  return h('div', {},
+    calendarPanel(state),
     monthBox(state, energy(state, M.series(state.weights))),
-    h('div', { class: 'btn-row' }, btn(withIcon('note', t('Метки')), () => tagsForm(plan))),
-    h('h3', { class: 'food-section' }, icon('book'), t('Справка')),
+    pausesBox(plan));
+}
+
+function rationRefs(state, { plan }) {
+  return h('div', {},
     (plan.refs ?? []).map((r) => box(withIcon('book', r.title), refText(r.text), {
       fold: `ref:${r.id}`, tools: [toolBtn('edit', t('Изменить'), () => refForm(r))],
     })),
-    box(withIcon('leaf', t('Питание при диабете')), dietMemo(), { fold: 'diet' }));
+    box(withIcon('leaf', t('Питание при диабете')), dietMemo(), { fold: 'diet' }),
+    h('div', { class: 'btn-row' }, btn(withIcon('note', t('Метки')), () => tagsForm(plan))));
 }
 
 /**

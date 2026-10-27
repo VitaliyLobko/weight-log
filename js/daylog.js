@@ -4,7 +4,7 @@ import * as db from './db.js';
 import * as sync from './sync.js';
 import * as M from './model.js';
 import * as bot from './bot.js';
-import { h, fmt, sheet, toast, btn, toolBtn, box, parseNum, unfold, recall, remember } from './ui.js';
+import { h, fmt, sheet, toast, btn, toolBtn, box, parseNum } from './ui.js';
 import { t, plural } from './i18n.js';
 import { icon, withIcon } from './icons.js';
 import { planOf, tagLists, slipRule, plannedKcal } from './nutrition.js';
@@ -395,7 +395,6 @@ function weekStrip(state) {
 
 /** Скільки поза планом понад план (мінус те, що з плану не з'їли), за якого день ще «трохи більше». */
 const CAL_LITTLE = 300;
-const CAL_SEEN = 'weight-log:cal-seen';
 let calMonth = null;
 
 /** День у календарі: що з'їли (план мінус «не з'їв» плюс поза планом) і клас кольору. */
@@ -456,11 +455,10 @@ function calendarBody(state) {
   return el;
 }
 
-/** Календар калорій на «Раціоні»; уперше — розгорнутий. */
-export function calendarBox(state) {
+/** Календар калорій — окремий підрозділ «Раціону», тому без згортання. */
+export function calendarPanel(state) {
   use(state);
-  if (!recall(CAL_SEEN)) { unfold('box:calendar'); remember(CAL_SEEN, '1'); }
-  return box(withIcon('calendar', t('Календарь калорий')), calendarBody(state), { fold: 'calendar' });
+  return h('section', { class: 'panel cal-panel' }, h('h3', {}, t('Календарь калорий')), calendarBody(state));
 }
 
 /** Картка «Як день?» на «Раціоні»: сьогоднішня позначка, поза планом, тиждень і серія. */

@@ -999,3 +999,12 @@ button.food-pick .chevron-right { font-size: 22px; line-height: 1; color: var(--
 .box > legend .food-tag.skip { margin-left: 2px; }
 .food-swipe-hint { margin: 8px 2px 0; }
 @media (prefers-reduced-motion: reduce) { .swipe-bg { transition: none; } }
+.box.food-meal > legend { min-height: 44px; font-size: 17px; color: var(--text); }
+.box.food-meal > legend .box-toggle { min-height: 44px; gap: 8px; }
+.box.food-meal > legend .ico { width: 22px; height: 22px; }
+.box.food-meal > legend .box-chevron { font-size: 20px; }
+.box.food-meal > legend .box-count { font-size: 14px; }
+.btn.food-meal-btn { min-height: 40px; padding: 6px 14px; font-size: 14px; font-weight: 600; color: var(--muted); background: none; }
+.food-missed { display: flex; flex-direction: column; gap: 10px; padding: 4px 2px 0; }
+.food-missed p { display: flex; flex-direction: column; gap: 2px; margin: 0; }
+.food-missed .btn.food-meal-btn { align-self: flex-start; color: var(--accent-2); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }

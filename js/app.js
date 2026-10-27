@@ -1131,6 +1131,7 @@ const VIEWS = {
   ration: {
     title: 'Рацион',
     render: () => renderRation(state, {
+      render,
       noPlan: () => empty('leaf', t('Плана питания пока нет'),
         t('Загрузите файл с планом: Данные → Копия в файл → Восстановить из файла → Объединить.'),
         btn(withIcon('upload', t('Открыть «Данные»')), () => openSettings('data'))),
