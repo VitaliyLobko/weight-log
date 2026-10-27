@@ -12,7 +12,7 @@ import { lineChart } from './chart.js';
 import { icon, withIcon } from './icons.js';
 import { remindTime, setRemindTime, googleCalendarUrl, icsFile } from './remind.js';
 import { renderRation, homeLine, noteTags, tickWindow, planOf } from './nutrition.js';
-import { weightHint, afterSlip, yesterdayText } from './daylog.js';
+import { weightHint, afterSlip, yesterdayText, weekMarks, periodFood, streakMilestones, journalMark, streak } from './daylog.js';
 import * as party from './celebrate.js';
 
 const $ = (id) => document.getElementById(id);
@@ -25,7 +25,8 @@ let sum = M.summary([], goal);
 
 function derive() {
   rows = M.series(state.weights);
-  goal = M.goalOf(state);
+  // Паузи на підтриманні з раціону: у них лінія плану стоїть, прогноз відсувається, плато мовчить
+  goal = { ...M.goalOf(state), pauses: planOf(state)?.pauses ?? [] };
   sum = M.summary(rows, goal);
 }
 
@@ -50,7 +51,7 @@ function milestones() {
   if (under && rows.some((r) => r.avg !== null && r.avg >= 100)) {
     list.push({ id: 'century', kind: 'century', kg: 100, avg: under.avg, date: under.date, lost: base !== null ? base - under.avg : 0 });
   }
-  return list;
+  return [...list, ...streakMilestones(state)];
 }
 
 function celebrate() {
@@ -298,7 +299,16 @@ function statsGrid() {
   else if (!s.finish && s.toGo !== null && s.rate !== null) {
     tiles.push(stat('flag', t('Прогноз финиша'), '—', s.recent !== null ? t('за 4 нед. вес не снижается') : t('вес не снижается'), 'bad'));
   }
-  tiles.push(stat('calendar-check', t('Дней записано'), fmt.int(s.days), g.startDate ? t('с {date}', { date: fmt.date(g.startDate) }) : null));
+  // З планом харчування — тиждень за раціоном замість «Днів записано»
+  const wk = planOf(state) ? weekMarks(state, M.addDays(M.today(), -6), M.today()) : null;
+  if (wk?.marked) {
+    const n = streak(state);
+    tiles.push(stat('leaf', t('По рациону за 7 дн.'), t('{a} из {b}', { a: wk.ok, b: wk.marked }),
+      [wk.slip ? t('срывов: {n}', { n: wk.slip }) : null, n >= 2 ? t('{n} дн. без срыва', { n }) : null].filter(Boolean).join(' · ') || t('за планом'),
+      wk.slip ? 'bad' : wk.ok === wk.marked ? 'good' : ''));
+  } else {
+    tiles.push(stat('calendar-check', t('Дней записано'), fmt.int(s.days), g.startDate ? t('с {date}', { date: fmt.date(g.startDate) }) : null));
+  }
   return h('div', { class: 'stats' }, tiles);
 }
 
@@ -313,7 +323,7 @@ function keyNote() {
 }
 
 function plateauNote() {
-  const p = M.plateau(rows);
+  const p = M.plateau(rows, goal.pauses);
   if (!p || (sum.toGo !== null && sum.toGo <= 0)) return null;
   // На виду — що сталося, порада — по тапу
   return h('details', { class: 'plateau' },
@@ -321,7 +331,48 @@ function plateauNote() {
       h('div', { class: 'plateau-head' }, icon('warning'),
         h('b', {}, t('Плато {n} {days}', { n: p.days, days: plural(p.days, [t('день'), t('дня'), t('дней')]) }))),
       h('p', { class: 'small' }, t('Среднее с {date} не опускается ниже {kg}.', { date: fmt.date(p.since), kg: kg(p.low, 2) }))),
-    h('p', { class: 'small' }, t('Обычно это вода и соль, а не жир: проверьте порции и сладкое, добавьте шагов — и подождите ещё неделю.')));
+    h('p', { class: 'small' }, plateauAdvice(p)));
+}
+
+/** Порада на плато — з позначок раціону за час плато, а без них — загальна. */
+function plateauAdvice(p) {
+  const general = t('Обычно это вода и соль, а не жир: проверьте порции и сладкое, добавьте шагов — и подождите ещё неделю.');
+  if (!planOf(state)) return general;
+  const f = periodFood(state, p.since, M.today());
+  if (f.marked < f.days / 2) return [t('Отмечено только {n} из {d} дней по рациону — причину по ним не видно.', { n: f.marked, d: f.days }), ' ', general];
+  if (f.slip || f.extra > 0) {
+    return t('За время плато: срывов {s}, вне плана {k} ккал (≈{kg} кг). Похоже, дело в них — вернитесь к плану.',
+      { s: f.slip, k: fmt.int(f.extra), kg: fmt.fix(f.extra / 7700, 2) });
+  }
+  return t('За время плато всё по плану ({n} из {d} дней) — это вода, не жир. Ничего не урезайте, подождите ещё неделю.', { n: f.ok, d: f.days });
+}
+
+/** Тижневі стовпчики з підписом «5/7» — днів за планом із позначених. */
+function weekBars() {
+  const list = M.weeklyChanges(rows);
+  if (!planOf(state)) return list;
+  return list.map((b) => {
+    const m = weekMarks(state, b.from, b.to);
+    return m.marked ? { ...b, tag: `${m.ok}/${m.marked}` } : b;
+  });
+}
+
+/** Під графіком: тижні без зривів проти тижнів зі зривами — по 2 і більше кожних. */
+function weekCompare() {
+  if (!planOf(state)) return null;
+  const clean = [];
+  const slipped = [];
+  for (const b of M.weeklyChanges(rows)) {
+    const m = weekMarks(state, b.from, b.to);
+    if (m.marked < 5) continue;
+    (m.slip ? slipped : clean).push(b.v);
+  }
+  if (clean.length < 2 || slipped.length < 2) return null;
+  const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length;
+  return h('p', { class: 'muted small week-compare' }, icon('leaf'),
+    h('span', {}, t('Недели без срывов: {a} кг в среднем, со срывами: {b} кг ({n1} и {n2} нед.)', {
+      a: fmt.signed(mean(clean), 2), b: fmt.signed(mean(slipped), 2), n1: clean.length, n2: slipped.length,
+    })));
 }
 
 function checkpointsBox() {
@@ -386,8 +437,7 @@ function renderHome() {
     plateauNote(),
     homeLine(state),
     statsGrid(),
-    checkpointsBox(),
-    bmiBox());
+    checkpointsBox());
 }
 
 // ---------- графік ----------
@@ -502,7 +552,8 @@ function renderChart() {
     onFull: () => { period = 'all'; chartView = null; remember('weight-log:period', period); render(); },
     hlines: marks,
     floor: sum.target !== null ? { v: sum.target, label: t('цель {kg} · ещё {d}', { kg: fmt.fix(sum.target), d: fmt.fix(Math.max(0, sum.toGo ?? 0), 1) }) } : null,
-    bars: M.weeklyChanges(rows),
+    bars: weekBars(),
+    spans: (goal.pauses ?? []).map((p) => ({ from: p.from, to: p.to, label: t('пауза'), cls: 'pause' })),
     barsLabel: t('нед.'),
     legend: [
       { label: t('Вес'), kind: 'dot', cls: 's-kg', keys: ['kg'] },
@@ -522,7 +573,9 @@ function renderChart() {
   });
   return h('div', {}, seg,
     h('section', { class: 'panel chart-panel' }, stats, chart, details),
-    waistBox());
+    weekCompare(),
+    waistBox(),
+    bmiBox());
 }
 
 function waistBox() {
@@ -622,7 +675,8 @@ function weightRow(r) {
         r.avg !== null ? t('сред. {v}', { v: fmt.fix(r.avg, 2) }) : null,
         r.delta !== null ? t('нед. {v}', { v: fmt.signed(r.delta, 2) }) : null,
       ].filter(Boolean).join(' · ')),
-      r.note ? h('span', { class: 'row-note' }, icon('note'), h('span', {}, r.note)) : null),
+      r.note ? h('span', { class: 'row-note' }, icon('note'), h('span', {}, r.note)) : null,
+      journalMark(state, r.date)),
     h('div', { class: 'row-side' },
       h('span', { class: 'row-kg' }, fmt.fix(r.kg)),
       r.day !== null ? h('span', { class: `small ${trendClass(r.day)}` }, fmt.signed(r.day)) : null));
@@ -670,7 +724,8 @@ function renderLog() {
 // ---------- налаштування ----------
 
 async function saveGoal(patch) {
-  await db.write({ settings: { put: [{ ...goal, ...patch, id: M.GOAL_ID }] } });
+  const { pauses, ...g } = goal;
+  await db.write({ settings: { put: [{ ...g, ...patch, id: M.GOAL_ID }] } });
 }
 
 function goalPanel() {

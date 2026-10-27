@@ -7,7 +7,7 @@ import { h, fmt, sheet, toast, form, btn, toolBtn, box, confirmSheet, remember, 
 import { t, plural } from './i18n.js';
 import { icon, withIcon } from './icons.js';
 import { dietMemo } from './diet.js';
-import { dayCard, monthBox, extrasSum, dayOf, STATUS } from './daylog.js';
+import { dayCard, monthBox, extrasSum, dayOf, STATUS, toggleSkipped } from './daylog.js';
 
 export const PLAN_ID = 'nutrition';
 /** Вибір продукту дня — окремим записом: тап на телефоні не перетирає правку плану з іншого пристрою. */
@@ -104,16 +104,90 @@ function today(state, date = M.today()) {
   if (!plan) return null;
   const choice = dayChoice(plan, picksOf(state), date);
   const pause = pauseState(plan, date);
+  // Продукти плану, які цього дня не з'їли, — у підсумок не йдуть
+  const skipped = new Set(dayOf(state, date)?.skipped ?? []);
+  const mark = (x) => (skipped.has(x.id) ? { ...x, skipped: true } : x);
   const meals = (plan.meals ?? []).map((m) => ({
     ...m,
-    items: [...(m.items ?? []), ...(choice && plan.day?.meal === m.id ? [{ ...choice.item, isDay: true }] : [])],
+    items: [...(m.items ?? []), ...(choice && plan.day?.meal === m.id ? [{ ...choice.item, isDay: true }] : [])].map(mark),
   }));
-  if (pause.now && plan.pauseItems?.length) meals.push({ id: 'pause', name: t('Добавка в паузу'), items: plan.pauseItems, isPause: true });
-  const planned = totals(meals.flatMap((m) => m.items));
+  if (pause.now && plan.pauseItems?.length) meals.push({ id: 'pause', name: t('Добавка в паузу'), items: plan.pauseItems.map(mark), isPause: true });
+  const planned = totals(meals.flatMap((m) => m.items).filter((x) => !x.skipped));
   const extra = extrasSum(state, date);
   // Підсумок дня — план плюс з'їдене поза планом
   return { plan, choice, pause, meals, planned, extra, sum: totals([planned, extra]) };
 }
+
+/** Калорії плану на дату: прийоми, продукт дня, добавка в паузу (без поза планом). */
+export const plannedKcal = (state, date) => today(state, date)?.planned.kcal ?? null;
+
+const KCAL_PER_KG = 7700;
+const ENERGY_DAYS = 28;
+const ENERGY_MIN = 14;
+
+/**
+ * Реальна витрата за останні 4 тижні: що з'їдено в позначені дні (план + поза планом) плюс
+ * те, що показує тренд середньої ваги (кг × 7700). Позначених днів замало — null.
+ */
+export function energy(state, rows) {
+  const withAvg = rows.filter((r) => r.avg !== null);
+  const cur = withAvg.at(-1);
+  if (!cur || !planOf(state)) return null;
+  const from = M.addDays(cur.date, -ENERGY_DAYS);
+  const then = withAvg.find((r) => r.date >= from);
+  const days = then ? M.daysBetween(then.date, cur.date) : 0;
+  if (days < ENERGY_MIN) return null;
+  const eaten = [];
+  for (let d = then.date; d <= cur.date; d = M.addDays(d, 1)) {
+    if (!dayOf(state, d)?.status) continue;
+    eaten.push((plannedKcal(state, d) ?? 0) + extrasSum(state, d).kcal);
+  }
+  if (eaten.length < ENERGY_MIN) return null;
+  const intake = eaten.reduce((a, v) => a + v, 0) / eaten.length;
+  const burn = intake + ((then.avg - cur.avg) * KCAL_PER_KG) / days;
+  return { burn, intake, deficit: burn - intake, marked: eaten.length, days };
+}
+
+// Мітки: до нотатки ваги — про тіло (TRX, недосип), до дня — про їжу й події (брынза, застілля).
+// Паузу й зрив застосунок знає сам — такі мітки не показуємо.
+const SELF_KNOWN = new Set(['пауза', 'срыв', 'зрив']);
+const DAY_TAGS_DEFAULT = new Set(['брынза', 'бринза', 'застолье', 'застілля']);
+const known = (tag) => SELF_KNOWN.has(tag.toLowerCase());
+
+/** { note, day } — мітки до ваги й до дня; поки plan.dayTags нема, харчові відділяються зі старого переліку. */
+export function tagLists(plan) {
+  const all = (plan?.tags ?? []).filter((x) => !known(x));
+  if (Array.isArray(plan?.dayTags)) return { note: all, day: plan.dayTags.filter((x) => !known(x)) };
+  return { note: all.filter((x) => !DAY_TAGS_DEFAULT.has(x.toLowerCase())), day: all.filter((x) => DAY_TAGS_DEFAULT.has(x.toLowerCase())) };
+}
+
+function tagsForm(plan) {
+  const lists = tagLists(plan);
+  const area = (list) => {
+    const el = h('textarea', { rows: 4, autocomplete: 'off', placeholder: t('Одна метка — одна строка') });
+    el.value = list.join('\n');
+    return el;
+  };
+  const note = area(lists.note);
+  const day = area(lists.day);
+  const read = (el) => [...new Set(el.value.split('\n').map((x) => x.trim()).filter(Boolean))];
+  const save = async () => {
+    close();
+    await savePlan((p) => { p.tags = read(note); p.dayTags = read(day); });
+    toast(t('Сохранено'));
+  };
+  const close = sheet(t('Метки'), h('div', { class: 'form' },
+    h('label', { class: 'field' }, h('span', { class: 'field-label' }, t('К весу — о теле')), note,
+      h('small', { class: 'muted' }, t('Под заметкой к взвешиванию: тренировка, сон, болезнь.'))),
+    h('label', { class: 'field' }, h('span', { class: 'field-label' }, t('К дню — еда и события')), day,
+      h('small', { class: 'muted' }, t('В карточке «Как день?»: солёное, застолье. Отсюда же подсказка, почему вырос вес.')))), {
+    actions: [btn(t('Отмена'), () => close()), btn(t('Сохранить'), save, 'primary')],
+  });
+}
+
+/** Текст «Правила зриву» з довідки плану (id slip): рядки без «- », без заголовків. */
+export const slipRule = (state) => (planOf(state)?.refs?.find((r) => r.id === 'slip')?.text ?? '')
+  .split('\n').map((x) => x.trim()).filter((x) => x && !x.startsWith('#')).map((x) => x.replace(/^-\s*/, ''));
 
 // ---------- запис ----------
 
@@ -210,6 +284,11 @@ function itemSheet(item) {
     item.note ? h('p', { class: 'small' }, item.note) : null,
     alts.length ? [h('h4', {}, t('Чем заменить')),
       h('ul', { class: 'food-alts' }, alts.map((a) => h('li', {}, h('span', { class: 'diet-dot', 'aria-hidden': 'true' }), h('span', {}, a))))] : null);
+  // Сьогодні не з'їв — у підсумок дня не йде; план не змінюється
+  body.append(h('div', { class: 'btn-row' }, btn(item.skipped ? withIcon('check', t('Всё-таки съел')) : t('Сегодня не съел'), () => {
+    close();
+    toggleSkipped(M.today(), item);
+  })));
   // Продукт дня в обіді переставляється серед продуктів дня, а не серед страв обіду
   const close = sheet(item.name, body, {
     tools: [
@@ -362,9 +441,10 @@ function refText(text) {
 function foodRow(item) {
   // Без калорій (кава без цукру) — тихий рядок без «0»: число там лише шумить
   const zero = !(Number(item.kcal) > 0);
-  return h('button', { type: 'button', class: `row food-row ${item.isDay ? 'day' : ''} ${zero ? 'zero' : ''}`, onclick: () => itemSheet(item) },
+  return h('button', { type: 'button', class: `row food-row ${item.isDay ? 'day' : ''} ${zero ? 'zero' : ''} ${item.skipped ? 'skipped' : ''}`, onclick: () => itemSheet(item) },
     h('div', { class: 'row-main' },
-      h('span', { class: 'row-title' }, item.name, item.isDay ? h('span', { class: 'food-tag' }, t('продукт дня')) : null),
+      h('span', { class: 'row-title' }, item.name, item.isDay ? h('span', { class: 'food-tag' }, t('продукт дня')) : null,
+        item.skipped ? h('span', { class: 'food-tag skip' }, t('не съел')) : null),
       item.qty ? h('span', { class: 'muted small' }, item.qty) : null),
     h('div', { class: 'row-side' }, zero ? null : h('span', { class: 'food-kcal' }, fmt.int(item.kcal)),
       item.alts?.length ? h('span', { class: 'muted small' }, t('замен: {n}', { n: item.alts.length })) : null));
@@ -382,7 +462,7 @@ function openFirstTime(key) {
 }
 
 function mealBox(meal) {
-  const s = totals(meal.items);
+  const s = totals(meal.items.filter((x) => !x.skipped));
   const title = [meal.name, meal.time ? ` · ${meal.time}` : ''].join('');
   const tools = meal.isPause ? [] : [
     toolBtn('plus', t('Добавить продукт'), () => itemForm(null, { meal: meal.id })),
@@ -397,17 +477,64 @@ function mealBox(meal) {
     meal.note ? h('p', { class: 'muted small food-note' }, meal.note) : null), { fold: key, count: meal.items.length ? Math.round(s.kcal) : null, tools });
 }
 
+/** Скільки разів група була продуктом дня цього тижня (пн — сьогодні) і скільки треба. */
+function weekCount(plan, picks, item, date) {
+  const list = plan.day?.items ?? [];
+  const g = groupOf(item);
+  const members = list.filter((p) => groupOf(p) === g);
+  let n = 0;
+  for (let d = M.weekStart(date); d <= date; d = M.addDays(d, 1)) {
+    const p = list.find((x) => x.id === picks[d]);
+    if (p && groupOf(p) === g) n += 1;
+  }
+  return { n, of: Math.max(...members.map((p) => Number(p.perWeek) || 0)), shared: members.length > 1 };
+}
+
+/** Продукт дня одним рядком у картці; тап — шторка з вибором. */
 function dayPicker(state, day) {
-  const list = day.plan.day?.items ?? [];
-  const cur = day.choice?.item.id;
-  return h('div', { class: 'food-pick' },
-    h('div', { class: 'chips' },
-      list.length > 1 ? list.map((p) => h('button', {
-        type: 'button', class: p.id === cur ? 'on' : '', 'aria-pressed': String(p.id === cur),
-        onclick: () => { if (!(day.choice.picked && p.id === cur)) setPick(state, M.today(), p.id); },
-      }, p.short || p.name)) : null,
-      h('button', { type: 'button', class: 'chip-add', 'aria-label': t('Добавить продукт дня'), title: t('Добавить продукт дня'), onclick: () => itemForm(null, { day: true }) }, '+')),
-    day.choice && !day.choice.picked && list.length > 1 ? h('p', { class: 'muted small' }, t('Предложение · нажмите, чтобы подтвердить')) : null);
+  const choice = day.choice;
+  if (!choice) {
+    return h('button', { type: 'button', class: 'food-pick empty', onclick: () => itemForm(null, { day: true }) },
+      icon('plus'), h('span', {}, t('Добавить продукт дня')));
+  }
+  return h('button', { type: 'button', class: 'food-pick', 'aria-haspopup': 'dialog', onclick: () => pickSheet(state) },
+    h('span', { class: 'food-pick-main' },
+      h('span', { class: 'food-pick-label' }, t('Продукт дня')),
+      h('b', {}, `${choice.item.name} · ${kcal(choice.item.kcal)}`),
+      choice.picked ? null : h('span', { class: 'food-pick-hint' }, t('предложение — нажмите, чтобы выбрать'))),
+    h('span', { class: 'chevron-right', 'aria-hidden': 'true' }, '›'));
+}
+
+/** Шторка вибору продукту дня: ккал, білок і скільки разів цього тижня з потрібних. */
+function pickSheet(state) {
+  const body = () => {
+    const day = today(current ?? state);
+    if (!day) return null;
+    const date = M.today();
+    const picks = picksOf(current ?? state);
+    const list = day.plan.day?.items ?? [];
+    const cur = day.choice?.item.id;
+    return h('div', { class: 'pick-list' },
+      h('div', { class: 'rows', role: 'radiogroup', 'aria-label': t('Продукт дня') }, list.map((p) => {
+        const w = weekCount(day.plan, picks, p, date);
+        const on = p.id === cur;
+        return h('button', {
+          type: 'button', role: 'radio', 'aria-checked': String(on && day.choice.picked),
+          class: `row pick-row ${on ? 'on' : ''} ${on && !day.choice.picked ? 'suggested' : ''}`,
+          onclick: async () => { closeIt(); if (!(day.choice.picked && on)) await setPick(current ?? state, date, p.id); },
+        },
+          h('span', { class: 'pick-radio', 'aria-hidden': 'true' }),
+          h('div', { class: 'row-main' },
+            h('span', { class: 'row-title' }, p.name, on && !day.choice.picked ? h('span', { class: 'food-tag' }, t('предложение')) : null),
+            h('span', { class: 'muted small' }, [p.qty, t('Б {p}', { p: fmt.int(p.p) })].filter(Boolean).join(' · '))),
+          h('div', { class: 'row-side' },
+            h('span', { class: 'food-kcal' }, fmt.int(p.kcal)),
+            w.of ? h('span', { class: `small ${w.n >= w.of ? 'good' : 'muted'}` },
+              t(w.shared ? 'вместе {n} из {of} за нед.' : '{n} из {of} за нед.', { n: w.n, of: w.of })) : null));
+      })),
+      h('div', { class: 'btn-row' }, btn(withIcon('plus', t('Продукт дня')), () => { closeIt(); itemForm(null, { day: true }); })));
+  };
+  const closeIt = sheet(t('Продукт дня'), body(), { live: body });
 }
 
 function pauseNote(pause) {
@@ -441,14 +568,18 @@ function pausesBox(plan) {
 }
 
 /** Вкладка «Раціон». noPlan — порожній екран, коли плану ще нема. */
+// Останній стан — для живої шторки вибору продукту дня
+let current = null;
+
 export function renderRation(state, { noPlan }) {
+  current = state;
   const day = today(state);
   if (!day) return h('div', {}, noPlan(), box(withIcon('leaf', t('Питание при диабете')), dietMemo(), { fold: 'diet' }));
-  const { plan, choice, pause, meals, planned, extra, sum } = day;
+  const { plan, pause, meals, planned, extra, sum } = day;
   const norm = plan.norm;
   return h('div', {},
     h('section', { class: 'hero accent food-hero' },
-      h('div', { class: 'hero-label' }, choice ? t('Сегодня: {name}', { name: choice.item.short || choice.item.name }) : t('Сегодня')),
+      h('div', { class: 'hero-label' }, t('Сегодня')),
       h('div', { class: 'hero-value' }, fmt.int(sum.kcal), h('span', { class: 'hero-unit' }, t('ккал'))),
       h('div', { class: 'hero-sub' }, macros(sum)),
       extra.kcal ? h('div', { class: 'hero-sub food-split' },
@@ -461,7 +592,8 @@ export function renderRation(state, { noPlan }) {
     h('div', { class: 'btn-row' }, btn(withIcon('plus', t('Приём еды')), () => mealForm(null))),
     norm ? h('p', { class: 'muted small food-norm' }, t('Норма в среднем за неделю: {k} · {m}', { k: kcal(norm.kcal), m: macros(norm) })) : null,
     pausesBox(plan),
-    monthBox(state),
+    monthBox(state, energy(state, M.series(state.weights))),
+    h('div', { class: 'btn-row' }, btn(withIcon('note', t('Метки')), () => tagsForm(plan))),
     h('h3', { class: 'food-section' }, icon('book'), t('Справка')),
     (plan.refs ?? []).map((r) => box(withIcon('book', r.title), refText(r.text), {
       fold: `ref:${r.id}`, tools: [toolBtn('edit', t('Изменить'), () => refForm(r))],
@@ -524,7 +656,7 @@ export function homeLine(state) {
 
 /** Мітки під нотаткою до ваги: тап додає слово в нотатку або прибирає його. */
 export function noteTags(state, input) {
-  const tags = planOf(state)?.tags ?? [];
+  const tags = tagLists(planOf(state)).note;
   if (!tags.length) return null;
   const parts = () => input.value.split(',').map((s) => s.trim()).filter(Boolean);
   const has = (tag) => parts().some((p) => p.toLowerCase() === tag.toLowerCase());

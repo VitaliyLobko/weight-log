@@ -7,6 +7,7 @@ import * as bot from './bot.js';
 import { h, fmt, sheet, toast, btn, toolBtn, box, parseNum } from './ui.js';
 import { t, plural } from './i18n.js';
 import { icon, withIcon } from './icons.js';
+import { planOf, tagLists, slipRule } from './nutrition.js';
 
 export const DAY_PREFIX = 'day:';
 /** «Мої продукти»: що вже рахували — кнопки швидкого додавання і кеш, щоб не питати модель вдруге. */
@@ -67,6 +68,20 @@ async function setStatus(state, date, status) {
 }
 
 const setReason = (state, date, reason) => saveDay(date, { reason: dayOf(state, date)?.reason === reason ? null : reason });
+
+/** Продукт плану не з'їли цього дня (чи все ж з'їли) — зі скасуванням. */
+export async function toggleSkipped(date, item) {
+  const list = dayOf(await db.loadAll(), date)?.skipped ?? [];
+  const off = list.includes(item.id);
+  const before = await saveDay(date, { skipped: off ? list.filter((x) => x !== item.id) : [...list, item.id] });
+  undo(off ? t('«{name}» снова в итоге дня', { name: item.name })
+    : t('«{name}» не съели: −{k}', { name: item.name, k: kcal(item.kcal) }), date, before);
+}
+
+const toggleTag = (state, date, tag) => {
+  const list = dayOf(state, date)?.tags ?? [];
+  return saveDay(date, { tags: list.includes(tag) ? list.filter((x) => x !== tag) : [...list, tag] });
+};
 
 // ---------- «Мої продукти» ----------
 
@@ -270,6 +285,9 @@ function dayBody(state, date) {
   const status = rec?.status ?? null;
   const extras = rec?.extras ?? [];
   const xs = extrasSum(state, date);
+  const rule = slipRule(state);
+  const dayTags = [...new Set([...tagLists(planOf(state)).day, ...(rec?.tags ?? [])])];
+  const skipped = rec?.skipped?.length ? skippedItems(state, rec.skipped) : [];
   return h('div', { class: 'day-body' },
     h('div', { class: 'day-status', role: 'group', 'aria-label': t('Как прошёл день') },
       Object.entries(STATUS).map(([k, label]) => h('button', {
@@ -277,13 +295,25 @@ function dayBody(state, date) {
         onclick: () => setStatus(state, date, k),
       }, h('span', { class: `day-dot ${k}`, 'aria-hidden': 'true' }), t(label)))),
     status === 'slip' ? h('div', { class: 'day-slip' },
-      h('p', { class: 'small' }, t('Один день не считается: ≈0,2 кг результата, не больше. Завтра — обычный завтрак, не меньше.')),
+      // Правило — з довідки плану («Правило зриву»), щоб правилось в одному місці
+      rule.length ? h('ul', { class: 'food-alts day-rule' }, rule.map((line) => h('li', {},
+        h('span', { class: 'diet-dot', 'aria-hidden': 'true' }), h('span', {}, line))))
+        : h('p', { class: 'small' }, t('Один день не считается: ≈0,2 кг результата, не больше. Завтра — обычный завтрак, не меньше.')),
       h('div', { class: 'chips day-reasons', role: 'group', 'aria-label': t('Причина') },
         h('span', { class: 'muted small' }, t('Причина:')),
         Object.entries(REASONS).map(([k, label]) => h('button', {
           type: 'button', class: rec?.reason === k ? 'on' : '', 'aria-pressed': String(rec?.reason === k),
           onclick: () => setReason(state, date, k),
         }, t(label))))) : null,
+    dayTags.length ? h('div', { class: 'chips day-tags', role: 'group', 'aria-label': t('Что было') },
+      h('span', { class: 'muted small' }, t('Что было:')),
+      dayTags.map((tag) => {
+        const on = Boolean(rec?.tags?.includes(tag));
+        return h('button', { type: 'button', class: on ? 'on' : '', 'aria-pressed': String(on), onclick: () => toggleTag(state, date, tag) }, tag);
+      })) : null,
+    skipped.length ? h('p', { class: 'small day-skipped' }, t('Не съел из плана: {list} · −{k}', {
+      list: skipped.map((x) => x.name).join(', '), k: kcal(skipped.reduce((a, x) => a + (Number(x.kcal) || 0), 0)),
+    })) : null,
     extras.length ? h('div', { class: 'rows day-extras' }, extras.map((x, i) => h('button', {
       type: 'button', class: 'row food-row', onclick: () => editor(date, [x], { index: i }),
     },
@@ -292,6 +322,13 @@ function dayBody(state, date) {
     extras.length > 1 ? h('div', { class: 'food-sum' }, h('b', {}, t('Вне плана: {k}', { k: kcal(xs.kcal) })),
       h('span', { class: 'muted' }, t('Б {p} · Ж {f} · В {c}', { p: fmt.int(xs.p), f: fmt.int(xs.f), c: fmt.int(xs.c) }))) : null,
     h('div', { class: 'btn-row' }, btn(withIcon('plus', t('Съел вне плана')), () => foodSheet(date))));
+}
+
+/** Продукти плану за id: з прийомів, продуктів дня й добавки в паузу. */
+function skippedItems(state, ids) {
+  const plan = planOf(state);
+  const all = [...(plan?.meals ?? []).flatMap((m) => m.items ?? []), ...(plan?.day?.items ?? []), ...(plan?.pauseItems ?? [])];
+  return ids.map((id) => all.find((x) => x.id === id)).filter(Boolean);
 }
 
 function daySheet(date) {
@@ -339,8 +376,8 @@ export function dayCard(state) {
     weekStrip(state));
 }
 
-/** Підсумок за 30 днів: позначки, причини, день тижня зривів, поза планом ≈ кг. */
-export function monthBox(state) {
+/** Підсумок за 30 днів: позначки, причини, день тижня зривів, поза планом ≈ кг, реальна витрата (en — energy()). */
+export function monthBox(state, en = null) {
   use(state);
   const date = M.today();
   const recs = Array.from({ length: 30 }, (_, i) => dayOf(state, M.addDays(date, -i))).filter(Boolean);
@@ -360,7 +397,67 @@ export function monthBox(state) {
     reasons.length ? h('p', { class: 'small' }, t('Причины срывов: {list}', { list: reasons.map(([l, n]) => `${t(l).toLowerCase()} ×${n}`).join(', ') })) : null,
     worst && worst[1] >= 2 ? h('p', { class: 'small' }, t('Чаще всего срывы: {wd} ({n})', { wd: worst[0], n: worst[1] })) : null,
     extraKcal ? h('p', { class: 'small' }, t('Вне плана: {k} ≈ {kg} кг', { k: kcal(extraKcal), kg: fmt.fix(extraKcal / KCAL_PER_KG, 2) })) : null,
-    h('p', { class: 'muted small' }, t('Отмечено {n} из 30 дней.', { n: marked.length }))), { fold: 'day-month' });
+    h('p', { class: 'muted small' }, t('Отмечено {n} из 30 дней.', { n: marked.length })),
+    energyLine(en)), { fold: 'day-month' });
+}
+
+/** Реальна витрата за 4 тижні: з'їдене в позначені дні + тренд ваги. */
+function energyLine(en) {
+  if (!en) {
+    return h('p', { class: 'muted small' }, t('Реальный расход посчитается, когда за 4 недели будет хотя бы 14 отмеченных дней.'));
+  }
+  return h('div', { class: 'day-energy' },
+    h('h4', { class: 'food-sub' }, withIcon('speed', t('Реальный расход'))),
+    h('p', { class: 'small' }, h('b', {}, t('≈{k} в день', { k: kcal(Math.round(en.burn / 10) * 10) })), ' · ',
+      t('едите ≈{a}, дефицит ≈{d}', { a: fmt.int(Math.round(en.intake / 10) * 10), d: fmt.int(Math.round(en.deficit / 10) * 10) })),
+    h('p', { class: 'muted small' }, t('По тренду среднего веса и {n} отмеченным дням за {days} дн. Срыв без записанной еды занижает расход.', { n: en.marked, days: en.days })));
+}
+
+/** Тиждень за раціоном: { ok, off, slip, marked } за дні [from, to]. */
+export function weekMarks(state, from, to) {
+  const out = { ok: 0, off: 0, slip: 0, marked: 0 };
+  for (let d = from; d <= to; d = M.addDays(d, 1)) {
+    const s = dayOf(state, d)?.status;
+    if (s) { out[s] += 1; out.marked += 1; }
+  }
+  return out;
+}
+
+/** Що було з раціоном за [from, to] — для плашки «Плато»: зриви, поза планом, скільки позначено. */
+export function periodFood(state, from, to) {
+  const m = weekMarks(state, from, to);
+  let extra = 0;
+  for (let d = from; d <= to; d = M.addDays(d, 1)) extra += extrasSum(state, d).kcal;
+  return { ...m, extra, days: M.daysBetween(from, to) + 1 };
+}
+
+/** Серії без зриву 7, 14, 30… днів — рубежі для святкування (id із датою початку серії). */
+const STREAKS = [7, 14, 30, 60, 100];
+export function streakMilestones(state) {
+  const days = state.settings.filter((s) => s.id.startsWith(DAY_PREFIX) && s.date && s.status).map((s) => s.date).sort();
+  const out = [];
+  let start = null;
+  let prev = null;
+  for (const d of days) {
+    const good = ['ok', 'off'].includes(dayOf(state, d).status);
+    if (!good) { start = null; prev = d; continue; }
+    if (!start || prev !== M.addDays(d, -1)) start = d;
+    const n = M.daysBetween(start, d) + 1;
+    if (STREAKS.includes(n)) out.push({ id: `streak:${n}:${start}`, kind: 'streak', n, date: d, kg: 0 });
+    prev = d;
+  }
+  return out;
+}
+
+/** Позначка попереднього дня біля зважування в «Журналі»: точка статусу й поза планом. */
+export function journalMark(state, date) {
+  const prev = dayOf(state, M.addDays(date, -1));
+  if (!prev?.status && !prev?.extras?.length) return null;
+  const xs = extrasSum(state, prev.date ?? M.addDays(date, -1)).kcal;
+  const label = [prev.status ? t(STATUS[prev.status]) : null, xs ? `+${fmt.int(xs)}` : null].filter(Boolean).join(' · ');
+  return h('span', { class: 'day-mark', title: t('Накануне: {s}', { s: label }) },
+    prev.status ? h('span', { class: `day-dot ${prev.status}`, 'aria-hidden': 'true' }) : null,
+    h('span', {}, label));
 }
 
 /** Дати зважувань наступного ранку після зриву — окремі точки на графіку. */
@@ -378,7 +475,7 @@ export function yesterdayText(state, date) {
   const prev = dayOf(state, M.addDays(date, -1));
   if (!prev) return null;
   const xs = (prev.extras ?? []).reduce((a, x) => a + (Number(x.kcal) || 0), 0);
-  const parts = [prev.status ? t(STATUS[prev.status]) : null, xs ? t('вне плана {k}', { k: kcal(xs) }) : null].filter(Boolean);
+  const parts = [prev.status ? t(STATUS[prev.status]) : null, xs ? t('вне плана {k}', { k: kcal(xs) }) : null, ...(prev.tags ?? [])].filter(Boolean);
   return parts.length ? t('Накануне: {s}', { s: parts.join(', ') }) : null;
 }
 
@@ -388,8 +485,10 @@ export function weightHint(state, row) {
   if (!row || !(row.day >= 0.3)) return null;
   const prev = dayOf(state, M.addDays(row.date, -1));
   const xs = (prev?.extras ?? []).reduce((a, x) => a + (Number(x.kcal) || 0), 0);
-  if (!(prev?.status === 'slip' || prev?.status === 'off' || xs > 0)) return null;
-  const why = prev?.status === 'slip' ? t('вчера был срыв') : prev?.status === 'off' ? t('вчера было немного не по плану') : t('вчера была еда вне плана');
+  const tags = prev?.tags ?? [];
+  if (!(prev?.status === 'slip' || prev?.status === 'off' || xs > 0 || tags.length)) return null;
+  const why = prev?.status === 'slip' ? t('вчера был срыв') : prev?.status === 'off' ? t('вчера было немного не по плану')
+    : xs > 0 ? t('вчера была еда вне плана') : t('вчера: {tags}', { tags: tags.join(', ') });
   return h('details', { class: 'plateau day-hint' },
     h('summary', {},
       h('div', { class: 'plateau-head' }, icon('trend'), h('b', {}, t('Вес {d} — {why}', { d: fmt.signed(row.day), why }))),

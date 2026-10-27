@@ -77,7 +77,8 @@ let clipSeq = 0;
  *   view: [з, по] — початкове вікно (дати), ahead — скільки днів за останньою точкою можна показати,
  *   onView(з, по) — вікно змінилося, onFull + fullLabel — кнопка «весь графік», поки показано не все,
  *   legend[].keys — пункт вмикає/вимикає ці серії, hidden — вимкнені спочатку, onHidden(ключі) — після тапу,
- *   floor: { v, label } — стрілка «↓ label», коли v нижче шкали, bars: [{ from, to, v }] + barsLabel — тижневі стовпчики,
+ *   floor: { v, label } — стрілка «↓ label», коли v нижче шкали, bars: [{ from, to, v, tag }] + barsLabel — тижневі стовпчики,
+ *   spans: [{ from, to, label, cls }] — смуги днів на всю висоту (паузи),
  * }
  */
 export function lineChart(spec) {
@@ -256,6 +257,17 @@ export function lineChart(spec) {
     }
     svg.append(grid);
 
+    // Смуги днів (паузи на підтриманні) — під лініями, підпис угорі, коли смуга досить широка
+    for (const sp of spec.spans ?? []) {
+      const dayW = iw / spanDays;
+      const a = Math.max(pad.l, x(sp.from) - dayW / 2);
+      const b = Math.min(pad.l + iw, x(sp.to) + dayW / 2);
+      if (b - a < 1) continue;
+      svg.append(s('g', { class: `span ${sp.cls ?? ''}` },
+        s('rect', { x: a.toFixed(1), y: pad.t, width: (b - a).toFixed(1), height: ih }),
+        b - a >= 36 && sp.label ? s('text', { x: ((a + b) / 2).toFixed(1), y: pad.t + 12, 'text-anchor': 'middle', class: 'span-label' }, sp.label) : null));
+    }
+
     for (const line of spec.hlines ?? []) {
       if (line.v < lo || line.v > hi) continue;
       const yy = Math.round(y(line.v)) + 0.5;
@@ -285,8 +297,9 @@ export function lineChart(spec) {
         bars.append(s('rect', { x: x0.toFixed(1), y: (base - bh).toFixed(1), width: (x1 - x0).toFixed(1), height: bh.toFixed(1), rx: 2,
           class: b.v < 0 ? 'good' : b.v > 0 ? 'bad' : '' }));
         if (x1 - x0 >= 24) {
-          bars.append(s('text', { x: ((x0 + x1) / 2).toFixed(1), y: (base - bh - 3).toFixed(1), 'text-anchor': 'middle', class: 'bar-label' },
-            fmt.signed(b.v, 1)));
+          // Широкий стовпчик — ще й «5/7»: днів за планом із позначених
+          const text = b.tag && x1 - x0 >= 56 ? `${fmt.signed(b.v, 1)} · ${b.tag}` : fmt.signed(b.v, 1);
+          bars.append(s('text', { x: ((x0 + x1) / 2).toFixed(1), y: (base - bh - 3).toFixed(1), 'text-anchor': 'middle', class: 'bar-label' }, text));
         }
       }
       svg.append(bars);

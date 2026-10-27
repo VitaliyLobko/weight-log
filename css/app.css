@@ -182,8 +182,6 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 /* --- раціон --- */
 .food-hero .food-pick { margin-top: 12px; }
-.food-hero .food-pick .chips { margin: 0; }
-.food-hero .food-pick p { margin: 6px 0 0; }
 .food-window { display: flex; align-items: flex-start; gap: 8px; margin-top: 12px; font-size: 14px; }
 .food-window > span { display: flex; flex-direction: column; gap: 2px; }
 .food-window .ico { flex: none; width: 17px; height: 17px; margin-top: 1px; color: var(--accent-2); }
@@ -926,3 +924,34 @@ button:focus-visible, a:focus-visible, summary:focus-visible, [tabindex]:focus-v
 .food-card-macros .field-label { text-align: center; }
 .food-card-macros input { text-align: center; }
 .food-line .day-dot { width: 10px; height: 10px; margin-right: 4px; vertical-align: -1px; }
+.food-row.skipped .row-title, .food-row.skipped .food-kcal { color: var(--muted); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--muted) 70%, transparent); }
+.food-tag.skip { color: var(--muted); background: var(--surface-2); text-decoration: none; display: inline-block; }
+.day-skipped { margin: 10px 2px 0; color: var(--muted); }
+.day-tags { align-items: center; margin: 10px 0 0; }
+.day-tags button { min-height: 40px; }
+.day-rule { margin: 0 0 8px; font-size: 13px; }
+.day-energy p { margin: 4px 0 0; }
+.day-mark { display: inline-flex; align-items: center; gap: 5px; margin-top: 3px; font-size: 12px; color: var(--muted); }
+.day-mark .day-dot { width: 9px; height: 9px; }
+.week-compare { display: flex; gap: 6px; align-items: flex-start; margin: -4px 4px 12px; }
+.week-compare .ico { flex: none; width: 15px; height: 15px; margin-top: 2px; color: var(--accent-2); }
+.chart-svg .span rect { fill: color-mix(in srgb, var(--good) 10%, transparent); }
+.chart-svg .span-label { font-size: 10px; fill: var(--good); opacity: .9; }
+button.food-pick {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 56px; padding: 10px 14px;
+  border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+button.food-pick:active { transform: scale(.99); }
+button.food-pick.empty { justify-content: center; color: var(--accent-2); border-style: dashed; font-weight: 650; }
+button.food-pick.empty .ico { width: 18px; height: 18px; }
+.food-pick-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.food-pick-label { font-size: 12px; font-weight: 650; color: var(--muted); }
+.food-pick-main b { font-size: 16px; overflow-wrap: anywhere; }
+.food-pick-hint { font-size: 12px; color: var(--accent-2); }
+button.food-pick .chevron-right { font-size: 22px; line-height: 1; color: var(--muted); }
+.pick-row { align-items: center; gap: 12px; }
+.pick-radio { flex: none; width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--muted); }
+.pick-row.on .pick-radio { border-color: var(--accent); box-shadow: inset 0 0 0 4px var(--surface), inset 0 0 0 10px var(--accent); }
+.pick-row.suggested .pick-radio { border-style: dashed; box-shadow: none; }
+.pick-row.on:not(.suggested) { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); background: var(--accent-soft); }
+.pick-list .row-side .small { white-space: nowrap; }

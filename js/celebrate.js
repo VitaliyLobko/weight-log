@@ -5,7 +5,7 @@ import { t } from './i18n.js';
 import { icon } from './icons.js';
 
 const KEY = 'weight-log:celebrated';
-const RANK = { century: 3, target: 2, cp: 1 };
+const RANK = { century: 3, target: 2, cp: 1, streak: 0 };
 
 function load() {
   try {
@@ -21,7 +21,7 @@ function save(s) {
 }
 
 /**
- * list — пройдені рубежі [{ id, kind: 'cp' | 'target' | 'century', kg, avg, date, lost }], latest — дата останнього запису.
+ * list — пройдені рубежі [{ id, kind: 'cp' | 'target' | 'century' | 'streak', kg, avg, date, lost, n }], latest — дата останнього запису.
  * Святкуємо лише рубіж, пройдений не раніше за останню перевірку: точка, додана нижче вже пройденої ваги,
  * чи давній запис, виправлений заднім числом, — не новина.
  */
@@ -50,7 +50,7 @@ export function play(m) {
   const ok = h('button', { type: 'button', class: 'btn primary' }, t('Ура!'));
   const titleId = 'celebrate-title';
   const card = h('div', { class: 'celebrate-card' },
-    m.kind === 'century' ? odometer(m.avg) : h('div', { class: 'celebrate-ico' }, icon(m.kind === 'target' ? 'trophy' : 'flag')),
+    m.kind === 'century' ? odometer(m.avg) : h('div', { class: 'celebrate-ico' }, icon(m.kind === 'target' || m.kind === 'streak' ? 'trophy' : 'flag')),
     h('h2', { id: titleId }, title(m)),
     h('p', {}, text(m)),
     ok);
@@ -87,10 +87,12 @@ export function play(m) {
 function title(m) {
   if (m.kind === 'century') return t('Двузначное!');
   if (m.kind === 'target') return t('Цель достигнута!');
+  if (m.kind === 'streak') return t('{n} дней без срыва!', { n: m.n });
   return t('Контрольная точка {kg}', { kg: `${fmt.fix(m.kg)} ${t('кг')}` });
 }
 
 function text(m) {
+  if (m.kind === 'streak') return t('Рацион держится. Один срыв ничего не обнуляет — но пусть серия растёт.');
   const avg = fmt.fix(m.avg, 2);
   if (m.kind === 'century') return t('Среднее за 7 дней впервые ниже сотни — {avg} кг.', { avg });
   if (m.kind === 'target') return t('Среднее за 7 дней — {avg} кг, минус {lost} кг от начала.', { avg, lost: fmt.fix(m.lost, 1) });

@@ -52,10 +52,37 @@ export function series(weights) {
   return rows;
 }
 
-/** План з таблиці: від стартової ваги рівно planRate кг на тиждень. */
+/** Скільки днів із [a, b) припадає на паузи на підтриманні ({ from, to } включно). */
+export function pauseDays(pauses, a, b) {
+  let n = 0;
+  for (const p of pauses ?? []) {
+    const from = p.from > a ? p.from : a;
+    const end = addDays(p.to, 1);
+    const to = end < b ? end : b;
+    if (from < to) n += daysBetween(from, to);
+  }
+  return n;
+}
+
+const inPause = (pauses, date) => (pauses ?? []).some((p) => p.from <= date && date <= p.to);
+
+/** Дні схуднення між a і b: календарні мінус паузи. */
+const activeDays = (pauses, a, b) => daysBetween(a, b) - pauseDays(pauses, a, b);
+
+/** Дата через n днів схуднення: дні пауз не рахуються. */
+function addActiveDays(pauses, from, n) {
+  let d = from;
+  for (let left = n, guard = 0; left > 0 && guard < 5000; guard++) {
+    d = addDays(d, 1);
+    if (!inPause(pauses, d)) left -= 1;
+  }
+  return d;
+}
+
+/** План з таблиці: від стартової ваги рівно planRate кг на тиждень; у паузи на підтриманні лінія стоїть. */
 export function planAt(goal, date) {
   if (!Number.isFinite(goal.start) || !goal.startDate || !Number.isFinite(goal.planRate)) return null;
-  return r2(goal.start - (goal.planRate * daysBetween(goal.startDate, date)) / 7);
+  return r2(goal.start - (goal.planRate * activeDays(goal.pauses, goal.startDate, date)) / 7);
 }
 
 /** Стартові значення цілі: якщо не задані — перше зважування. */
@@ -95,28 +122,32 @@ export function bmiOf(kg, heightCm) {
 export const RECENT_DAYS = 28;
 const RECENT_MIN = 21;
 
-/** Темп, кг/тиж, за останні RECENT_DAYS днів: середнє тоді мінус середнє зараз. */
-export function recentRate(rows) {
+/** Темп, кг/тиж, за останні RECENT_DAYS днів: середнє тоді мінус середнє зараз; дні пауз не рахуються. */
+export function recentRate(rows, pauses = []) {
   const withAvg = rows.filter((r) => r.avg !== null);
   const cur = withAvg.at(-1);
   if (!cur) return null;
   const from = addDays(cur.date, -RECENT_DAYS);
   const then = withAvg.findLast((r) => r.date <= from) ?? withAvg[0];
   const days = daysBetween(then.date, cur.date);
-  return days >= RECENT_MIN ? ((then.avg - cur.avg) / days) * 7 : null;
+  const active = activeDays(pauses, then.date, cur.date);
+  return days >= RECENT_MIN && active > 0 ? ((then.avg - cur.avg) / active) * 7 : null;
 }
 
 /** Плато — середнє стільки днів не опускається нижче свого мінімуму більш ніж на PLATEAU_KG. */
 export const PLATEAU_DAYS = 14;
 const PLATEAU_KG = 0.1;
 
-/** { days, since, low } — скільки днів середнє не оновлює мінімум; null — плато немає. */
-export function plateau(rows) {
+/** { days, since, low } — скільки днів середнє не оновлює мінімум (без днів пауз); null — плато немає. */
+export function plateau(rows, pauses = []) {
   const withAvg = rows.filter((r) => r.avg !== null);
   if (!withAvg.length) return null;
   let low = withAvg[0];
   for (const r of withAvg) if (r.avg <= low.avg - PLATEAU_KG) low = r;
-  const days = daysBetween(low.date, withAvg.at(-1).date);
+  const last = withAvg.at(-1).date;
+  // У паузу вага стоїть навмисно — не плато
+  if (inPause(pauses, last)) return null;
+  const days = activeDays(pauses, low.date, last);
   return days >= PLATEAU_DAYS ? { days, since: low.date, low: low.avg } : null;
 }
 
@@ -134,15 +165,15 @@ export function summary(rows, goal) {
   const current = cur?.avg ?? last?.kg ?? null;
   const currentDate = cur?.date ?? last?.date ?? null;
   const lost = base && cur ? r2(base.avg - cur.avg) : null;
-  const weeks = base && cur ? daysBetween(base.date, cur.date) / 7 : 0;
+  const weeks = base && cur ? activeDays(g.pauses, base.date, cur.date) / 7 : 0;
   const rate = weeks > 0 ? lost / weeks : null;
-  const recent = recentRate(rows);
+  const recent = recentRate(rows, g.pauses);
   const forecastRate = recent ?? rate;
   const target = Number.isFinite(g.target) ? g.target : null;
   const toGo = target !== null && current !== null ? r2(current - target) : null;
-  /** Дата, коли середнє дійде до kg темпом прогнозу; null — темп не на зниження. */
+  /** Дата, коли середнє дійде до kg темпом прогнозу (паузи попереду відсувають); null — темп не на зниження. */
   const eta = (kg) => (forecastRate > 0 && current > kg
-    ? addDays(currentDate, Math.round(((current - kg) / forecastRate) * 7)) : null);
+    ? addActiveDays(g.pauses, currentDate, Math.round(((current - kg) / forecastRate) * 7)) : null);
   const plan = currentDate ? planAt(g, currentDate) : null;
   const span = base && target !== null ? base.avg - target : null;
   return {
