@@ -7,7 +7,7 @@ import { h, fmt, sheet, toast, form, btn, toolBtn, box, confirmSheet, remember, 
 import { t, plural } from './i18n.js';
 import { icon, withIcon } from './icons.js';
 import { dietMemo } from './diet.js';
-import { dayCard, monthBox, extrasSum, dayOf, STATUS, toggleSkipped } from './daylog.js';
+import { dayCard, monthBox, extrasSum, dayOf, STATUS, toggleSkipped, calendarBox } from './daylog.js';
 
 export const PLAN_ID = 'nutrition';
 /** Вибір продукту дня — окремим записом: тап на телефоні не перетирає правку плану з іншого пристрою. */
@@ -588,6 +588,7 @@ export function renderRation(state, { noPlan }) {
       windowEl(plan, Boolean(pause.now))),
     pauseNote(pause),
     dayCard(state),
+    calendarBox(state),
     meals.map(mealBox),
     h('div', { class: 'btn-row' }, btn(withIcon('plus', t('Приём еды')), () => mealForm(null))),
     norm ? h('p', { class: 'muted small food-norm' }, t('Норма в среднем за неделю: {k} · {m}', { k: kcal(norm.kcal), m: macros(norm) })) : null,

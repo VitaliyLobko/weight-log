@@ -4,10 +4,10 @@ import * as db from './db.js';
 import * as sync from './sync.js';
 import * as M from './model.js';
 import * as bot from './bot.js';
-import { h, fmt, sheet, toast, btn, toolBtn, box, parseNum } from './ui.js';
+import { h, fmt, sheet, toast, btn, toolBtn, box, parseNum, unfold, recall, remember } from './ui.js';
 import { t, plural } from './i18n.js';
 import { icon, withIcon } from './icons.js';
-import { planOf, tagLists, slipRule } from './nutrition.js';
+import { planOf, tagLists, slipRule, plannedKcal } from './nutrition.js';
 
 export const DAY_PREFIX = 'day:';
 /** «Мої продукти»: що вже рахували — кнопки швидкого додавання і кеш, щоб не питати модель вдруге. */
@@ -362,6 +362,78 @@ function weekStrip(state) {
       h('span', { class: `day-dot ${s}`, 'aria-hidden': 'true' }),
       rec?.extras?.length ? h('span', { class: 'day-plus', 'aria-hidden': 'true' }, '+') : null);
   }));
+}
+
+// ---------- календар калорій ----------
+
+/** Скільки поза планом понад план (мінус те, що з плану не з'їли), за якого день ще «трохи більше». */
+const CAL_LITTLE = 300;
+const CAL_SEEN = 'weight-log:cal-seen';
+let calMonth = null;
+
+/** День у календарі: що з'їли (план мінус «не з'їв» плюс поза планом) і клас кольору. */
+function calDay(state, date) {
+  const rec = dayOf(state, date);
+  const extra = extrasSum(state, date).kcal;
+  if (!rec?.status && !extra && !rec?.skipped?.length) return { cls: 'none', eaten: null };
+  const eaten = (plannedKcal(state, date) ?? 0) + extra;
+  const skippedKcal = rec?.skipped?.length ? skippedItems(state, rec.skipped).reduce((a, x) => a + (Number(x.kcal) || 0), 0) : 0;
+  const over = extra - skippedKcal;
+  const cls = rec?.status === 'slip' ? 'slip'
+    : over > CAL_LITTLE ? 'much'
+      : over > 0 || rec?.status === 'off' ? 'more'
+        : 'ok';
+  return { cls, eaten, over };
+}
+
+/** Місяць сіткою пн–нд: колір — з'їдене відносно плану, тап — цей день. */
+function calendarBody(state) {
+  const today = M.today();
+  const ym = calMonth ?? today.slice(0, 7);
+  const first = `${ym}-01`;
+  const start = M.weekStart(first);
+  const nextMonth = M.addDays(first, 32).slice(0, 7);
+  const prevMonth = M.addDays(first, -1).slice(0, 7);
+  const cells = [];
+  const stats = { marked: 0, eaten: 0, extra: 0 };
+  for (let d = start; d < `${nextMonth}-01` || cells.length % 7; d = M.addDays(d, 1)) {
+    const inMonth = d.startsWith(ym);
+    if (!inMonth || d > today) {
+      cells.push(h('span', { class: `cal-cell ${inMonth ? 'future' : 'out'}`, 'aria-hidden': 'true' }, inMonth ? String(Number(d.slice(8))) : ''));
+      continue;
+    }
+    const c = calDay(state, d);
+    if (c.eaten !== null) { stats.marked += 1; stats.eaten += c.eaten; stats.extra += extrasSum(state, d).kcal; }
+    const label = `${fmt.weekday(d)} ${fmt.short(d)}: ${c.eaten !== null ? kcal(c.eaten) : t('не отмечен')}`;
+    cells.push(h('button', {
+      type: 'button', class: `cal-cell ${c.cls} ${d === today ? 'today' : ''}`, 'aria-label': label, title: label,
+      onclick: () => daySheet(d),
+    },
+      h('span', { class: 'cal-num' }, String(Number(d.slice(8)))),
+      c.eaten !== null ? h('span', { class: 'cal-kcal' }, String(Math.round(c.eaten))) : null));
+  }
+  const nav = (to) => () => { calMonth = to; rebuild(); };
+  const wds = Array.from({ length: 7 }, (_, i) => fmt.weekday(M.addDays(start, i)));
+  const el = h('div', { class: 'cal' },
+    h('div', { class: 'cal-head' },
+      h('button', { type: 'button', class: 'icon-btn', 'aria-label': t('Предыдущий месяц'), onclick: nav(prevMonth) }, '‹'),
+      h('b', {}, fmt.month(ym)),
+      h('button', { type: 'button', class: 'icon-btn', 'aria-label': t('Следующий месяц'), disabled: ym >= today.slice(0, 7), onclick: nav(nextMonth) }, '›')),
+    h('div', { class: 'cal-grid' }, wds.map((w) => h('span', { class: 'cal-wd' }, w)), cells),
+    h('div', { class: 'cal-legend' }, [['ok', 'по плану'], ['more', 'немного больше'], ['much', `+${CAL_LITTLE} и больше`], ['slip', 'срыв'], ['none', 'не отмечен']]
+      .map(([k, l]) => h('span', {}, h('i', { class: `cal-key ${k}`, 'aria-hidden': 'true' }), t(l)))),
+    stats.marked ? h('p', { class: 'muted small' }, t('Отмечено {n} дн. · в среднем {a} · вне плана {x}', {
+      n: stats.marked, a: kcal(stats.eaten / stats.marked), x: kcal(stats.extra),
+    })) : null);
+  const rebuild = () => el.replaceWith(calendarBody(current ?? state));
+  return el;
+}
+
+/** Календар калорій на «Раціоні»; уперше — розгорнутий. */
+export function calendarBox(state) {
+  use(state);
+  if (!recall(CAL_SEEN)) { unfold('box:calendar'); remember(CAL_SEEN, '1'); }
+  return box(withIcon('calendar', t('Календарь калорий')), calendarBody(state), { fold: 'calendar' });
 }
 
 /** Картка «Як день?» на «Раціоні»: сьогоднішня позначка, поза планом, тиждень і серія. */
