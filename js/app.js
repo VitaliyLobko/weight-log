@@ -8,6 +8,7 @@ import {
   remember, recall, refreshSheets, saveFile, parseNum,
 } from './ui.js';
 import { t, plural, lang, setLang, LANGS, applyStatic } from './i18n.js';
+import { initLock, lockOn, lockDelay, lockAvailable, enableLock, disableLock, setLockDelay, LOCK_DELAYS } from './lock.js';
 import { lineChart } from './chart.js';
 import { icon, withIcon } from './icons.js';
 import { remindTime, setRemindTime, googleCalendarUrl, icsFile } from './remind.js';
@@ -974,6 +975,33 @@ function drivePanel() {
   return panel;
 }
 
+/** «Вхід за відбитком»: увімкнути, через скільки блокувати у фоні, вимкнути з підтвердженням. */
+function lockPanel() {
+  const body = h('div', {});
+  const act = (fn, done) => async () => {
+    try {
+      await fn();
+      toast(done);
+    } catch (err) {
+      if (err?.name !== 'NotAllowedError') toast(t('Ошибка: {msg}', { msg: err?.message || String(err) }));
+    }
+    render();
+  };
+  if (lockOn()) {
+    body.append(
+      h('p', { class: 'muted small' }, t('Блокировать после сворачивания:')),
+      segmented(LOCK_DELAYS.map((m) => [String(m), m ? t('{n} мин', { n: m }) : t('Сразу')]), String(lockDelay()), (v) => setLockDelay(Number(v))),
+      h('div', { class: 'btn-row' }, btn(t('Выключить'), act(disableLock, t('Вход по отпечатку выключен')))));
+  } else {
+    lockAvailable().then((ok) => body.append(ok
+      ? h('div', { class: 'btn-row' }, btn(t('Включить'), act(enableLock, t('Вход по отпечатку включён')), 'primary'))
+      : h('p', { class: 'muted small' }, t('На этом устройстве нет отпечатка, лица или PIN-кода, которые браузер может проверить.'))));
+  }
+  return h('section', { class: 'panel' }, h('h3', {}, t('Вход по отпечатку')),
+    h('p', { class: 'muted small' }, t('Приложение открывается отпечатком, лицом или PIN-кодом телефона — только на этом устройстве. Это защита от чужих глаз, данные не шифруются.')),
+    body);
+}
+
 /** «Копія у файл»: зберегти (на телефоні — «Поділитися», на комп'ютері — завантажити) і відновити. */
 function filePanel() {
   const input = h('input', { type: 'file', accept: '.json,application/json', hidden: true, onchange: (e) => { if (e.target.files[0]) importBackup(e.target.files[0]); e.target.value = ''; } });
@@ -1092,7 +1120,7 @@ function renderSettings() {
     settingsGroup(withIcon('target', t('Цель')), [goalPanel()], { fold: 'goal' }),
     settingsGroup(withIcon('flag', t('Контрольные точки')), [checkpointsPanel()], { fold: 'checkpoints' }),
     settingsGroup(withIcon('bell', t('Напоминание')), [remindPanel()], { fold: 'remind' }),
-    settingsGroup(withIcon('cloud', t('Данные')), [botPanel(), drivePanel(), filePanel()], { fold: 'data' }),
+    settingsGroup(withIcon('cloud', t('Данные')), [botPanel(), drivePanel(), lockPanel(), filePanel()], { fold: 'data' }),
     settingsGroup(withIcon('theme', t('Внешний вид')), [
       h('section', { class: 'panel' }, h('h3', {}, withIcon('globe', 'Язык · Мова')), segmented(Object.entries(LANGS), lang(), switchLang)),
       h('section', { class: 'panel' }, h('h3', {}, withIcon('theme', t('Тема'))),
@@ -1222,6 +1250,9 @@ BK.onShared(() => { runBot(); render(); });
 
 applyStatic();
 applyTheme();
+initLock({ key: 'weight-log:lock', name: t('Вес'), icon: 'icons/icon-192.png', text: () => ({
+  locked: t('Приложение заблокировано'), unlock: t('Разблокировать'), denied: t('Не подтверждено. Попробуйте ещё раз.'),
+  failed: t('Ошибка: {msg}'), reset: t('Не получается? Создать ключ заново') }) });
 $('fab').addEventListener('click', () => VIEWS[tab].fab?.());
 $('sync-chip').addEventListener('click', onSyncChip);
 window.addEventListener('hashchange', route);

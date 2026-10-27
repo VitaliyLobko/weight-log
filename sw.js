@@ -22,6 +22,7 @@ const ASSETS = [
   './js/i18n.js',
   './js/chart.js',
   './js/remind.js',
+  './js/lock.js',
   './js/icons.js',
   './js/diet.js',
   './js/nutrition.js',
