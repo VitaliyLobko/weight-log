@@ -11,7 +11,7 @@ import { t, plural, lang, setLang, LANGS, applyStatic } from './i18n.js';
 import { lineChart } from './chart.js';
 import { icon, withIcon } from './icons.js';
 import { remindTime, setRemindTime, googleCalendarUrl, icsFile } from './remind.js';
-import { dietMemo } from './diet.js';
+import { renderRation, homeLine, noteTags } from './nutrition.js';
 import * as party from './celebrate.js';
 
 const $ = (id) => document.getElementById(id);
@@ -117,6 +117,8 @@ function weightForm(date = M.today()) {
     { name: 'note', label: t('Заметка'), value: existing?.note ?? '', placeholder: t('что ел, самочувствие…') },
   ]);
   stepper(f.inputs.kg, lastKg);
+  const tags = noteTags(state, f.inputs.note);
+  if (tags) f.inputs.note.parentElement.after(tags);
   const save = () => {
     const bad = f.invalid();
     if (bad) { toast(t('Проверьте поле «{f}»', { f: bad.label })); return; }
@@ -211,6 +213,7 @@ function quickEntry() {
       lastKg ? h('span', { class: 'muted small' }, t('прошлый раз {kg}', { kg: kg(lastKg) })) : null),
     field,
     h('label', { class: 'field' }, note),
+    noteTags(state, note),
     h('div', { class: 'btn-row' }, btn(t('Записать'), save, 'primary')));
   stepper(input, lastKg);
   return panel;
@@ -379,10 +382,10 @@ function renderHome() {
     todayRow ? null : quickEntry(),
     hero(todayRow),
     plateauNote(),
+    homeLine(state),
     statsGrid(),
     checkpointsBox(),
-    bmiBox(),
-    box(withIcon('leaf', t('Питание при диабете')), dietMemo(), { fold: 'diet' }));
+    bmiBox());
 }
 
 // ---------- графік ----------
@@ -1046,6 +1049,14 @@ const VIEWS = {
   home: { title: 'Вес', render: renderHome },
   // На графіку «+» перекривав блок талії, а запис дня там і так є — олівцем під графіком
   chart: { title: 'График', render: renderChart },
+  ration: {
+    title: 'Рацион',
+    render: () => renderRation(state, {
+      noPlan: () => empty('leaf', t('Плана питания пока нет'),
+        t('Загрузите файл с планом: Данные → Копия в файл → Восстановить из файла → Объединить.'),
+        btn(withIcon('upload', t('Открыть «Данные»')), () => openSettings('data'))),
+    }),
+  },
   log: { title: 'Журнал', render: renderLog, fab: () => ({ waist: waistForm, sizes: sizesForm, health: healthForm }[logSeg] ?? weightForm)() },
   settings: { title: 'Настройки', render: renderSettings },
 };
@@ -1068,7 +1079,7 @@ function render() {
   const view = VIEWS[tab];
   $('title').textContent = t(view.title);
   $('subtitle').textContent = '';
-  if (tab === 'home') $('subtitle').textContent = new Date().toLocaleDateString(lang() === 'uk' ? 'uk-UA' : 'ru-RU', { weekday: 'long', day: 'numeric', month: 'long' });
+  if (tab === 'home' || tab === 'ration') $('subtitle').textContent = new Date().toLocaleDateString(lang() === 'uk' ? 'uk-UA' : 'ru-RU', { weekday: 'long', day: 'numeric', month: 'long' });
   $('view').replaceChildren(view.render());
   $('fab').hidden = !view.fab;
   document.querySelectorAll('.tabs a').forEach((a) => a.classList.toggle('active', a.dataset.tab === tab));

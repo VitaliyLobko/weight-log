@@ -24,6 +24,7 @@ const ASSETS = [
   './js/remind.js',
   './js/icons.js',
   './js/diet.js',
+  './js/nutrition.js',
   './js/celebrate.js',
   './icons/icon-192.png',
   './icons/icon-512.png',
