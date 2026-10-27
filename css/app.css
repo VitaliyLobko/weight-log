@@ -209,6 +209,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .food-line > .ico { flex: none; width: 20px; height: 20px; color: var(--accent-2); }
 .food-line-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .food-line .chevron-right { font-size: 22px; line-height: 1; color: var(--muted); }
+.chips .chip-add { min-width: 44px; padding: 6px 12px; font-size: 18px; line-height: 1; color: var(--accent-2); border-style: dashed; }
+.food-sub { margin: 14px 2px 6px; font-size: 14px; color: var(--accent-2); }
+.row.past .row-title { color: var(--muted); font-weight: 500; }
 .note-tags { margin: 8px 0 0; }
 .note-tags button { min-height: 32px; padding: 4px 12px; font-size: 14px; }
 .hero-label { font-size: 14px; font-weight: 600; color: var(--muted); }
@@ -463,6 +466,7 @@ button.row { cursor: pointer; }
 /* Блок із заголовком на лінії рамки (fieldset + legend, як в 1С). */
 .box { min-width: 0; margin: 16px 0 12px; padding: 4px 12px 12px; border: 1px solid var(--line); border-radius: 12px; }
 .box > legend { display: flex; align-items: center; gap: 6px; padding: 0 6px; margin-left: -4px; font-size: 14px; font-weight: 700; color: var(--muted); }
+.box-tools { display: inline-flex; align-items: center; }
 .box-tools .icon-btn.tool { width: 30px; height: 30px; background: none; color: var(--muted); }
 .box-tools .icon-btn.tool svg { width: 16px; height: 16px; }
 .box > .muted:last-child, .box-body > .muted:last-child { margin: 4px 0 0; }

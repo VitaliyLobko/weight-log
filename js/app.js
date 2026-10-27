@@ -11,7 +11,7 @@ import { t, plural, lang, setLang, LANGS, applyStatic } from './i18n.js';
 import { lineChart } from './chart.js';
 import { icon, withIcon } from './icons.js';
 import { remindTime, setRemindTime, googleCalendarUrl, icsFile } from './remind.js';
-import { renderRation, homeLine, noteTags } from './nutrition.js';
+import { renderRation, homeLine, noteTags, tickWindow } from './nutrition.js';
 import * as party from './celebrate.js';
 
 const $ = (id) => document.getElementById(id);
@@ -1122,6 +1122,8 @@ function registerWorker() {
 
 // Опівночі «сьогодні» змінюється: застосунок, відкритий з учора, має знову запропонувати запис
 let shownDay = M.today();
+// Відлік вікна їжі — щохвилини на місці, без перемальовування екрана (не збиває введення ваги)
+setInterval(() => { if (document.visibilityState === 'visible') tickWindow(); }, 30000);
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && M.today() !== shownDay) { shownDay = M.today(); render(); }
   // Відкрили застосунок — забрати вагу, надіслану боту, поки його не було на екрані
