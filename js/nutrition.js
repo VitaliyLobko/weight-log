@@ -164,13 +164,18 @@ function saveItem(item, where) {
   });
 }
 
+/** Переставити на крок; відповідь — тостом, бо список змінюється під шторкою, де його не видно. */
 async function moveItem(id, step) {
+  let moved = false;
   await savePlan((plan) => {
     const at = locate(plan, id);
     const j = at ? at.i + step : -1;
     if (!at || j < 0 || j >= at.list.length) return;
     [at.list[at.i], at.list[j]] = [at.list[j], at.list[at.i]];
+    moved = true;
   });
+  if (moved) toast(step < 0 ? t('Перемещено выше') : t('Перемещено ниже'));
+  else toast(step < 0 ? t('Уже первый') : t('Уже последний'));
 }
 
 async function removeItem(item) {
@@ -351,11 +356,13 @@ function refText(text) {
 // ---------- екран ----------
 
 function foodRow(item) {
-  return h('button', { type: 'button', class: `row food-row ${item.isDay ? 'day' : ''}`, onclick: () => itemSheet(item) },
+  // Без калорій (кава без цукру) — тихий рядок без «0»: число там лише шумить
+  const zero = !(Number(item.kcal) > 0);
+  return h('button', { type: 'button', class: `row food-row ${item.isDay ? 'day' : ''} ${zero ? 'zero' : ''}`, onclick: () => itemSheet(item) },
     h('div', { class: 'row-main' },
       h('span', { class: 'row-title' }, item.name, item.isDay ? h('span', { class: 'food-tag' }, t('продукт дня')) : null),
       item.qty ? h('span', { class: 'muted small' }, item.qty) : null),
-    h('div', { class: 'row-side' }, h('span', { class: 'food-kcal' }, fmt.int(item.kcal)),
+    h('div', { class: 'row-side' }, zero ? null : h('span', { class: 'food-kcal' }, fmt.int(item.kcal)),
       item.alts?.length ? h('span', { class: 'muted small' }, t('замен: {n}', { n: item.alts.length })) : null));
 }
 
@@ -396,7 +403,7 @@ function dayPicker(state, day) {
         onclick: () => { if (!(day.choice.picked && p.id === cur)) setPick(state, M.today(), p.id); },
       }, p.short || p.name)) : null,
       h('button', { type: 'button', class: 'chip-add', 'aria-label': t('Добавить продукт дня'), title: t('Добавить продукт дня'), onclick: () => itemForm(null, { day: true }) }, '+')),
-    day.choice && !day.choice.picked && list.length > 1 ? h('p', { class: 'muted small' }, t('Предложено по разам в неделю — нажмите, чтобы выбрать')) : null);
+    day.choice && !day.choice.picked && list.length > 1 ? h('p', { class: 'muted small' }, t('Предложение · нажмите, чтобы подтвердить')) : null);
 }
 
 function pauseNote(pause) {
@@ -447,23 +454,31 @@ export function renderRation(state, { noPlan }) {
     h('div', { class: 'btn-row' }, btn(withIcon('plus', t('Приём еды')), () => mealForm(null))),
     norm ? h('p', { class: 'muted small food-norm' }, t('Норма в среднем за неделю: {k} · {m}', { k: kcal(norm.kcal), m: macros(norm) })) : null,
     pausesBox(plan),
-    (plan.refs ?? []).map((r) => box(withIcon('note', r.title), refText(r.text), {
+    h('h3', { class: 'food-section' }, icon('book'), t('Справка')),
+    (plan.refs ?? []).map((r) => box(withIcon('book', r.title), refText(r.text), {
       fold: `ref:${r.id}`, tools: [toolBtn('edit', t('Изменить'), () => refForm(r))],
     })),
     box(withIcon('leaf', t('Питание при диабете')), dietMemo(), { fold: 'diet' }));
 }
 
-/** Рядок вікна їжі; оновлюється щохвилини через tickWindow без перемальовування екрана. */
+/**
+ * Рядок вікна їжі одним рядком; порада «якщо голодно» — по тапу, щоб картка не росла.
+ * Оновлюється щохвилини через tickWindow без перемальовування екрана.
+ */
 function windowEl(plan, inPause) {
-  const el = h('div', { class: 'food-window' });
+  const el = h('button', { type: 'button', class: 'food-window', onclick: () => { if (el.dataset.more) el.classList.toggle('open'); } });
   const paint = () => {
     const win = windowText(plan);
     el.hidden = !win;
     if (!win) return;
-    el.className = `food-window ${win.state}`;
     // У паузу є вечеря — порада про кефір зайва
     const sub = inPause ? null : win.sub;
-    el.replaceChildren(icon('bell'), h('span', {}, win.text, sub ? h('span', { class: 'muted small' }, sub) : null));
+    const open = el.classList.contains('open');
+    el.className = `food-window ${win.state}${sub && open ? ' open' : ''}`;
+    if (sub) el.dataset.more = '1'; else delete el.dataset.more;
+    el.setAttribute('aria-expanded', String(Boolean(sub && open)));
+    el.replaceChildren(icon('clock'), h('span', {}, h('span', { class: sub ? 'food-win-text' : '' }, win.text),
+      sub ? h('span', { class: 'muted small food-more' }, sub) : null));
   };
   el.paint = paint;
   paint();
