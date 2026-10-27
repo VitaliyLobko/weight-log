@@ -67,7 +67,7 @@ let clipSeq = 0;
 
 /**
  * spec: {
- *   series: [{ key, label, kind: 'line' | 'dots' | 'band', cls, points: [{ date, v, ring, last }], endLabel, aside }],
+ *   series: [{ key, label, kind: 'line' | 'dots' | 'band', cls, points: [{ date, v, ring, last, cls }], endLabel, aside }],
  *     band — заливка між двома лініями, точки { date, a, b }: зелена, де a < b, червона — де a > b,
  *     aside — лінія не впливає на шкалу й не вибирається дотиком (прогноз),
  *   extra: [числа, що мають влізти в шкалу], hlines: [{ v, label, cls }],
@@ -314,7 +314,7 @@ export function lineChart(spec) {
           const cx = x(p.date).toFixed(1);
           const cy = y(p.v).toFixed(1);
           if (p.ring) g.append(s('circle', { cx, cy, r: r + 2.5, class: 'ring' }));
-          g.append(s('circle', { cx, cy, r: p.last ? r + 1.5 : r, class: p.last ? 'last' : null }));
+          g.append(s('circle', { cx, cy, r: p.last ? r + 1.5 : r, class: [p.last ? 'last' : '', p.cls ?? ''].join(' ').trim() || null }));
         }
         marks.append(g);
       }

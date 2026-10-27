@@ -7,6 +7,7 @@ import { h, fmt, sheet, toast, form, btn, toolBtn, box, confirmSheet, remember, 
 import { t, plural } from './i18n.js';
 import { icon, withIcon } from './icons.js';
 import { dietMemo } from './diet.js';
+import { dayCard, monthBox, extrasSum, dayOf, STATUS } from './daylog.js';
 
 export const PLAN_ID = 'nutrition';
 /** Вибір продукту дня — окремим записом: тап на телефоні не перетирає правку плану з іншого пристрою. */
@@ -108,7 +109,10 @@ function today(state, date = M.today()) {
     items: [...(m.items ?? []), ...(choice && plan.day?.meal === m.id ? [{ ...choice.item, isDay: true }] : [])],
   }));
   if (pause.now && plan.pauseItems?.length) meals.push({ id: 'pause', name: t('Добавка в паузу'), items: plan.pauseItems, isPause: true });
-  return { plan, choice, pause, meals, sum: totals(meals.flatMap((m) => m.items)) };
+  const planned = totals(meals.flatMap((m) => m.items));
+  const extra = extrasSum(state, date);
+  // Підсумок дня — план плюс з'їдене поза планом
+  return { plan, choice, pause, meals, planned, extra, sum: totals([planned, extra]) };
 }
 
 // ---------- запис ----------
@@ -440,20 +444,24 @@ function pausesBox(plan) {
 export function renderRation(state, { noPlan }) {
   const day = today(state);
   if (!day) return h('div', {}, noPlan(), box(withIcon('leaf', t('Питание при диабете')), dietMemo(), { fold: 'diet' }));
-  const { plan, choice, pause, meals, sum } = day;
+  const { plan, choice, pause, meals, planned, extra, sum } = day;
   const norm = plan.norm;
   return h('div', {},
     h('section', { class: 'hero accent food-hero' },
       h('div', { class: 'hero-label' }, choice ? t('Сегодня: {name}', { name: choice.item.short || choice.item.name }) : t('Сегодня')),
       h('div', { class: 'hero-value' }, fmt.int(sum.kcal), h('span', { class: 'hero-unit' }, t('ккал'))),
       h('div', { class: 'hero-sub' }, macros(sum)),
+      extra.kcal ? h('div', { class: 'hero-sub food-split' },
+        t('план {a} + вне плана {b}', { a: fmt.int(planned.kcal), b: fmt.int(extra.kcal) })) : null,
       dayPicker(state, day),
       windowEl(plan, Boolean(pause.now))),
     pauseNote(pause),
+    dayCard(state),
     meals.map(mealBox),
     h('div', { class: 'btn-row' }, btn(withIcon('plus', t('Приём еды')), () => mealForm(null))),
     norm ? h('p', { class: 'muted small food-norm' }, t('Норма в среднем за неделю: {k} · {m}', { k: kcal(norm.kcal), m: macros(norm) })) : null,
     pausesBox(plan),
+    monthBox(state),
     h('h3', { class: 'food-section' }, icon('book'), t('Справка')),
     (plan.refs ?? []).map((r) => box(withIcon('book', r.title), refText(r.text), {
       fold: `ref:${r.id}`, tools: [toolBtn('edit', t('Изменить'), () => refForm(r))],
@@ -501,7 +509,15 @@ export function homeLine(state) {
       h('b', {}, day.choice ? `${day.choice.item.short || day.choice.item.name} · ${kcal(day.sum.kcal)}` : kcal(day.sum.kcal)),
       sub),
     h('span', { class: 'chevron-right', 'aria-hidden': 'true' }, '›'));
-  el.paint = () => { const win = windowText(day.plan); sub.textContent = win?.text ?? ''; sub.hidden = !win; };
+  const status = dayOf(state, M.today())?.status;
+  el.paint = () => {
+    const win = windowText(day.plan);
+    // Вікно закрите — час позначити день; позначений — показати як
+    if (status) sub.replaceChildren(h('span', { class: `day-dot ${status}`, 'aria-hidden': 'true' }), t(STATUS[status]));
+    else if (win?.state === 'closed') sub.textContent = t('Как день? Отметьте в «Рационе»');
+    else sub.textContent = win?.text ?? '';
+    sub.hidden = !status && !win;
+  };
   el.paint();
   return el;
 }

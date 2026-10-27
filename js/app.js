@@ -11,7 +11,8 @@ import { t, plural, lang, setLang, LANGS, applyStatic } from './i18n.js';
 import { lineChart } from './chart.js';
 import { icon, withIcon } from './icons.js';
 import { remindTime, setRemindTime, googleCalendarUrl, icsFile } from './remind.js';
-import { renderRation, homeLine, noteTags, tickWindow } from './nutrition.js';
+import { renderRation, homeLine, noteTags, tickWindow, planOf } from './nutrition.js';
+import { weightHint, afterSlip, yesterdayText } from './daylog.js';
 import * as party from './celebrate.js';
 
 const $ = (id) => document.getElementById(id);
@@ -381,6 +382,7 @@ function renderHome() {
     keyNote(),
     todayRow ? null : quickEntry(),
     hero(todayRow),
+    weightHint(state, todayRow),
     plateauNote(),
     homeLine(state),
     statsGrid(),
@@ -422,6 +424,7 @@ function dayTip(date) {
     r.avg !== null ? `${t('Среднее')}: ${kg(r.avg, 2)}` : null,
     plan !== null ? `${t('План')}: ${kg(plan, 2)}` : null,
     r.note || null,
+    yesterdayText(state, date),
   ].filter(Boolean);
 }
 
@@ -477,6 +480,7 @@ function renderChart() {
   const plan = rows.map((r) => ({ date: r.date, v: M.planAt(g, r.date) })).filter((p) => p.v !== null);
   const marks = M.checkpoints(rows, goal, sum).map((c) => ({ v: c.kg, label: c.isTarget ? t('цель') : fmt.int(c.kg), cls: c.isTarget ? 'target' : 'cp' }));
   const day = picked && rows.some((r) => r.date === picked) ? picked : lastDate;
+  const slipped = afterSlip(state);
   const details = h('div', {}, dayLine(day));
   // Заливка між середнім і планом: зелена — середнє нижче плану (випереджаєте), червона — вище
   const planOn = new Map(plan.map((p) => [p.date, p.v]));
@@ -485,7 +489,7 @@ function renderChart() {
     series: [
       { key: 'gap', kind: 'band', cls: 's-gap', points: ahead },
       { key: 'plan', kind: 'line', cls: 's-plan', points: plan },
-      { key: 'kg', kind: 'dots', cls: 's-kg', points: rows.map((r, i) => ({ date: r.date, v: r.kg, ring: Boolean(r.note), last: i === rows.length - 1 })) },
+      { key: 'kg', kind: 'dots', cls: 's-kg', points: rows.map((r, i) => ({ date: r.date, v: r.kg, ring: Boolean(r.note), last: i === rows.length - 1, cls: slipped.has(r.date) ? 'slip' : null })) },
       { key: 'avg', kind: 'line', cls: 's-avg', points: rows.filter((r) => r.avg !== null).map((r) => ({ date: r.date, v: r.avg })), endLabel: true },
       { key: 'forecast', kind: 'line', cls: 's-forecast', points: forecast, aside: true },
     ],
@@ -507,6 +511,7 @@ function renderChart() {
       plan.length ? { label: t('План'), kind: 'line dash', cls: 's-plan', keys: ['plan', 'gap'] } : null,
       finish ? { label: t('прогноз'), kind: 'line dash', cls: 's-forecast', keys: ['forecast'] } : null,
       vis.some((r) => r.note) ? { label: t('с заметкой'), kind: 'ring', cls: 's-kg' } : null,
+      vis.some((r) => slipped.has(r.date)) ? { label: t('после срыва'), kind: 'dot', cls: 's-kg slip' } : null,
     ].filter(Boolean),
     hidden: hiddenSeries(),
     onHidden: (keys) => remember(HIDDEN_KEY, JSON.stringify(keys)),
@@ -721,12 +726,31 @@ function remindPanel() {
       ? segmented([['on', t('Напоминать')], ['off', t('Не напоминать')]], bot.remindOn() ? 'on' : 'off',
         (v) => { bot.setRemindOn(v === 'on'); bot.scheduleBot(300); })
       : h('p', { class: 'muted small' }, t('Синхронизация не включена — это в группе «Данные» ниже.')),
+    connected && planOf(state) ? dayAskPanel() : null,
     fold('remind-calendar', withIcon('calendar', t('Календарь телефона')), h('div', {},
       h('p', { class: 'muted small' }, t('Запасной вариант без бота: ежедневное событие «Взвеситься» с уведомлением — будит телефон сам календарь.')),
       h('div', { class: 'btn-row' },
         btn(withIcon('calendar', t('Google Календарь')), () => { setRemindTime(time.value); window.open(googleCalendarUrl(remindTime(), appUrl()), '_blank', 'noopener'); }),
         btn(withIcon('download', t('Файл .ics')), () => { setRemindTime(time.value); saveFile(icsFile(remindTime(), appUrl()), true); })),
       h('p', { class: 'muted small' }, t('В Google Календаре проверьте, что у события включено уведомление «в момент начала». Файл .ics открывают календари Samsung, iPhone и Outlook.')))));
+}
+
+/** Вечірнє «Як день за раціоном?» у Telegram: кнопки «За планом / Трохи не так / Зрив». */
+function dayAskPanel() {
+  const at = bot.dayAskTime();
+  const time = h('input', {
+    type: 'time', value: at ?? bot.DAY_ASK_DEFAULT, class: 'time-input', disabled: !at,
+    onchange: (e) => { if (e.target.value) { bot.setDayAskTime(e.target.value); bot.scheduleBot(500); } },
+  });
+  return h('div', {},
+    h('h4', { class: 'sub-head' }, withIcon('leaf', t('Вопрос о рационе'))),
+    h('p', { class: 'muted small' }, t('Вечером бот спросит, как прошёл день: три кнопки, при срыве — причина. Отметка ляжет в «Рацион». Если день уже отмечен — не спросит.')),
+    segmented([['on', t('Спрашивать')], ['off', t('Не спрашивать')]], at ? 'on' : 'off', (v) => {
+      bot.setDayAskTime(v === 'on' ? (time.value || bot.DAY_ASK_DEFAULT) : null);
+      time.disabled = v !== 'on';
+      bot.scheduleBot(300);
+    }),
+    h('label', { class: 'field' }, h('span', { class: 'field-label' }, t('Во сколько')), time));
 }
 
 // ---------- Telegram-бот ----------

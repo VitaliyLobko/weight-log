@@ -864,3 +864,65 @@ button:focus-visible, a:focus-visible, summary:focus-visible, [tabindex]:focus-v
 /* Світіння — filter на всьому числі: text-shadow колонки з overflow обрізали б у прямокутники */
 .go .odo-digits { animation: odo-glow 1.4s ease 2.3s both; }
 @keyframes odo-glow { 40% { color: #ffd45c; filter: drop-shadow(0 0 16px rgb(255 200 60 / .75)); } to { color: #f5c040; filter: drop-shadow(0 0 8px rgb(255 200 60 / .4)); } }
+
+/* --- раціон: як минув день, поза планом --- */
+.day-card { margin-bottom: 12px; }
+.day-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.panel .day-head h3 { margin: 0; }
+.day-streak { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; font-weight: 650; color: var(--good); }
+.day-streak .ico { width: 16px; height: 16px; }
+.day-status { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.day-btn {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
+  min-height: 56px; padding: 8px 4px; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--surface-2); color: var(--text); font: inherit; font-size: 13px; font-weight: 650; line-height: 1.15; text-align: center; cursor: pointer;
+}
+.day-btn:active { transform: scale(.98); }
+.day-btn.on.ok { --tone: var(--good); }
+.day-btn.on.off { --tone: var(--warn); }
+.day-btn.on.slip { --tone: var(--bad); }
+.day-btn.on { border-color: var(--tone); background: color-mix(in srgb, var(--tone) 16%, var(--surface)); box-shadow: inset 0 0 0 1px var(--tone); }
+.day-dot { display: inline-block; flex: none; width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid var(--muted); }
+.day-dot.ok { background: var(--good); border-color: var(--good); }
+.day-dot.off { background: var(--warn); border-color: var(--warn); }
+.day-dot.slip { background: var(--bad); border-color: var(--bad); }
+.day-slip { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--bad) 9%, transparent); border: 1px solid color-mix(in srgb, var(--bad) 30%, var(--line)); }
+.day-slip p { margin: 0 0 8px; }
+.day-reasons { align-items: center; margin: 0; }
+.day-reasons button { min-height: 40px; }
+.day-extras { margin-top: 12px; }
+.day-body .food-sum { margin-top: 8px; }
+.day-body .btn-row { margin-bottom: 0; }
+.day-week { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); }
+.day-cell {
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px;
+  min-height: 48px; padding: 6px 0; border: 0; border-radius: 10px; background: none; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer;
+}
+.day-cell.today { color: var(--text); font-weight: 700; background: var(--accent-soft); }
+.day-cell .day-dot { width: 14px; height: 14px; }
+.day-plus { position: absolute; top: 22px; right: calc(50% - 16px); font-size: 11px; font-weight: 800; line-height: 1; color: var(--accent-2); }
+.hero-sub.food-split { margin-top: 2px; font-size: 13px; }
+.food-ask { display: flex; flex-direction: column; gap: 4px; }
+.food-quick button { display: inline-flex; gap: 6px; align-items: baseline; min-height: 40px; }
+.food-quick button.on .muted, .food-quick button:active .muted { color: inherit; }
+.food-edit { display: flex; flex-direction: column; gap: 10px; }
+.food-ai-note { display: flex; gap: 6px; align-items: flex-start; margin: 0; }
+.food-ai-note .ico { flex: none; width: 15px; height: 15px; margin-top: 2px; color: var(--accent-2); }
+.food-cards { display: flex; flex-direction: column; gap: 10px; }
+.food-card { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
+.food-card-head { display: flex; align-items: flex-end; gap: 6px; }
+.food-card-head .field { flex: 1; }
+.food-card-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.food-card-macros { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.food-card input { width: 100%; min-width: 0; }
+.food-edit .btn-row { margin: 0; }
+.day-month p { margin: 8px 0 0; }
+.day-counts { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.day-count { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; }
+.chart-svg .series-dots.s-kg circle.slip { fill: var(--bad); fill-opacity: .9; }
+.key.dot.s-kg.slip { background: var(--bad); }
+.day-hint .plateau-head .ico { color: var(--warn); }
+.food-card .field { grid-column: auto; }
+.food-card-macros .field-label { text-align: center; }
+.food-card-macros input { text-align: center; }
+.food-line .day-dot { width: 10px; height: 10px; margin-right: 4px; vertical-align: -1px; }

@@ -12,6 +12,7 @@ const KEYS = {
   url: 'weight-log:bot-url',
   key: 'weight-log:bot-key',
   remind: 'weight-log:bot-remind',
+  dayAsk: 'weight-log:day-ask',
   at: 'weight-log:bot-at',
   declined: 'weight-log:bot-declined',
   restore: 'weight-log:cloud-restore',
@@ -63,6 +64,14 @@ export const declinedAt = () => Number(get(KEYS.declined) || 0);
 
 export const remindOn = () => get(KEYS.remind) !== 'off';
 export const setRemindOn = (on) => set(KEYS.remind, on ? null : 'off');
+/** Вечірнє «Як день за раціоном?» у боті: час або null — не питати. */
+export const DAY_ASK_DEFAULT = '20:00';
+export function dayAskTime() {
+  const v = get(KEYS.dayAsk);
+  if (v === 'off') return null;
+  return /^\d{2}:\d{2}$/.test(v ?? '') ? v : DAY_ASK_DEFAULT;
+}
+export const setDayAskTime = (v) => set(KEYS.dayAsk, v ?? 'off');
 export const lastSync = () => cur.last();
 /** Лягли записи зі старими мітками (з копії чи Диска) — віддати боту все ще раз: він лишить новіше. */
 export const rewindPushed = () => cur.rewind();
@@ -105,12 +114,14 @@ export async function syncBot() {
   const cfg = { url, key };
   try {
     const restoreAt = Number(get(KEYS.restore) || 0);
+    const all = await db.loadAll();
     let res;
     try {
       res = await exchange({
         url, key, app: APP, prefix: APP,
-        records: pack(await db.loadAll()),
-        extra: { remind: remindOn() ? remindTime() : null },
+        records: pack(all),
+        // Без плану харчування бот увечері про раціон не питає
+        extra: { remind: remindOn() ? remindTime() : null, dayAsk: all.settings.some((s) => s.id === 'nutrition') ? dayAskTime() : null },
       });
     } catch (err) {
       if (err.status === 401) {
@@ -136,4 +147,24 @@ export async function syncBot() {
     running = false;
     if (again) { again = false; scheduleBot(500); }
   }
+}
+
+/**
+ * Калорійність їжі з тексту через бота (/api/food): { items: [{ name, qty, grams, kcal, p, f, c }], note, source }.
+ * Помилка: message 'no-bot' — бот не підключений, 'limit' — ліміт на день, 'offline', інакше — бот чи модель.
+ */
+export async function askFood(text) {
+  const { url, key } = botConfig();
+  if (!url || !key) throw new Error('no-bot');
+  if (!navigator.onLine) throw new Error('offline');
+  const r = await fetch(`${url}/api/food`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    throw Object.assign(new Error(e.error || `HTTP ${r.status}`), { status: r.status });
+  }
+  return r.json();
 }
