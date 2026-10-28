@@ -12,6 +12,7 @@
   --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
   --good: #4cc38a;
   --bad: #e2725b;
+  --pig: #f29bbd;
   --warn: #dbad3a;
   /* серії графіка: середнє — акцент, план — кораловий, точки зважувань — нейтральні */
   --c-avg: var(--accent-2);
@@ -39,6 +40,7 @@
   --accent-2: #1d529c;
   --good: #1a7a4b;
   --bad: #c2462d;
+  --pig: #e46a97;
   --c-avg: #2563b8;
   --c-plan: #b8603d;
   --c-kg: #7c8890;
@@ -1054,4 +1056,6 @@ button.food-pick .chevron-right { font-size: 22px; line-height: 1; color: var(--
 .log-food-go { margin-left: auto; font-size: 18px; line-height: 1; color: var(--muted); }
 .log-food-names { font-size: 12.5px; line-height: 1.35; color: var(--muted); overflow-wrap: anywhere; }
 .log-food:active { background: var(--line-soft); }
-.ico.ico-pig { width: 22px; height: 22px; color: var(--bad); }
+.ico.ico-pig { width: 24px; height: 24px; color: var(--pig); }
+.ico.ico-pig svg { stroke-width: 1.4; }
+.ico.ico-pig .hl { fill: var(--bg); stroke: none; }
