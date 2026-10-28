@@ -572,7 +572,8 @@ function pickSheet(state) {
       h('div', { class: 'rows', role: 'radiogroup', 'aria-label': t('Продукт дня') }, list.map((p) => {
         const w = weekCount(day.plan, picks, p, date);
         const on = p.id === cur;
-        return h('button', {
+        // Рядок — вибір; олівець поруч — правка чи видалення продукту зі списку продуктів дня
+        return h('div', { class: 'pick-item' }, h('button', {
           type: 'button', role: 'radio', 'aria-checked': String(on && day.choice.picked),
           class: `row pick-row ${on ? 'on' : ''} ${on && !day.choice.picked ? 'suggested' : ''}`,
           onclick: async () => { closeIt(); if (!(day.choice.picked && on)) await setPick(current ?? state, date, p.id); },
@@ -584,7 +585,8 @@ function pickSheet(state) {
           h('div', { class: 'row-side' },
             h('span', { class: 'food-kcal' }, fmt.int(p.kcal)),
             w.of ? h('span', { class: `small ${w.n >= w.of ? 'good' : 'muted'}` },
-              t(w.shared ? 'вместе {n} из {of} за нед.' : '{n} из {of} за нед.', { n: w.n, of: w.of })) : null));
+              t(w.shared ? 'вместе {n} из {of} за нед.' : '{n} из {of} за нед.', { n: w.n, of: w.of })) : null)),
+        toolBtn('edit', t('Изменить «{name}»', { name: p.name }), () => { closeIt(); itemForm(p, { day: true }); }));
       })),
       h('div', { class: 'btn-row' }, btn(withIcon('plus', t('Продукт дня')), () => { closeIt(); itemForm(null, { day: true }); })));
   };
@@ -713,7 +715,7 @@ export function homeLine(state) {
   if (!day) return null;
   const sub = h('span', { class: 'muted small' });
   const el = h('a', { href: '#ration', class: 'panel food-line' },
-    icon('leaf'),
+    icon('plate'),
     h('span', { class: 'food-line-main' },
       h('b', {}, day.choice ? `${day.choice.item.short || day.choice.item.name} · ${kcal(day.sum.kcal)}` : kcal(day.sum.kcal)),
       sub),
