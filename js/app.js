@@ -1128,7 +1128,10 @@ function aboutPanel() {
       h('li', {}, t('Подключите Google Диск — записи будут одинаковыми на телефоне и компьютере.')),
       h('li', {}, t('Включите напоминание — Telegram-бот или событие в календаре, чтобы не пропускать дни.')))),
     h('p', { class: 'muted small' },
-      h('a', { href: 'https://github.com/VitaliyLobko/weight-log', target: '_blank', rel: 'noopener' }, t('Исходный код'))));
+      h('a', { href: 'https://github.com/VitaliyLobko/weight-log', target: '_blank', rel: 'noopener' }, t('Исходный код'))),
+    h('p', { class: 'muted small' }, t('Хрюк — '),
+      h('a', { href: 'https://freesound.org/people/Erdie/sounds/44274/', target: '_blank', rel: 'noopener' }, '«Pig grunt», erdie'),
+      ', ', h('a', { href: 'https://creativecommons.org/licenses/by/3.0/', target: '_blank', rel: 'noopener' }, 'CC BY 3.0')));
 }
 
 function renderSettings() {
