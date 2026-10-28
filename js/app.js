@@ -13,7 +13,7 @@ import { lineChart } from './chart.js';
 import { icon, withIcon } from './icons.js';
 import { remindTime, setRemindTime, googleCalendarUrl, icsFile } from './remind.js';
 import { renderRation, homeLine, noteTags, tickWindow, planOf } from './nutrition.js';
-import { weightHint, afterSlip, yesterdayText, weekMarks, periodFood, streakMilestones, journalMark, streak } from './daylog.js';
+import { weightHint, afterSlip, yesterdayText, weekMarks, periodFood, streakMilestones, journalDay, dayDates, streak } from './daylog.js';
 import * as party from './celebrate.js';
 
 const $ = (id) => document.getElementById(id);
@@ -668,19 +668,31 @@ function renderSizes(seg) {
     s.value ? h('div', { class: 'row-side' }, h('span', { class: 'size-value' }, s.value)) : null))));
 }
 
+/** Підсумок місяця за раціоном для заголовка: «✓ 18 · ✕ 2». */
+function monthFood(list) {
+  const marks = list.map((r) => state.settings.find((s) => s.id === `day:${r.date}`)?.status).filter(Boolean);
+  if (!marks.length) return null;
+  const n = (k) => marks.filter((x) => x === k).length;
+  return t('по плану {ok} · срывов {slip}', { ok: n('ok'), slip: n('slip') });
+}
+
+/** День у «Журналі»: зважування (чи «без зважування») і під ним — як минув день за раціоном. */
 function weightRow(r) {
-  return h('button', { type: 'button', class: 'row log-row', onclick: () => weightForm(r.date) },
-    h('div', { class: 'row-main' },
-      h('span', { class: 'row-title' }, fmt.short(r.date), h('span', { class: 'muted' }, ` · ${fmt.weekday(r.date)}`)),
-      h('span', { class: 'muted small' }, [
-        r.avg !== null ? t('сред. {v}', { v: fmt.fix(r.avg, 2) }) : null,
-        r.delta !== null ? t('нед. {v}', { v: fmt.signed(r.delta, 2) }) : null,
-      ].filter(Boolean).join(' · ')),
-      r.note ? h('span', { class: 'row-note' }, icon('note'), h('span', {}, r.note)) : null,
-      journalMark(state, r.date)),
-    h('div', { class: 'row-side' },
-      h('span', { class: 'row-kg' }, fmt.fix(r.kg)),
-      r.day !== null ? h('span', { class: `small ${trendClass(r.day)}` }, fmt.signed(r.day)) : null));
+  const weighed = r.kg !== null;
+  const food = journalDay(state, r.date);
+  return h('div', { class: `log-day ${food ? 'has-food' : ''}` },
+    h('button', { type: 'button', class: 'row log-row', onclick: () => weightForm(r.date) },
+      h('div', { class: 'row-main' },
+        h('span', { class: 'row-title' }, fmt.short(r.date), h('span', { class: 'muted' }, ` · ${fmt.weekday(r.date)}`)),
+        weighed ? h('span', { class: 'muted small' }, [
+          r.avg !== null ? t('сред. {v}', { v: fmt.fix(r.avg, 2) }) : null,
+          r.delta !== null ? t('нед. {v}', { v: fmt.signed(r.delta, 2) }) : null,
+        ].filter(Boolean).join(' · ')) : null,
+        r.note ? h('span', { class: 'row-note' }, icon('note'), h('span', {}, r.note)) : null),
+      h('div', { class: 'row-side' },
+        weighed ? h('span', { class: 'row-kg' }, fmt.fix(r.kg)) : h('span', { class: 'muted small' }, t('без взвешивания')),
+        weighed && r.day !== null ? h('span', { class: `small ${trendClass(r.day)}` }, fmt.signed(r.day)) : null)),
+    food);
 }
 
 function renderLog() {
@@ -699,8 +711,13 @@ function renderLog() {
   }
   $('subtitle').textContent = t('записей: {n}', { n: rows.length });
   if (!rows.length) return h('div', {}, seg, empty('journal', t('Журнал пуст'), t('Нажмите «+», чтобы записать вес.')));
+  // Дні з позначкою раціону, але без зважування — теж у журналі (з першого зважування й до сьогодні)
+  const weighedDates = new Set(rows.map((r) => r.date));
+  const extra = dayDates(state).filter((d) => !weighedDates.has(d) && d >= rows[0].date && d <= M.today())
+    .map((date) => ({ date, kg: null, note: '' }));
+  const entries = [...rows, ...extra].sort((a, b) => (a.date < b.date ? -1 : 1));
   const months = new Map();
-  for (const r of [...rows].reverse()) {
+  for (const r of entries.reverse()) {
     const ym = r.date.slice(0, 7);
     if (!months.has(ym)) months.set(ym, []);
     months.get(ym).push(r);
@@ -712,11 +729,15 @@ function renderLog() {
     remember('weight-log:log-month', latest);
   }
   return h('div', {}, seg, [...months].map(([ym, list]) => {
-    const avg = list.reduce((s, r) => s + r.kg, 0) / list.length;
-    const change = list.length > 1 ? list[0].kg - list.at(-1).kg : null;
+    const ws = list.filter((r) => r.kg !== null);
+    const avg = ws.length ? ws.reduce((s, r) => s + r.kg, 0) / ws.length : null;
+    const change = ws.length > 1 ? ws[0].kg - ws.at(-1).kg : null;
     return fold(`log:${ym}`, [
       h('span', { class: 'fold-stack' }, h('span', { class: 'fold-title' }, fmt.month(ym)),
-        h('span', { class: 'fold-meta' }, t('{n} взв. · сред. {v}', { n: list.length, v: fmt.fix(avg, 1) }))),
+        h('span', { class: 'fold-meta' }, [
+          avg !== null ? t('{n} взв. · сред. {v}', { n: ws.length, v: fmt.fix(avg, 1) }) : null,
+          monthFood(list),
+        ].filter(Boolean).join(' · '))),
       change !== null ? h('span', { class: `fold-sum ${trendClass(change)}` }, fmt.signed(change)) : null,
     ], h('div', { class: 'rows' }, list.map(weightRow)));
   }));

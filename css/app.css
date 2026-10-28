@@ -467,7 +467,8 @@ button.food-window.open .food-win-text::after { content: ''; }
 .fold-body { padding-top: 2px; }
 .fold-body > .rows { gap: 0; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--surface); }
 .fold-body > .rows > .row { border: 0; border-radius: 0; }
-.fold-body > .rows > .row + .row { border-top: 1px solid var(--line-soft); }
+.fold-body > .rows > .row + .row, .fold-body > .rows > .log-day + .log-day { border-top: 1px solid var(--line-soft); }
+.fold-body > .rows > .log-day > .row { border: 0; border-radius: 0; }
 
 /* --- рядки --- */
 .rows { display: flex; flex-direction: column; gap: 6px; }
@@ -1038,3 +1039,16 @@ button.food-pick .chevron-right { font-size: 22px; line-height: 1; color: var(--
 .scan-video { width: 100%; height: 100%; object-fit: cover; display: block; }
 .scan-line { position: absolute; left: 10%; right: 10%; top: 50%; height: 2px; background: var(--bad); box-shadow: 0 0 8px var(--bad); }
 .scan-status { margin: 0; }
+/* --- день у журналі: вага + смужка раціону --- */
+.log-day { display: flex; flex-direction: column; background: var(--surface); }
+.log-day.has-food > .row { padding-bottom: 4px; }
+.log-food { display: flex; flex-direction: column; gap: 3px; width: calc(100% - 16px); margin: 0 8px 8px; padding: 7px 10px; border: 0; border-radius: 10px; background: var(--surface-2); color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.log-food-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 13px; font-weight: 650; }
+.log-food-head .day-dot { width: 9px; height: 9px; }
+.log-food.none .log-food-head { font-weight: 500; color: var(--muted); }
+.log-chip { padding: 1px 7px; border-radius: 8px; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.log-chip.plus { background: color-mix(in srgb, var(--warn) 18%, var(--surface)); color: color-mix(in srgb, var(--warn) 70%, var(--text)); }
+.log-chip.minus { background: var(--surface); color: var(--muted); }
+.log-food-go { margin-left: auto; font-size: 18px; line-height: 1; color: var(--muted); }
+.log-food-names { font-size: 12.5px; line-height: 1.35; color: var(--muted); overflow-wrap: anywhere; }
+.log-food:active { background: var(--line-soft); }

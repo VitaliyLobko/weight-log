@@ -646,15 +646,40 @@ export function streakMilestones(state) {
   return out;
 }
 
-/** Позначка попереднього дня біля зважування в «Журналі»: точка статусу й поза планом. */
-export function journalMark(state, date) {
-  const prev = dayOf(state, M.addDays(date, -1));
-  if (!prev?.status && !prev?.extras?.length) return null;
-  const xs = extrasSum(state, prev.date ?? M.addDays(date, -1)).kcal;
-  const label = [prev.status ? t(STATUS[prev.status]) : null, xs ? `+${fmt.int(xs)}` : null].filter(Boolean).join(' · ');
-  return h('span', { class: 'day-mark', title: t('Накануне: {s}', { s: label }) },
-    prev.status ? h('span', { class: `day-dot ${prev.status}`, 'aria-hidden': 'true' }) : null,
-    h('span', {}, label));
+/** Дати з записом дня (позначка, поза планом чи «не з'їв») — щоб у «Журналі» були й дні без зважування. */
+export function dayDates(state) {
+  return state.settings
+    .filter((s) => s.id.startsWith(DAY_PREFIX) && s.date && (s.status || s.extras?.length || s.skipped?.length))
+    .map((s) => s.date);
+}
+
+/**
+ * Смужка дня під вагою в «Журналі»: позначка, поза планом і «не з'їв» з назвами, мітки дня.
+ * Тап — шторка дня. Плану немає чи день ще не настав — нічого.
+ */
+export function journalDay(state, date) {
+  use(state);
+  if (!planOf(state) || date > M.today()) return null;
+  const rec = dayOf(state, date);
+  const extras = rec?.extras ?? [];
+  const xs = extrasSum(state, date).kcal;
+  const missed = skippedItems(state, rec?.skipped ?? []);
+  const missedKcal = missed.reduce((a, x) => a + (Number(x.kcal) || 0), 0);
+  const empty = !rec?.status && !extras.length && !missed.length;
+  const names = [
+    extras.length ? t('вне плана: {list}', { list: extras.map((x) => x.name).join(', ') }) : null,
+    missed.length ? t('не съел: {list}', { list: skippedNames(state, rec.skipped) }) : null,
+    rec?.tags?.length ? rec.tags.join(', ') : null,
+  ].filter(Boolean);
+  return h('button', { type: 'button', class: `log-food ${empty ? 'none' : ''}`, onclick: () => daySheet(date) },
+    h('span', { class: 'log-food-head' },
+      h('span', { class: `day-dot ${rec?.status ?? 'none'}`, 'aria-hidden': 'true' }),
+      h('span', {}, rec?.status ? t(STATUS[rec.status]) : t('День не отмечен')),
+      rec?.status === 'slip' && REASONS[rec.reason] ? h('span', { class: 'muted' }, `· ${t(REASONS[rec.reason]).toLowerCase()}`) : null,
+      xs ? h('span', { class: 'log-chip plus' }, `+${fmt.int(xs)}`) : null,
+      missedKcal ? h('span', { class: 'log-chip minus' }, `−${fmt.int(missedKcal)}`) : null,
+      h('span', { class: 'log-food-go', 'aria-hidden': 'true' }, '›')),
+    names.length ? h('span', { class: 'log-food-names' }, names.join(' · ')) : null);
 }
 
 /** Дати зважувань наступного ранку після зриву — окремі точки на графіку. */
