@@ -10,6 +10,7 @@ import { icon, withIcon } from './icons.js';
 import { planOf, tagLists, slipRule, plannedKcal } from './nutrition.js';
 import { resolveLocal, fromModel, fromPer100, per100Of, kcalMismatch, withoutStats } from './foods.js';
 import { scanSheet, lookupBarcode, pickLabelPhoto, labelItem } from './scan.js';
+import { oink } from './oink.js';
 
 export const DAY_PREFIX = 'day:';
 /** «Мої продукти»: що вже рахували — кнопки швидкого додавання і кеш, щоб не питати модель вдруге. */
@@ -432,7 +433,7 @@ function dayBody(state, date) {
       h('div', { class: 'row-side' }, h('span', { class: 'food-kcal' }, fmt.int(x.kcal)))))) : null,
     extras.length > 1 ? h('div', { class: 'food-sum' }, h('b', {}, t('Вне плана: {k}', { k: kcal(xs.kcal) })),
       h('span', { class: 'muted' }, t('Б {p} · Ж {f} · В {c}', { p: fmt.int(xs.p), f: fmt.int(xs.f), c: fmt.int(xs.c) }))) : null,
-    h('div', { class: 'btn-row' }, btn(withIcon('plus', t('Съел вне плана')), () => foodSheet(date))));
+    h('div', { class: 'btn-row' }, btn(withIcon('pig', t('Съел вне плана'), 'ico-pig'), () => { oink(); foodSheet(date); })));
 }
 
 /** Продукти плану за id: з прийомів, продуктів дня й добавки в паузу. */
