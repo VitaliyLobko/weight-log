@@ -1057,5 +1057,5 @@ button.food-pick .chevron-right { font-size: 22px; line-height: 1; color: var(--
 .log-food-names { font-size: 12.5px; line-height: 1.35; color: var(--muted); overflow-wrap: anywhere; }
 .log-food:active { background: var(--line-soft); }
 .ico.ico-pig { width: 24px; height: 24px; color: var(--pig); }
-.ico.ico-pig svg { stroke-width: 1.4; }
+.ico.ico-pig svg { stroke-width: 1.2; }
 .ico.ico-pig .hl { fill: var(--bg); stroke: none; }
