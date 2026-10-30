@@ -308,6 +308,9 @@ button.food-window.open .food-win-text::after { content: ''; }
 .today-line > .ico { margin-left: auto; width: 18px; height: 18px; color: var(--muted); }
 .today-label { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; color: var(--muted); }
 .today-label .ico { color: var(--good); width: 17px; height: 17px; }
+/* Щойно записали вагу — галочка домальовується */
+.today-label.just .tick { stroke-dasharray: 1; animation: draw .45s ease-out .15s both; }
+.today-label.just .ico { animation: dot-pop .35s cubic-bezier(.2, 1.6, .4, 1) both; }
 .today-kg { font-size: 18px; font-weight: 800; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .today-delta { font-size: 14px; white-space: nowrap; }
 .today-note { flex-basis: 100%; overflow-wrap: anywhere; }
@@ -734,6 +737,27 @@ button.row { cursor: pointer; }
 }
 .tabs a.active { color: var(--accent-2); }
 .tabs a.active svg { background: var(--accent-soft); }
+/* Іконка вкладки оживає один раз, коли вкладку відкрили: ваги гойднулись, рядки вписались, лінія намалювалась, прибори дзенькнули */
+.tabs .needle { transform-origin: 12px 11.2px; }
+.tabs a[data-tab="home"].active svg { animation: scale-step .35s ease-out; }
+.tabs a.active .needle { animation: needle-swing .9s ease-out .1s; }
+@keyframes scale-step { 30% { transform: scale(1.06, .9) translateY(1.5px); } }
+@keyframes needle-swing { 20% { transform: rotate(-70deg); } 45% { transform: rotate(28deg); } 65% { transform: rotate(-12deg); } 82% { transform: rotate(5deg); } }
+.tabs .ln, .tabs .line { stroke-dasharray: 1; }
+.tabs a.active .ln { animation: draw .25s ease-out both; }
+.tabs a.active .ln:nth-of-type(4) { animation-delay: .12s; }
+.tabs a.active .ln:nth-of-type(5) { animation-delay: .24s; }
+.tabs a.active .line { animation: draw .55s ease-out; }
+.tabs .dot { transform-origin: 19px 7px; }
+.tabs a.active .dot { animation: dot-pop .4s cubic-bezier(.2, 1.6, .4, 1) .45s both; }
+@keyframes draw { from { stroke-dashoffset: 1; } }
+@keyframes dot-pop { from { transform: scale(0); } }
+.tabs .fork { transform-origin: 7px 20.5px; }
+.tabs .knife { transform-origin: 17px 20.5px; }
+.tabs a.active .fork { animation: clink-l .5s ease-in-out; }
+.tabs a.active .knife { animation: clink-r .5s ease-in-out; }
+@keyframes clink-l { 30%, 70% { transform: rotate(7deg); } 50% { transform: rotate(3deg); } }
+@keyframes clink-r { 30%, 70% { transform: rotate(-7deg); } 50% { transform: rotate(-3deg); } }
 .tabs a.alert::after {
   content: "";
   position: absolute;
@@ -1059,3 +1083,6 @@ button.food-pick .chevron-right { font-size: 22px; line-height: 1; color: var(--
 .ico.ico-pig { width: 24px; height: 24px; color: var(--pig); }
 .ico.ico-pig svg { stroke-width: 1.2; }
 .ico.ico-pig .hl { fill: var(--bg); stroke: none; }
+/* Свинка підстрибує разом із хрюком */
+.ico.ico-pig.hop { animation: pig-hop .5s ease-out; }
+@keyframes pig-hop { 25% { transform: translateY(-5px) rotate(-10deg); } 50% { transform: translateY(0) rotate(8deg); } 75% { transform: rotate(-4deg); } }

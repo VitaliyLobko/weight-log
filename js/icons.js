@@ -22,7 +22,7 @@ const ICONS = {
   archive: '<rect x="3.5" y="4" width="17" height="5" rx="1.2"/><path d="M5 9v9.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V9"/><path d="M10 13h4"/>',
   phone: '<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/>',
   warning: '<path d="M10.3 4.6L2.9 17.5A2 2 0 0 0 4.6 20.5h14.8a2 2 0 0 0 1.7-3L13.7 4.6a2 2 0 0 0-3.4 0z"/><path d="M12 9.5v4.5"/><circle cx="12" cy="17" r=".9" class="fill"/>',
-  check: '<circle cx="12" cy="12" r="8.5"/><path d="M8 12.4l2.7 2.7L16 9.8"/>',
+  check: '<circle cx="12" cy="12" r="8.5"/><path class="tick" pathLength="1" d="M8 12.4l2.7 2.7L16 9.8"/>',
   note: '<path d="M5 4.5h14a1.5 1.5 0 0 1 1.5 1.5v9a1.5 1.5 0 0 1-1.5 1.5H10l-4.5 3.5V16.5H5A1.5 1.5 0 0 1 3.5 15V6A1.5 1.5 0 0 1 5 4.5z"/><path d="M7.5 9h9M7.5 12.5h6"/>',
   share: '<path d="M12 14.5V3.5"/><path d="M7.5 8L12 3.5 16.5 8"/><path d="M5 12v6.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V12"/>',
   download: '<path d="M12 3.5V15"/><path d="M7.5 10.5L12 15l4.5-4.5"/><path d="M5 20h14"/>',
@@ -56,3 +56,12 @@ export function icon(name, cls = '') {
 
 /** Текст з іконкою попереду — для заголовків і кнопок. */
 export const withIcon = (name, text, cls = '') => [icon(name, cls), h('span', {}, text)];
+
+/** Програє анімацію класу hop з початку — і при повторному дотику. */
+export function hop(el) {
+  if (!el) return;
+  el.classList.remove('hop');
+  void el.offsetWidth;
+  el.classList.add('hop');
+  el.addEventListener('animationend', () => el.classList.remove('hop'), { once: true });
+}

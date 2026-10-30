@@ -21,6 +21,8 @@ const $ = (id) => document.getElementById(id);
 let state = { weights: [], waists: [], settings: [], tombstones: [] };
 let tab = 'home';
 let rows = [];
+// Дата, яку щойно записали з «Сьогодні»: галочка в картці середнього домалюється один раз
+let justSaved = '';
 let goal = { id: M.GOAL_ID };
 let sum = M.summary([], goal);
 
@@ -206,6 +208,7 @@ function quickEntry() {
     const snap = snapshot('weights', [date]);
     // Ключ Google сплив — оновлюємо з цього ж дотику, поки браузер дозволяє відкрити вікно входу
     sync.renewOnGesture();
+    justSaved = date;
     await db.write({ weights: { put: [{ id: date, kg: Math.round(v * 100) / 100, note: note.value.trim() }] } });
     buzz();
     undoToast(t('Записано {kg} за {date}', { kg: kg(v), date: fmt.date(date) }), 'weights', snap);
@@ -225,8 +228,10 @@ function quickEntry() {
 /** Сьогоднішня вага рядком усередині картки середнього: головне число одне — середнє. */
 function todayLine(row) {
   const prev = rows[rows.indexOf(row) - 1];
+  const just = justSaved === row.date;
+  justSaved = '';
   return h('button', { type: 'button', class: 'today-line', onclick: () => weightForm(row.date) },
-    h('span', { class: 'today-label' }, icon('check'), t('Сегодня')),
+    h('span', { class: `today-label${just ? ' just' : ''}` }, icon('check'), t('Сегодня')),
     h('b', { class: 'today-kg' }, kg(row.kg)),
     prev ? h('span', { class: `today-delta ${trendClass(row.day)}` }, t('{d} к {date}', { d: fmt.signed(row.day), date: fmt.short(prev.date) })) : null,
     icon('edit'),
