@@ -13,7 +13,7 @@ import { lineChart } from './chart.js';
 import { icon, withIcon } from './icons.js';
 import { remindTime, setRemindTime, googleCalendarUrl, icsFile } from './remind.js';
 import { renderRation, homeLine, noteTags, tickWindow, planOf } from './nutrition.js';
-import { weightHint, afterSlip, yesterdayText, weekMarks, periodFood, streakMilestones, journalDay, dayDates, streak } from './daylog.js';
+import { weightHint, afterSlip, yesterdayText, weekMarks, periodFood, streakMilestones, journalDay, dayDates, streak, dayOf } from './daylog.js';
 import * as party from './celebrate.js';
 
 const $ = (id) => document.getElementById(id);
@@ -675,7 +675,7 @@ function renderSizes(seg) {
 
 /** Підсумок місяця за раціоном для заголовка: «✓ 18 · ✕ 2». */
 function monthFood(list) {
-  const marks = list.map((r) => state.settings.find((s) => s.id === `day:${r.date}`)?.status).filter(Boolean);
+  const marks = list.map((r) => dayOf(state, r.date)?.status).filter(Boolean);
   if (!marks.length) return null;
   const n = (k) => marks.filter((x) => x === k).length;
   return t('по плану {ok} · срывов {slip}', { ok: n('ok'), slip: n('slip') });
@@ -744,7 +744,7 @@ function renderLog() {
           monthFood(list),
         ].filter(Boolean).join(' · '))),
       change !== null ? h('span', { class: `fold-sum ${trendClass(change)}` }, fmt.signed(change)) : null,
-    ], h('div', { class: 'rows' }, list.map(weightRow)));
+    ], () => h('div', { class: 'rows' }, list.map(weightRow)));
   }));
 }
 

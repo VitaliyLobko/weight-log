@@ -29,7 +29,15 @@ const REASONS = { hunger: 'Голод', stress: 'Стресс', boredom: 'Ску
 let current = null;
 const use = (state) => { current = state; return state; };
 
-export const dayOf = (state, date) => state.settings.find((s) => s.id === `${DAY_PREFIX}${date}`) ?? null;
+// Налаштування за id: state приходить з db.loadAll() новими масивами, тож індекс на масив не застаріває
+const byId = new WeakMap();
+function settingsIndex(settings) {
+  let map = byId.get(settings);
+  if (!map) { map = new Map(settings.map((s) => [s.id, s])); byId.set(settings, map); }
+  return map;
+}
+
+export const dayOf = (state, date) => settingsIndex(state.settings).get(`${DAY_PREFIX}${date}`) ?? null;
 const extrasOf = (state, date) => dayOf(state, date)?.extras ?? [];
 const foodsOf = (state) => state.settings.find((s) => s.id === FOODS_ID)?.items ?? [];
 

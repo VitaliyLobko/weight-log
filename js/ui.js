@@ -35,6 +35,15 @@ function nf(options) {
   return formatters.get(key);
 }
 
+const dateFormatters = new Map();
+
+/** Те саме для дат: toLocaleDateString щоразу будує форматер — у «Журналі» це сотні разів. */
+function df(options) {
+  const key = `${locale()}|${JSON.stringify(options)}`;
+  if (!dateFormatters.has(key)) dateFormatters.set(key, new Intl.DateTimeFormat(locale(), options));
+  return dateFormatters.get(key);
+}
+
 const fixed = (d) => ({ minimumFractionDigits: d, maximumFractionDigits: d });
 
 export const fmt = {
@@ -51,12 +60,12 @@ export const fmt = {
   date: (iso) => isoToDmy(iso),
   /** «16.10» — коротко, для осей і рядків поточного року. */
   short: (iso) => (iso ? `${iso.slice(8, 10)}.${iso.slice(5, 7)}` : ''),
-  weekday: (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString(locale(), { weekday: 'short' }),
+  weekday: (iso) => df({ weekday: 'short' }).format(new Date(`${iso}T12:00:00`)),
   month: (ym) => {
-    const text = new Date(`${ym}-15T12:00:00`).toLocaleDateString(locale(), { month: 'long', year: 'numeric' });
+    const text = df({ month: 'long', year: 'numeric' }).format(new Date(`${ym}-15T12:00:00`));
     return text.charAt(0).toUpperCase() + text.slice(1);
   },
-  time: (ms) => new Date(ms).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' }),
+  time: (ms) => df({ hour: '2-digit', minute: '2-digit' }).format(new Date(ms)),
 };
 
 export function vibrate(ms = 12) {
@@ -350,12 +359,22 @@ export function unfold(key) {
   setUnfolded(key, true);
 }
 
-/** Група, що згортається: за замовчуванням згорнута, розгорнуту запам'ятовує. */
+/**
+ * Група, що згортається: за замовчуванням згорнута, розгорнуту запам'ятовує.
+ * body-функція будується лише при першому розгортанні — згорнуті місяці «Журналу» не створюють рядків.
+ */
 export function fold(key, head, body) {
-  const el = h('details', { class: 'fold', open: unfolded.has(key), dataset: { key } },
+  const open = unfolded.has(key);
+  const lazy = typeof body === 'function';
+  const inner = h('div', { class: 'fold-body' }, lazy && !open ? null : lazy ? body() : body);
+  let built = !lazy || open;
+  const el = h('details', { class: 'fold', open, dataset: { key } },
     h('summary', { class: 'fold-head' }, h('span', { class: 'chevron', 'aria-hidden': 'true' }), head),
-    h('div', { class: 'fold-body' }, body));
-  el.addEventListener('toggle', () => setUnfolded(key, el.open));
+    inner);
+  el.addEventListener('toggle', () => {
+    if (el.open && !built) { built = true; inner.append(body()); }
+    setUnfolded(key, el.open);
+  });
   return el;
 }
 
