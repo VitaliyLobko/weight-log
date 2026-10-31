@@ -489,29 +489,43 @@ function dayLine(date) {
   const r = rows.find((x) => x.date === date);
   if (!r) return null;
   const plan = M.planAt(sum.goal, date);
-  const parts = [
-    h('span', { class: 'muted' }, `${fmt.weekday(date)} ${fmt.short(date)}`),
-    [h('b', {}, kg(r.kg)), r.day !== null ? [' ', h('span', { class: `small ${trendClass(r.day)}` }, fmt.signed(r.day))] : null],
-    r.avg !== null ? t('сред. {v}', { v: fmt.fix(r.avg, 2) }) : null,
-    plan !== null && r.avg !== null ? h('span', { class: trendClass(r.avg - plan) }, t('план {d}', { d: fmt.signed(r.avg - plan, 2) })) : null,
-  ].filter(Boolean);
-  // Шматок не рветься всередині, «·» тримається за попередній — новий рядок не починається з крапки
   return h('div', { class: 'day-line' },
     h('div', { class: 'day-line-main' },
-      parts.map((p, i) => [h('span', { class: 'nowrap' }, p, i < parts.length - 1 ? h('span', { class: 'muted' }, ' ·') : null), ' ']),
+      h('div', { class: 'muted small' }, fmt.dayLong(date)),
+      h('div', {}, h('b', { class: 'day-kg' }, kg(r.kg)),
+        r.day !== null ? [' ', h('span', { class: `small ${trendClass(r.day)}` }, t('за сутки {d}', { d: fmt.signed(r.day) }))] : null),
+      h('div', { class: 'chart-chips' },
+        r.avg !== null ? h('span', { class: 'stat-chip' }, t('сред. {v}', { v: fmt.fix(r.avg, 2) })) : null,
+        plan !== null && r.avg !== null ? h('span', { class: `stat-chip ${trendClass(r.avg - plan)}` }, t('план {d}', { d: fmt.signed(r.avg - plan, 2) })) : null),
       r.note ? h('div', { class: 'row-note' }, icon('note'), h('span', {}, r.note)) : null),
     toolBtn('edit', t('Изменить'), () => weightForm(date)));
 }
 
-/** Рядок над графіком: зміна за видимий період, мінімум і максимум ваги. */
+/** Рядок над графіком: зміна за видимий період крупно, мінімум і максимум ваги. */
 function periodLine(a, b) {
   const st = M.periodStats(rows, a, b);
   if (!st) return [];
   return [
-    st.change !== null ? h('span', { class: trendClass(st.change) }, t('за период {d}', { d: kgd(st.change, Math.abs(st.change) < 1 ? 2 : 1) })) : null,
-    h('span', { class: 'muted' }, t('мин {v}', { v: fmt.fix(st.min) })),
-    h('span', { class: 'muted' }, t('макс {v}', { v: fmt.fix(st.max) })),
+    st.change !== null ? h('span', { class: `chart-change ${trendClass(st.change)}` }, kgd(st.change, Math.abs(st.change) < 1 ? 2 : 1)) : null,
+    st.change !== null ? h('span', { class: 'muted small' }, t('за период')) : null,
+    h('span', { class: 'muted small chart-range' }, `${t('мин {v}', { v: fmt.fix(st.min) })} · ${t('макс {v}', { v: fmt.fix(st.max) })}`),
   ].filter(Boolean);
+}
+
+/** Пігулки над графіком: скільки до цілі й наскільки середнє від плану. */
+function chartChips() {
+  const last = rows.at(-1);
+  const plan = M.planAt(sum.goal, last.date);
+  const chips = [
+    sum.target !== null ? h('span', { class: 'stat-chip' }, t('цель {kg} · ещё {d}', { kg: fmt.fix(sum.target), d: fmt.fix(Math.max(0, sum.toGo ?? 0), 1) })) : null,
+    plan !== null && last.avg !== null ? h('span', { class: `stat-chip ${trendClass(last.avg - plan)}` }, t('от плана {d}', { d: fmt.signed(last.avg - plan, 2) })) : null,
+  ].filter(Boolean);
+  return chips.length ? h('div', { class: 'chart-chips' }, chips) : null;
+}
+
+/** Зміна за кожен день — стовпчики під графіком на «Тиждень», де тижневих було б 1–2. */
+function dayBars() {
+  return rows.filter((r) => r.day !== null).map((r) => ({ from: r.date, to: r.date, v: r.day }));
 }
 
 function renderChart() {
@@ -530,7 +544,8 @@ function renderChart() {
   const forecast = finish ? [{ date: sum.currentDate, v: sum.current }, { date: finish, v: sum.target }] : [];
   // Графік заглядає вперед лише на кілька днів — прогноз видно хвостиком, дані лишаються на всю ширину
   const peek = finish ? Math.min(M.daysBetween(lastDate, finish), Math.max(3, Math.round(M.daysBetween(vis[0].date, lastDate) * FORECAST_PEEK))) : 0;
-  const view = chartView ?? [vis[0].date, M.addDays(lastDate, peek)];
+  const home = [vis[0].date, M.addDays(lastDate, peek)];
+  const view = chartView ?? home;
   showRange(...view);
   const g = sum.goal;
   const plan = rows.map((r) => ({ date: r.date, v: M.planAt(g, r.date) })).filter((p) => p.v !== null);
@@ -541,6 +556,14 @@ function renderChart() {
   // Заливка між середнім і планом: зелена — середнє нижче плану (випереджаєте), червона — вище
   const planOn = new Map(plan.map((p) => [p.date, p.v]));
   const ahead = rows.filter((r) => r.avg !== null && planOn.has(r.date)).map((r) => ({ date: r.date, a: r.avg, b: planOn.get(r.date) }));
+  const st = M.periodStats(rows, vis[0].date, lastDate);
+  const lastAvg = rows.at(-1).avg;
+  const summary = [
+    t('График веса'),
+    st?.change != null ? `${t('за период')} ${kgd(st.change)}` : null,
+    lastAvg !== null ? t('сред. {v}', { v: fmt.fix(lastAvg, 2) }) : null,
+    lastAvg !== null && planOn.has(lastDate) ? t('от плана {d}', { d: fmt.signed(lastAvg - planOn.get(lastDate), 2) }) : null,
+  ].filter(Boolean).join(', ');
   const chart = lineChart({
     series: [
       { key: 'gap', kind: 'band', cls: 's-gap', points: ahead },
@@ -552,22 +575,23 @@ function renderChart() {
     height: 260,
     zoom: true,
     view,
+    home,
     ahead: peek,
     onView: (a, b) => { chartView = [a, b]; showRange(a, b); },
-    fullLabel: t('Весь график'),
-    onFull: () => { period = 'all'; chartView = null; remember('weight-log:period', period); render(); },
+    resetLabel: t('Сбросить'),
     hlines: marks,
-    floor: sum.target !== null ? { v: sum.target, label: t('цель {kg} · ещё {d}', { kg: fmt.fix(sum.target), d: fmt.fix(Math.max(0, sum.toGo ?? 0), 1) }) } : null,
-    bars: weekBars(),
+    gap: { of: 'avg', to: 'plan', label: t('план') },
+    summary,
+    bars: period === '7' ? dayBars() : weekBars(),
     spans: (goal.pauses ?? []).map((p) => ({ from: p.from, to: p.to, label: t('пауза'), cls: 'pause' })),
-    barsLabel: t('нед.'),
+    barsLabel: period === '7' ? t('сутки') : t('нед.'),
     legend: [
       { label: t('Вес'), kind: 'dot', cls: 's-kg', keys: ['kg'] },
-      { label: t('Среднее 7 дн'), kind: 'line', cls: 's-avg', keys: ['avg'] },
+      { label: t('Среднее'), kind: 'line', cls: 's-avg', keys: ['avg'] },
       // Заливка без плану сенсу не має — вмикається й вимикається разом із ним; дата фінішу — в «Контрольних точках»
       plan.length ? { label: t('План'), kind: 'line dash', cls: 's-plan', keys: ['plan', 'gap'] } : null,
       finish ? { label: t('прогноз'), kind: 'line dash', cls: 's-forecast', keys: ['forecast'] } : null,
-      vis.some((r) => r.note) ? { label: t('с заметкой'), kind: 'ring', cls: 's-kg' } : null,
+      vis.some((r) => r.note) ? { label: t('заметка'), kind: 'ring', cls: 's-kg' } : null,
       vis.some((r) => slipped.has(r.date)) ? { label: t('после срыва'), kind: 'dot', cls: 's-kg slip' } : null,
     ].filter(Boolean),
     hidden: hiddenSeries(),
@@ -578,7 +602,7 @@ function renderChart() {
     onPick: (date) => { picked = date; details.replaceChildren(dayLine(date) ?? ''); },
   });
   return h('div', {}, seg,
-    h('section', { class: 'panel chart-panel' }, stats, chart, details),
+    h('section', { class: 'panel chart-panel' }, stats, chartChips(), chart, details),
     weekCompare(),
     waistBox(),
     bmiBox());

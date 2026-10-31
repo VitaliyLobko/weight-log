@@ -61,6 +61,8 @@ export const fmt = {
   /** «16.10» — коротко, для осей і рядків поточного року. */
   short: (iso) => (iso ? `${iso.slice(8, 10)}.${iso.slice(5, 7)}` : ''),
   weekday: (iso) => df({ weekday: 'short' }).format(new Date(`${iso}T12:00:00`)),
+  /** «субота, 31 жовтня» — день словами. */
+  dayLong: (iso) => df({ weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(`${iso}T12:00:00`)),
   month: (ym) => {
     const text = df({ month: 'long', year: 'numeric' }).format(new Date(`${ym}-15T12:00:00`));
     return text.charAt(0).toUpperCase() + text.slice(1);
