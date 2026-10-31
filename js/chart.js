@@ -61,8 +61,9 @@ const MIN_Y_SPAN = 0.6;
 /** Подвійний тап: між дотиками не довше, мс, і не далі, px. */
 const DOUBLE_TAP_MS = 320;
 const DOUBLE_TAP_PX = 30;
-/** Висота смуги стовпчиків під графіком, px: нульова лінія посередині. */
-const BARS_H = 54;
+/** Стовпчики під графіком: найвищий, px, і крок ярусів підписів, px (до 3 ярусів, коли стовпчики вузькі). */
+const BAR_MAX = 12;
+const TIER_PX = 10;
 /** Поле праворуч під пігулку кінця лінії, px. */
 const END_W = 64;
 let clipSeq = 0;
@@ -83,7 +84,7 @@ let clipSeq = 0;
  *   gap: { of, to, label } — від пігулки кінця серії of дужка до кінця серії to з різницею (від плану),
  *   summary — опис графіка для читача з екрана; клавіші ←/→ вибирають день,
  *   legend[].keys — пункт вмикає/вимикає ці серії, hidden — вимкнені спочатку, onHidden(ключі) — після тапу,
- *   bars: [{ from, to, v, tag }] + barsLabel — стовпчики змін від нульової лінії (втрата — вниз), підписані останній і вибраний,
+ *   bars: [{ from, to, v, tag }] + barsLabel — стовпчики змін від нульової лінії (втрата — вниз), підписані всі,
  *   spans: [{ from, to, label, cls }] — смуги днів на всю висоту (паузи),
  * }
  */
@@ -193,8 +194,6 @@ export function lineChart(spec) {
 
   function draw(width) {
     const height = spec.height ?? 220;
-    // Під підписами дат — смуга тижневих стовпчиків
-    const total = height + (spec.bars?.length ? BARS_H + 4 : 0);
     const pad = { l: 38, r: 46, t: 10, b: 24 };
     if (!allDates.length) { plot.replaceChildren(); cur = null; return; }
     const [v0, v1] = view;
@@ -239,6 +238,38 @@ export function lineChart(spec) {
     const x = (date) => pad.l + ((off(date) - v0) / spanDays) * iw;
     const y = (v) => pad.t + (1 - (v - lo) / (hi - lo)) * ih;
     const digits = step < 1 ? 1 : 0;
+    // Під підписами дат — смуга стовпчиків; її висота залежить від того, скільки ярусів треба підписам
+    const barPlan = spec.bars?.length ? planBars() : null;
+    const barsH = barPlan ? 2 * (BAR_MAX + 3 + (barPlan.tiers - 1) * TIER_PX + 10) + 2 : 0;
+    const total = height + barsH;
+
+    /** Стовпчики у вікні й ярус підпису кожного: найменше ярусів, при яких підписи не накладаються (до 3). */
+    function planBars() {
+      const dayPx = iw / spanDays;
+      const seen = spec.bars.filter((b) => off(b.to) >= v0 - 1 && off(b.from) <= v1 + 1);
+      const maxAbs = Math.max(0.3, ...seen.map((b) => Math.abs(b.v)));
+      const items = seen.map((b) => {
+        const x0 = Math.max(pad.l, x(b.from) - dayPx / 2 + 1.5);
+        const x1 = Math.min(pad.l + iw, x(b.to) + dayPx / 2 - 1.5);
+        // Широкий стовпчик — ще й «5/7»: днів за планом із позначених
+        const text = b.tag && x1 - x0 >= 56 ? `${fmt.signed(b.v, 1)} · ${b.tag}` : fmt.signed(b.v, 1);
+        const w = text.length * 6.6 + 4;
+        const cx = Math.max(pad.l + w / 2, Math.min(pad.l + iw - w / 2, (x0 + x1) / 2));
+        return { b, x0, x1, bh: Math.max(2, (Math.abs(b.v) / maxAbs) * BAR_MAX), up: b.v > 0, text, a: cx - w / 2, z: cx + w / 2, cx };
+      }).filter((d) => d.x1 - d.x0 >= 2);
+      const fits = (row, d) => row.every((o) => d.z + 2 <= o.a || d.a >= o.z + 2);
+      for (let tiers = 1; ; tiers++) {
+        // Ярус шукаємо окремо для підписів угору й униз; на третій спробі зайвий підпис пропускаємо
+        const rows = { true: Array.from({ length: tiers }, () => []), false: Array.from({ length: tiers }, () => []) };
+        let all = true;
+        for (const d of items) {
+          d.tier = rows[d.up].findIndex((row) => fits(row, d));
+          if (d.tier < 0) all = false;
+          else rows[d.up][d.tier].push(d);
+        }
+        if (all || tiers === 3) return { items, tiers };
+      }
+    }
 
     svg.setAttribute('viewBox', `0 0 ${width} ${total}`);
     svg.setAttribute('width', width);
@@ -332,35 +363,22 @@ export function lineChart(spec) {
 
     if (spec.bars?.length) {
       // Стовпчики від нульової лінії: втрата — вниз, набір — угору, тож знак видно й без кольору.
-      // Підписані два — останній і той, де вибраний день; решту читаємо по висоті
-      const zero = height + BARS_H / 2 + 2;
-      const maxH = BARS_H / 2 - 12;
-      const dayPx = iw / spanDays;
-      const seen = spec.bars.filter((b) => off(b.to) >= v0 - 1 && off(b.from) <= v1 + 1);
-      const maxAbs = Math.max(0.3, ...seen.map((b) => Math.abs(b.v)));
+      // Підписані всі; тісно — сусідні підписи розходяться на яруси
+      const zero = height + barsH / 2;
       const bars = s('g', { class: 'bars' });
       bars.append(s('line', { x1: pad.l, x2: pad.l + iw, y1: zero + 0.5, y2: zero + 0.5 }),
         s('text', { x: pad.l - 6, y: zero + 4, 'text-anchor': 'end', class: 'tick' }, spec.barsLabel ?? ''));
-      const lastBar = spec.bars.at(-1);
       const pickedBar = selected ? spec.bars.find((b) => b.from <= selected && selected <= b.to) : null;
-      // Підписані — в кінці черги, щоб текст лягав поверх сусідніх стовпчиків
-      const order = [...seen.filter((b) => b !== lastBar && b !== pickedBar), ...[pickedBar, lastBar].filter((b, i, a) => b && seen.includes(b) && a.indexOf(b) === i)];
-      let labelled = null;
-      for (const b of order) {
-        const x0 = Math.max(pad.l, x(b.from) - dayPx / 2 + 1.5);
-        const x1 = Math.min(pad.l + iw, x(b.to) + dayPx / 2 - 1.5);
-        if (x1 - x0 < 2) continue;
-        const bh = Math.max(2, (Math.abs(b.v) / maxAbs) * maxH);
-        const up = b.v > 0;
-        bars.append(s('rect', { x: x0.toFixed(1), y: (up ? zero - bh : zero + 1).toFixed(1), width: (x1 - x0).toFixed(1), height: bh.toFixed(1), rx: 2,
-          class: [b.v < 0 ? 'good' : up ? 'bad' : '', b === pickedBar ? 'on' : ''].join(' ').trim() || null }));
-        if (b !== lastBar && b !== pickedBar) continue;
-        // Широкий стовпчик — ще й «5/7»: днів за планом із позначених; підписи двох сусідніх не накладаються
-        const cx = Math.max(pad.l + 14, Math.min(pad.l + iw - 14, (x0 + x1) / 2));
-        if (labelled !== null && Math.abs(labelled - cx) < 34) continue;
-        labelled = cx;
-        const text = b.tag && x1 - x0 >= 56 ? `${fmt.signed(b.v, 1)} · ${b.tag}` : fmt.signed(b.v, 1);
-        bars.append(s('text', { x: cx.toFixed(1), y: (up ? zero - bh - 3 : zero + bh + 11).toFixed(1), 'text-anchor': 'middle', class: 'bar-label' }, text));
+      for (const d of barPlan.items) {
+        bars.append(s('rect', { x: d.x0.toFixed(1), y: (d.up ? zero - d.bh : zero + 1).toFixed(1), width: (d.x1 - d.x0).toFixed(1), height: d.bh.toFixed(1), rx: 2,
+          class: [d.b.v < 0 ? 'good' : d.up ? 'bad' : '', d.b === pickedBar ? 'on' : ''].join(' ').trim() || null }));
+      }
+      // Підписи — поверх стовпчиків; ярус 0 — біля стовпчика, наступні — на TIER_PX далі від нуля
+      for (const d of barPlan.items) {
+        if (d.tier < 0) continue;
+        const gap = 3 + d.tier * TIER_PX;
+        bars.append(s('text', { x: d.cx.toFixed(1), y: (d.up ? zero - d.bh - gap : zero + d.bh + gap + 8).toFixed(1), 'text-anchor': 'middle',
+          class: `bar-label ${d.b === pickedBar ? 'on' : ''}`.trim() }, d.text));
       }
       svg.append(bars);
     }

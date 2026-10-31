@@ -421,6 +421,7 @@ button.food-window.open .food-win-text::after { content: ''; }
 .chart-svg .bars rect.good { fill: var(--good); opacity: .7; }
 .chart-svg .bars rect.bad { fill: var(--bad); opacity: .7; }
 .chart-svg .bars rect.on { opacity: 1; }
+.chart-svg .bars .bar-label.on { font-weight: 800; }
 .chart-svg .bars .bar-label { fill: var(--text); font-size: 10.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .chart-svg .picked circle { fill: none; stroke: var(--accent-2); stroke-width: 2.5; }
 .chart-svg .cursor line { stroke: var(--muted); stroke-width: 1; }
