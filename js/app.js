@@ -4,7 +4,7 @@ import * as bot from './bot.js';
 import * as BK from './bot-key.js';
 import * as M from './model.js';
 import {
-  h, fmt, sheet, toast, form, btn, toolBtn, confirmSheet, fold, box, foldFrame, unfold, segmented,
+  h, fmt, sheet, toast, form, btn, toolBtn, confirmSheet, fold, box, unfold, segmented,
   remember, recall, refreshSheets, saveFile, parseNum,
 } from './ui.js';
 import { t, plural, lang, setLang, LANGS, applyStatic } from './i18n.js';
@@ -325,7 +325,7 @@ function keyNote() {
   return h('section', { class: 'plateau key-note' },
     h('div', { class: 'plateau-head' }, icon('warning'), h('b', {}, t('Ключ доступа не подходит'))),
     h('p', { class: 'small' }, t('Записи не уходят на другие устройства. Возьмите новый ключ командой /key в Telegram-боте и вставьте в любом приложении — Хобі-план, Вага или Марнотрат: остальные на этом устройстве возьмут его сами, другие — с Google Диска.')),
-    h('div', { class: 'btn-row' }, btn(t('Вставить ключ'), () => openSettings('data'), 'primary')));
+    h('div', { class: 'btn-row' }, btn(t('Вставить ключ'), () => openSettings('sync'), 'primary')));
 }
 
 function plateauNote() {
@@ -432,7 +432,7 @@ function renderHome() {
     // Заголовок і значок уже є у формі запису вище — тут лише підказка
     return h('div', {}, keyNote(), quickEntry(), empty(null, null,
       t('Записывайте вес каждое утро — среднее за 7 дней, темп и прогноз посчитаются сами. Уже вели учёт на другом устройстве — подключите Google Диск в настройках.'),
-      btn(withIcon('cloud', t('Подключить Google Диск')), () => openSettings('data'))));
+      btn(withIcon('cloud', t('Подключить Google Диск')), () => openSettings('drive'))));
   }
   const todayRow = rows.find((r) => r.date === M.today());
   return h('div', {},
@@ -779,7 +779,7 @@ async function saveGoal(patch) {
   await db.write({ settings: { put: [{ ...g, ...patch, id: M.GOAL_ID }] } });
 }
 
-function goalPanel() {
+function goalRow() {
   const g = M.effectiveGoal(goal, rows);
   const f = form([
     { name: 'start', label: t('Стартовый вес, кг'), type: 'number', value: numStr(g.start), half: true, min: 20, max: 400 },
@@ -795,12 +795,12 @@ function goalPanel() {
     await saveGoal({ start: v.start ?? undefined, startDate: v.startDate || undefined, target: v.target ?? undefined, planRate: v.planRate ?? undefined, height: v.height ?? undefined });
     toast(t('Цель сохранена'));
   };
-  return h('section', { class: 'panel' },
+  return setRow('goal', 'target', t('Цель'), g.target ? kg(g.target) : t('Не задана'), [
     h('p', { class: 'muted small' }, t('План — линия на графике: от стартового веса ровно по «кг/нед». Без стартового веса берётся первое взвешивание.')),
-    f.el, h('div', { class: 'btn-row' }, btn(t('Сохранить'), save, 'primary')));
+    f.el, h('div', { class: 'btn-row' }, btn(t('Сохранить'), save, 'primary'))]);
 }
 
-function checkpointsPanel() {
+function checkpointsRow() {
   const list = [...(goal.checkpoints ?? [])].sort((a, b) => b.kg - a.kg);
   const kgInput = h('input', { type: 'text', inputmode: 'decimal', placeholder: t('кг'), autocomplete: 'off', class: 'cp-kg' });
   const noteInput = h('input', { type: 'text', placeholder: t('что значит (необязательно)'), autocomplete: 'off' });
@@ -810,27 +810,27 @@ function checkpointsPanel() {
     await saveGoal({ checkpoints: [...(goal.checkpoints ?? []), { id: db.uid(), kg: v, note: noteInput.value.trim() }] });
   };
   const remove = (c) => saveGoal({ checkpoints: (goal.checkpoints ?? []).filter((x) => x.id !== c.id) });
-  return h('section', { class: 'panel' },
+  return setRow('checkpoints', 'flag', t('Контрольные точки'), list.length ? fmt.int(list.length) : '', [
     h('p', { class: 'muted small' }, t('Промежуточные веса на пути к цели: для каждой — прогнозная дата по фактическому темпу. Сама цель добавляется в список автоматически.')),
     list.length ? h('div', { class: 'rows cp-list' }, list.map((c) => h('div', { class: 'row' },
       h('div', { class: 'row-main' }, h('span', { class: 'row-title' }, kg(c.kg)), c.note ? h('span', { class: 'muted small' }, c.note) : null),
       toolBtn('delete', t('Удалить'), () => remove(c), 'danger')))) : null,
-    h('div', { class: 'cp-add' }, kgInput, noteInput, btn(t('Добавить'), add)));
+    h('div', { class: 'cp-add' }, kgInput, noteInput, btn(t('Добавить'), add))]);
 }
 
-function remindPanel() {
+function remindRow() {
   const time = h('input', {
     type: 'time', value: remindTime(), class: 'time-input',
-    onchange: (e) => { setRemindTime(e.target.value); bot.scheduleBot(500); },
+    onchange: (e) => { setRemindTime(e.target.value); bot.scheduleBot(500); render(); },
   });
   const connected = Boolean(bot.botConfig().from);
-  return h('section', { class: 'panel' },
+  return setRow('remind', 'bell', t('Напоминание'), connected && bot.remindOn() ? `${remindTime()} · Telegram` : remindTime(), [
     h('p', { class: 'muted small' }, t('Пока вес за сегодня не записан, на главной сверху стоит поле записи и горит точка на вкладке. Чтобы телефон сам напомнил в нужный час, нужен Telegram-бот или событие в календаре.')),
     h('label', { class: 'field' }, h('span', { class: 'field-label' }, t('Время')), time),
     h('h4', { class: 'sub-head' }, withIcon('bell', 'Telegram')),
     connected
       ? segmented([['on', t('Напоминать')], ['off', t('Не напоминать')]], bot.remindOn() ? 'on' : 'off',
-        (v) => { bot.setRemindOn(v === 'on'); bot.scheduleBot(300); })
+        (v) => { bot.setRemindOn(v === 'on'); bot.scheduleBot(300); render(); })
       : h('p', { class: 'muted small' }, t('Синхронизация не включена — это в группе «Данные» ниже.')),
     connected && planOf(state) ? dayAskPanel() : null,
     fold('remind-calendar', withIcon('calendar', t('Календарь телефона')), h('div', {},
@@ -838,7 +838,7 @@ function remindPanel() {
       h('div', { class: 'btn-row' },
         btn(withIcon('calendar', t('Google Календарь')), () => { setRemindTime(time.value); window.open(googleCalendarUrl(remindTime(), appUrl()), '_blank', 'noopener'); }),
         btn(withIcon('download', t('Файл .ics')), () => { setRemindTime(time.value); saveFile(icsFile(remindTime(), appUrl()), true); })),
-      h('p', { class: 'muted small' }, t('В Google Календаре проверьте, что у события включено уведомление «в момент начала». Файл .ics открывают календари Samsung, iPhone и Outlook.')))));
+      h('p', { class: 'muted small' }, t('В Google Календаре проверьте, что у события включено уведомление «в момент начала». Файл .ics открывают календари Samsung, iPhone и Outlook.'))))]);
 }
 
 /** Вечірнє «Як день за раціоном?» у Telegram: кнопки «За планом / Трохи не так / Зрив». */
@@ -888,7 +888,7 @@ function botStatus(cfg) {
 }
 
 /** «Синхронізація»: стан обміну, адреса й ключ (спільні для застосунків на пристрої), обмін і від'єднання. */
-function botPanel() {
+function syncRow() {
   const cfg = bot.botConfig();
   const f = form([
     { name: 'url', label: t('Адрес сервера'), value: cfg.url, placeholder: 'https://….workers.dev' },
@@ -909,15 +909,17 @@ function botPanel() {
     if (!botError) toast(t('Обмен прошёл'));
   };
   const bad = Boolean(botError) || bot.keyProblem();
-  return h('section', { class: 'panel' },
-    h('h3', {}, withIcon('sync', t('Синхронизация'))),
+  const value = bot.keyProblem() || botError === 'key' ? t('Ключ не подходит') : !cfg.from ? t('Выключено')
+    : botError ? t('Нет связи') : bot.lastSync() ? shortWhen(bot.lastSync()) : t('Ещё не было');
+  return setRow('sync', 'sync', t('Синхронизация'), value, [
     h('p', { class: `small ${bad ? 'error-text' : 'muted'}` }, botStatus(cfg)),
     h('p', { class: 'muted small' }, t('Весь журнал (вес, талия, настройки) лежит в общей базе на сервере — одинаковый на всех устройствах; без интернета всё уйдёт позже. Эту же базу читает Telegram-бот: напоминает взвеситься и принимает вес сообщением. Ключ доступа даёт команда /key в боте; достаточно вставить в одном приложении — Хобі-план, Вага или Марнотрат.')),
     f.el,
     h('div', { class: 'btn-row' },
       btn(t('Сохранить'), save, cfg.from ? '' : 'primary'),
       cfg.from ? btn(withIcon('sync', t('Обменяться сейчас')), exchange, 'primary') : null,
-      cfg.from ? btn(t('Выключить синхронизацию'), () => { bot.setBotConfig('', ''); botError = ''; render(); }) : null));
+      cfg.from ? btn(t('Выключить синхронизацию'), () => { bot.setBotConfig('', ''); botError = ''; render(); }) : null)],
+  { tone: bad ? 'bad' : cfg.from ? 'ok' : '' });
 }
 
 const CHIP = {
@@ -968,7 +970,7 @@ function renderSyncChip() {
 
 function onSyncChip() {
   const s = chipState();
-  if (s?.st === 'key') { openSettings('data'); return; }
+  if (s?.st === 'key') { openSettings('sync'); return; }
   if (s?.st === 'offline') { toast(t('Нет интернета — синхронизация произойдёт, когда появится связь')); return; }
   if (bot.botConfig().from) {
     runBot().then(() => toast(botError ? chipState()?.title ?? botError : t('Обмен прошёл')));
@@ -994,10 +996,10 @@ function connectGoogle() {
 }
 
 /** «Google Диск»: з ботом — щоденна копія, без бота — синхронізація між пристроями. */
-function drivePanel() {
+function driveRow() {
   const s = sync.status;
   const daily = Boolean(bot.botConfig().from);
-  const panel = h('section', { class: 'panel' }, h('h3', {}, withIcon('cloud', daily ? t('Google Диск · ежедневная копия') : t('Google Диск · синхронизация'))));
+  const panel = h('div', { class: 'set-sub' });
   if (!sync.configured()) {
     panel.append(h('p', { class: 'muted small' }, t('Не настроена: в js/config.js не указан Google Client ID.')));
   } else if (!sync.enabled()) {
@@ -1022,12 +1024,18 @@ function drivePanel() {
         btn(withIcon('download', t('Восстановить с Диска')), restore),
         btn(t('Отключить'), () => confirmSheet(t('Отключить Google Диск?'), t('Копия на Диске останется, просто перестанет обновляться. Вход в Google в других приложениях не тронем.'), t('Отключить'), () => sync.disconnect()))));
   }
-  return panel;
+  const on = sync.configured() && sync.enabled();
+  const bad = on && (s.state === 'auth' || s.state === 'error');
+  const value = !sync.configured() ? t('Не настроено') : !on ? t('Выключено')
+    : s.state === 'auth' ? t('Войти') : s.state === 'error' ? t('Ошибка') : s.state === 'offline' ? t('Офлайн')
+      : s.lastSync ? shortWhen(s.lastSync) : t('Ещё не было');
+  return setRow('drive', 'cloud', daily ? t('Google Диск · копия') : t('Google Диск'), value, panel,
+    { tone: bad ? 'bad' : on ? 'ok' : '' });
 }
 
 /** «Вхід за відбитком»: увімкнути, через скільки блокувати у фоні, вимкнути з підтвердженням. */
-function lockPanel() {
-  const body = h('div', {});
+function lockRow() {
+  const body = h('div', { class: 'set-sub' });
   const act = (fn, done) => async () => {
     try {
       await fn();
@@ -1040,28 +1048,28 @@ function lockPanel() {
   if (lockOn()) {
     body.append(
       h('p', { class: 'muted small' }, t('Блокировать после сворачивания:')),
-      segmented(LOCK_DELAYS.map((m) => [String(m), m ? t('{n} мин', { n: m }) : t('Сразу')]), String(lockDelay()), (v) => setLockDelay(Number(v))),
+      segmented(LOCK_DELAYS.map((m) => [String(m), m ? t('{n} мин', { n: m }) : t('Сразу')]), String(lockDelay()), (v) => { setLockDelay(Number(v)); render(); }),
       h('div', { class: 'btn-row' }, btn(t('Выключить'), act(disableLock, t('Вход по отпечатку выключен')))));
   } else {
     lockAvailable().then((ok) => body.append(ok
       ? h('div', { class: 'btn-row' }, btn(t('Включить'), act(enableLock, t('Вход по отпечатку включён')), 'primary'))
       : h('p', { class: 'muted small' }, t('На этом устройстве нет отпечатка, лица или PIN-кода, которые браузер может проверить.'))));
   }
-  return h('section', { class: 'panel' }, h('h3', {}, t('Вход по отпечатку')),
+  const value = !lockOn() ? t('Выключено') : lockDelay() ? t('Через {n} мин', { n: lockDelay() }) : t('Сразу');
+  return setRow('lock', 'lock', t('Вход по отпечатку'), value, [
     h('p', { class: 'muted small' }, t('Приложение открывается отпечатком, лицом или PIN-кодом телефона — только на этом устройстве. Это защита от чужих глаз, данные не шифруются.')),
-    body);
+    body]);
 }
 
 /** «Копія у файл»: зберегти (на телефоні — «Поділитися», на комп'ютері — завантажити) і відновити. */
-function filePanel() {
+function fileRow() {
   const input = h('input', { type: 'file', accept: '.json,application/json', hidden: true, onchange: (e) => { if (e.target.files[0]) importBackup(e.target.files[0]); e.target.value = ''; } });
-  return h('section', { class: 'panel' },
-    h('h3', {}, withIcon('archive', t('Копия в файл'))),
+  return setRow('file', 'archive', t('Копия в файл'), '', [
     h('p', { class: 'muted small' }, t('Взвешиваний: {w} · замеров талии: {c}', { w: state.weights.length, c: state.waists.length })),
     h('div', { class: 'btn-row' },
       btn(withIcon('download', t('Сохранить копию')), () => exportData(true)),
       btn(withIcon('upload', t('Восстановить из файла')), () => input.click())),
-    input);
+    input]);
 }
 
 async function exportData(share) {
@@ -1139,14 +1147,50 @@ function switchLang(code) {
   render();
 }
 
-/** «Про застосунок», як у shooting-log: аватар автора, що це таке, де дані, з чого почати. */
+// Аватар кліпає, як у Стрілецькому журналі — фото те саме, тож і контури очей ті самі (координати фото 233×233).
+// Повіки — шар SVG поверх фото, обрізаний контуром білка; верхня з опуклою кромкою опускається, нижня підіймається
+// назустріч. Праве око перше: ліве його перекриває.
+const AVATAR_EYES = [
+  { d: 'M114 63L114 65L117 71L117 78L121 78L122 77L126 77L127 76L132 76L135 79L137 79L139 77L140 72L141 71L141 68L140 67L140 64L135 59L131 57L122 57L118 59Z', box: [114, 57, 142, 80] },
+  { d: 'M99 60L98 61L94 61L87 67L85 71L85 79L87 83L90 86L94 88L102 89L110 86L115 79L115 69L109 62Z', box: [85, 60, 116, 90] },
+];
+const AVATAR_SVG = '<svg viewBox="0 0 233 233" aria-hidden="true"><defs>'
+  + AVATAR_EYES.map(({ d }, i) => `<clipPath id="av-eye${i}"><path d="${d}"/></clipPath>`).join('')
+  + '</defs>'
+  + AVATAR_EYES.map(({ box: [x0, y0, x1, y1] }, i) => {
+    const hh = y1 - y0, e = y0 + hh * 0.6, k = hh * 0.26, cx = (x0 + x1) / 2, l = x0 - 3, r = x1 + 3;
+    const edge = `M${l} ${e}Q${cx} ${e + k} ${r} ${e}`;
+    return `<g clip-path="url(#av-eye${i})" fill="#fcd901">`
+      + `<path class="av-lid low" style="--o:${(y1 - e + 3).toFixed(1)}px" d="${edge}V${y1 + 3}H${l}Z"/>`
+      + `<g class="av-lid" style="--o:-${(e + k - y0 + 3).toFixed(1)}px"><path d="M${l} ${y0 - 3}H${r}V${e}Q${cx} ${e + k} ${l} ${e}Z"/>`
+      + `<path d="${edge}" fill="none" stroke="#1d1d1d" stroke-width="2.6" stroke-linecap="round"/></g></g>`;
+  }).join('')
+  + '</svg>';
+
+/** Тап по аватару — кліпнути одразу, не чекаючи свого часу. */
+function avatarHi(e) {
+  const el = e.currentTarget;
+  el.classList.remove('hi');
+  void el.offsetWidth;
+  el.classList.add('hi');
+  clearTimeout(el.hiTimer);
+  el.hiTimer = setTimeout(() => el.classList.remove('hi'), 600);
+}
+
+/** «Про застосунок», як у shooting-log: аватар автора, версія, що це таке, встановлення, де дані, з чого почати. */
 function aboutPanel() {
   const more = (title, node) => h('details', { class: 'about-more' }, h('summary', {}, title), node);
   return h('section', { class: 'panel about' },
     h('div', { class: 'about-head' },
-      h('img', { class: 'about-avatar', src: './icons/author.jpg', alt: '', width: 64, height: 64, loading: 'lazy' }),
+      h('span', { class: 'about-avatar', onclick: avatarHi },
+        h('img', { src: './icons/author.jpg', alt: '', width: 64, height: 64, loading: 'lazy' }),
+        Object.assign(h('span', { class: 'av-live' }), { innerHTML: AVATAR_SVG })),
       h('div', {},
-        h('p', { class: 'muted small' }, t('Weight Log — ежедневный вес, среднее за 7 дней, темп и прогноз цели. Работает без интернета: всё считается на устройстве.')))),
+        h('h3', {}, 'Weight Log'),
+        h('p', { class: 'muted small' }, t('Версия {v} · сборка {b}', { v: self.APP_VERSION, b: self.APP_BUILD ?? '—' })))),
+    h('p', { class: 'muted small' }, t('Weight Log — ежедневный вес, среднее за 7 дней, темп и прогноз цели. Работает без интернета: всё считается на устройстве.')),
+    more(t('Установка на телефон'), h('div', { class: 'muted small' },
+      h('p', {}, t('Chrome → меню ⋮ → «Добавить на главный экран» / «Установить приложение». После установки работает без интернета.')))),
     more(t('Где мои данные'), h('div', { class: 'muted small' },
       h('p', {}, t('Записи лежат в браузере на этом устройстве. Сервера у приложения нет, автор не получает ни данных, ни статистики.')),
       h('p', {}, t('Google Диск подключается по желанию: копия ложится в файл weight-log.json на вашем Диске, приложение видит только свои файлы.')),
@@ -1166,39 +1210,75 @@ function aboutPanel() {
 function renderSettings() {
   $('subtitle').textContent = t('версия {v}', { v: self.APP_VERSION });
   return h('div', {},
-    settingsGroup(t('О приложении'), [aboutPanel(),
-      h('section', { class: 'panel' },
-        h('h3', {}, withIcon('phone', t('Установка на телефон'))),
-        h('p', { class: 'muted small' }, t('Chrome → меню ⋮ → «Добавить на главный экран» / «Установить приложение». После установки работает без интернета.')))]),
-    settingsGroup(withIcon('target', t('Цель')), [goalPanel()], { fold: 'goal' }),
-    settingsGroup(withIcon('flag', t('Контрольные точки')), [checkpointsPanel()], { fold: 'checkpoints' }),
-    settingsGroup(withIcon('bell', t('Напоминание')), [remindPanel()], { fold: 'remind' }),
-    settingsGroup(withIcon('cloud', t('Данные')), [botPanel(), drivePanel(), lockPanel(), filePanel()], { fold: 'data' }),
-    settingsGroup(withIcon('theme', t('Внешний вид')), [
-      h('section', { class: 'panel' }, h('h3', {}, withIcon('globe', 'Язык · Мова')), segmented(Object.entries(LANGS), lang(), switchLang)),
-      h('section', { class: 'panel' }, h('h3', {}, withIcon('theme', t('Тема'))),
-        segmented(THEMES.map(([k, label]) => [k, t(label)]), themePref(), (v) => { remember('weight-log:theme', v); applyTheme(); }))], { fold: 'look' }),
-    settingsGroup(t('Опасная зона'), [h('section', { class: 'panel' },
-      btn(t('Удалить данные с устройства'), () => confirmSheet(t('Удалить данные с устройства?'), sync.enabled()
-        ? t('Данные будут удалены с этого устройства. Копия на Google Диске останется и вернётся при следующей синхронизации — чтобы этого не было, сначала отключите синхронизацию.')
-        : t('Все взвешивания, замеры и цель будут удалены с этого устройства. Отменить нельзя.'), t('Удалить'), async () => {
-        await db.clearAll(); await refresh(); toast(t('Данные удалены'));
-      }), 'danger'))], { danger: true }));
+    settingsGroup(t('О приложении'), [aboutPanel()]),
+    settingsGroup(withIcon('target', t('Цель и напоминание')), [goalRow(), checkpointsRow(), remindRow()]),
+    settingsGroup(withIcon('cloud', t('Данные')), [syncRow(), driveRow(), lockRow(), fileRow(), wipeRow()]),
+    settingsGroup(withIcon('theme', t('Внешний вид')), [langRow(), themeRow()]));
 }
+
+/** Група налаштувань, як у Стрілецькому журналі: рамка з назвою на лінії, всередині — рядки через лінію. */
+function settingsGroup(title, items) {
+  return h('fieldset', { class: 'settings-group' }, h('legend', {}, title), items.filter(Boolean));
+}
+
+const SET_OPEN_KEY = 'weight-log:set-open';
 
 /**
- * Група налаштувань, як у Стрілецькому журналі: рамка з назвою на лінії, розділи всередині — через лінію.
- * fold — ключ: група згортається тапом по назві й пам'ятає, чи розгорнута.
+ * Рядок налаштувань: іконка, назва й поточне значення — видно, що де стоїть, нічого не відкриваючи.
+ * Тап розгортає керування під рядком; відкритий завжди один, і його пам'ятаємо між перемальовуваннями.
  */
-function settingsGroup(title, sections, { danger = false, fold: key } = {}) {
-  const cls = `settings-group${danger ? ' danger' : ''}`;
-  if (key) return foldFrame(cls, `settings:${key}`, title, sections.filter(Boolean));
-  return h('fieldset', { class: cls }, h('legend', {}, title), sections.filter(Boolean));
+function setRow(key, ico, title, value, body, { tone = '', danger = false } = {}) {
+  const open = recall(SET_OPEN_KEY) === key;
+  const row = h('div', { class: `set-row${open ? ' open' : ''}${danger ? ' danger' : ''}`, dataset: { key } });
+  const head = h('button', {
+    type: 'button', class: 'set-head', 'aria-expanded': String(open), onclick: () => {
+      const opening = !row.classList.contains('open');
+      document.querySelectorAll('.set-row.open').forEach((r) => setOpen(r, false));
+      setOpen(row, opening);
+      remember(SET_OPEN_KEY, opening ? key : '');
+    },
+  }, h('span', { class: 'set-ico' }, icon(ico)), h('span', { class: 'set-title' }, title),
+  h('span', { class: `set-val${tone ? ` ${tone}` : ''}` }, value), h('span', { class: 'set-chev', 'aria-hidden': 'true' }, '›'));
+  row.append(head, h('div', { class: 'set-body', inert: !open }, h('div', { class: 'set-inner' }, h('div', { class: 'set-pane' }, body))));
+  return row;
 }
 
-/** Перейти в налаштування з уже розгорнутою групою key. */
+function setOpen(row, open) {
+  row.classList.toggle('open', open);
+  row.querySelector('.set-head').setAttribute('aria-expanded', String(open));
+  row.querySelector('.set-body').inert = !open;
+}
+
+/** Час для рядка: сьогодні — година, раніше — дата. */
+function shortWhen(ms) {
+  const d = new Date(ms);
+  return d.toDateString() === new Date().toDateString() ? fmt.time(ms)
+    : fmt.date(new Date(ms - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 10));
+}
+
+/** Видалення — останнім рядком «Даних» і згорнуте: небезпечна дія не має бути найпомітнішою на екрані. */
+function wipeRow() {
+  return setRow('wipe', 'trash', t('Удалить данные с устройства'), '',
+    h('div', { class: 'btn-row' }, btn(t('Удалить данные с устройства'), () => confirmSheet(t('Удалить данные с устройства?'), sync.enabled()
+      ? t('Данные будут удалены с этого устройства. Копия на Google Диске останется и вернётся при следующей синхронизации — чтобы этого не было, сначала отключите синхронизацию.')
+      : t('Все взвешивания, замеры и цель будут удалены с этого устройства. Отменить нельзя.'), t('Удалить'), async () => {
+      await db.clearAll(); await refresh(); toast(t('Данные удалены'));
+    }), 'danger')),
+    { danger: true });
+}
+
+function langRow() {
+  return setRow('lang', 'globe', 'Язык · Мова', LANGS[lang()], segmented(Object.entries(LANGS), lang(), switchLang));
+}
+
+function themeRow() {
+  return setRow('theme', 'theme', t('Тема'), t(THEMES.find(([k]) => k === themePref())[1]),
+    segmented(THEMES.map(([k, label]) => [k, t(label)]), themePref(), (v) => { remember('weight-log:theme', v); applyTheme(); render(); }));
+}
+
+/** Перейти в налаштування з уже розгорнутим рядком key. */
 function openSettings(key) {
-  unfold(`settings:${key}`);
+  remember(SET_OPEN_KEY, key);
   location.hash = '#settings';
 }
 
@@ -1215,7 +1295,7 @@ const VIEWS = {
       render,
       noPlan: () => empty('leaf', t('Плана питания пока нет'),
         t('Загрузите файл с планом: Данные → Копия в файл → Восстановить из файла → Объединить.'),
-        btn(withIcon('upload', t('Открыть «Данные»')), () => openSettings('data'))),
+        btn(withIcon('upload', t('Открыть «Данные»')), () => openSettings('file'))),
     }),
   },
   log: { title: 'Журнал', render: renderLog, fab: () => ({ waist: waistForm, sizes: sizesForm, health: healthForm }[logSeg] ?? weightForm)() },
