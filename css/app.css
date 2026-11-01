@@ -26,6 +26,30 @@
   color-scheme: dark;
 }
 
+/* Нічна: темна тема, уся сторінка яскравістю в червоний канал, щоб не збивати нічний зір (як у Shooter's Log) */
+:root[data-theme="night"] { --bg: #000; --bg-glow: #000; filter: url(#night-red); }
+/* Монітори-кінескопи (Фосфор — зелений, Бурштин — янтарний, Білий фосфор): уся сторінка в один колір, свічення,
+   рядки розгортки; заголовки, великі числа, кнопки й вкладки — моноширинним, назви й описи — звичайним */
+:root:is([data-theme="phosphor"], [data-theme="amber"], [data-theme="white"]) { --bg: #0b0d0b; --bg-glow: #141914; }
+:root[data-theme="phosphor"] { filter: url(#phosphor); }
+:root[data-theme="amber"] { filter: url(#amber); }
+:root[data-theme="white"] { filter: url(#white); }
+:root:is([data-theme="phosphor"], [data-theme="amber"], [data-theme="white"]) body {
+  text-shadow: 0 0 6px color-mix(in srgb, currentColor 55%, transparent); }
+:root:is([data-theme="phosphor"], [data-theme="amber"], [data-theme="white"]) :is(.topbar h1, h2, h3, legend, .hero-value, .stat-value,
+  .bmi-value, .big-input, .btn, .chips button, .tabs span) {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, "Roboto Mono", monospace; }
+:root:is([data-theme="phosphor"], [data-theme="amber"], [data-theme="white"]) .topbar h1 { text-transform: uppercase; letter-spacing: .06em; }
+:root:is([data-theme="phosphor"], [data-theme="amber"], [data-theme="white"]) body::after { content: ""; position: fixed; inset: 0;
+  z-index: 2147483647; pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgb(0 0 0 / .22) 0 1px, transparent 1px 3px),
+    radial-gradient(ellipse 85% 75% at 50% 50%, transparent 55%, rgb(0 0 0 / .55)); }
+.theme-group { margin: 2px 0 -4px; font-size: 13px; font-weight: 700; color: var(--muted); }
+/* «Білий фосфор» не влазить в один рядок четвертим — переноситься на два */
+.chips.segmented.theme-special button { white-space: normal; line-height: 1.15; }
+.night-level { display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 600; }
+.night-level input { width: 100%; accent-color: var(--accent); }
+
 /* Тему ставить data-theme на <html>: скрипт у index.html ще до малювання, потім app.js. */
 :root[data-theme="light"] {
   --bg: #f1f4f9;
@@ -630,6 +654,9 @@ button.row { cursor: pointer; }
 
 .empty { text-align: center; padding: 40px 12px; }
 .empty .btn-col { max-width: 320px; margin: 0 auto; }
+/* На фоні-малюнку сірий текст губиться — порожній екран кладемо на картку */
+:root[data-bg] #view .empty { margin-top: 12px; padding: 32px 16px 20px; border-radius: 18px; border: 1px solid var(--line-soft);
+  background: color-mix(in srgb, var(--surface) 90%, transparent); box-shadow: 0 6px 18px rgb(0 0 0 / .10); }
 
 .cp-list { margin-bottom: 10px; }
 .cp-list .row { padding: 8px 10px; }
@@ -1131,3 +1158,81 @@ button.food-pick .chevron-right { font-size: 22px; line-height: 1; color: var(--
 /* Свинка підстрибує разом із хрюком */
 .ico.ico-pig.hop { animation: pig-hop .5s ease-out; }
 @keyframes pig-hop { 25% { transform: translateY(-5px) rotate(-10deg); } 50% { transform: translateY(0) rotate(8deg); } 75% { transform: rotate(-4deg); } }
+
+/* Фон під картками (⚙ → Зовнішній вигляд → Фон), як у Shooter's Log без камуфляжів: малюнок — у --paper на <html> і на плитках вибору;
+   --bg — тон шапки й смуги браузера. Тепла підсвітка кута в Арсеналі помаранчева — тут синя, під акцент Ваги; у спецрежимах data-bg немає */
+[data-bg="plain"] { --paper: radial-gradient(120% 60% at 50% -10%, #132038, #0c111a 60%), #0c111a; }
+/* Карта — горизонталі topo.svg (лінії перефарбовані в синюватий) на темно-синьому, картки — базові */
+[data-bg="map"] { --paper: radial-gradient(70% 40% at 100% 0%, rgb(63 127 217 / .16), transparent 70%), url(topo.svg) center / cover no-repeat,
+  linear-gradient(180deg, #13203a 0%, #090d15 100%); }
+[data-bg="olive"] { --paper: radial-gradient(70% 40% at 100% 0%, rgb(63 127 217 / .14), transparent 70%),
+  radial-gradient(130% 70% at 0% 0%, #34472b, transparent 70%), linear-gradient(180deg, #1a2417 0%, #0d120c 100%); }
+/* Карбон — плетіння з шести градієнтів по 20 px і віньєтка, щоб краї не рябіли */
+[data-bg="carbon"] { --paper: radial-gradient(70% 40% at 100% 0%, rgb(63 127 217 / .08), transparent 70%),
+  radial-gradient(120% 80% at 50% 40%, transparent 45%, rgb(0 0 0 / .5)),
+  linear-gradient(27deg, #121313 5px, transparent 5px) 0 5px / 20px 20px, linear-gradient(207deg, #121313 5px, transparent 5px) 10px 0 / 20px 20px,
+  linear-gradient(27deg, #1b1c1d 5px, transparent 5px) 0 10px / 20px 20px, linear-gradient(207deg, #1b1c1d 5px, transparent 5px) 10px 5px / 20px 20px,
+  linear-gradient(90deg, #161717 10px, transparent 10px) 0 0 / 20px 20px,
+  linear-gradient(#171818 25%, #151616 25%, #151616 50%, transparent 50%, transparent 75%, #1d1e1f 75%, #1d1e1f) 0 0 / 20px 20px, #141515; }
+[data-bg="coyote"] { --paper: radial-gradient(130% 70% at 0% 0%, #3b2f20, transparent 70%), linear-gradient(180deg, #221b13 0%, #100d09 100%); }
+/* Лінії — чорне тло з кривими, що проявляються й тануть; «з акцентом» — кілька синіх (перефарбовані з помаранчевих Арсеналу) */
+[data-bg="lines"] { --paper: url(lines.webp) center / cover no-repeat, #0e0f11; }
+[data-bg="lines-acc"] { --paper: url(lines-acc.webp) center / cover no-repeat, #0e0f11; }
+[data-bg="l-plain"] { --paper: radial-gradient(120% 60% at 50% -10%, #dfe8f6, #f1f4f9 60%), #f1f4f9; }
+/* «Пісок» і «Хакі» — палітри світлої теми: міняють і картки, лінії, сірий текст, не лише тло; акцент лишається синім (5:1 на картці).
+   Варіанти «з акцентом» — та сама палітра, тло як у темних «Лініях з акцентом» */
+:root:is([data-bg="l-sand"], [data-bg="l-sand-acc"]) { --bg: #f1e6d1; --bg-glow: #e3dbc9; --surface: #f8f4eb; --surface-2: #efe8da; --line: #ddd3bf; --line-soft: #e7dfcf;
+  --text: #2b261d; --muted: #6a6151; --shadow: 0 1px 2px rgb(60 45 20 / .07), 0 6px 16px rgb(60 45 20 / .07); }
+:root:is([data-bg="l-khaki"], [data-bg="l-khaki-acc"]) { --bg: #e6e9d7; --bg-glow: #dce2d1; --surface: #f5f7f0; --surface-2: #e8ece0; --line: #d1d8c5; --line-soft: #dde3d3;
+  --text: #1f251c; --muted: #5a6454; --shadow: 0 1px 2px rgb(30 45 20 / .07), 0 6px 16px rgb(30 45 20 / .07); }
+[data-bg="l-map"] { --paper: url(topo-light.svg) center / cover no-repeat, linear-gradient(180deg, #f6f2e7 0%, #ebe3d0 100%); }
+/* Міліметрівка — тонка лінія через 10 px, товща через 50 px */
+[data-bg="l-mm"] { --paper: repeating-linear-gradient(0deg, rgb(60 120 90 / .17) 0 1px, transparent 1px 50px),
+  repeating-linear-gradient(90deg, rgb(60 120 90 / .17) 0 1px, transparent 1px 50px),
+  repeating-linear-gradient(0deg, rgb(60 120 90 / .07) 0 1px, transparent 1px 10px),
+  repeating-linear-gradient(90deg, rgb(60 120 90 / .07) 0 1px, transparent 1px 10px), #f5f6ef; }
+[data-bg="l-sand"] { --paper: linear-gradient(180deg, #f4ead8 0%, #e5d4b5 100%); }
+[data-bg="l-khaki"] { --paper: radial-gradient(130% 70% at 0% 0%, #e2e6cd, transparent 70%), linear-gradient(180deg, #e9ebdb 0%, #d6dac0 100%); }
+[data-bg="l-sand-acc"] { --paper: url(lines-sand.webp) center / cover no-repeat, #ecdfc6; }
+[data-bg="l-khaki-acc"] { --paper: url(lines-khaki.webp) center / cover no-repeat, #e0e3cf; }
+:root[data-bg="map"] { --bg: #0f1828; }
+:root[data-bg="olive"] { --bg: #131b11; }
+:root[data-bg="carbon"] { --bg: #131414; }
+:root[data-bg="coyote"] { --bg: #1b160f; }
+/* Палітри темних фонів: картки, лінії й сірий текст у тон підкладки, а не темно-сині скрізь. «Карта» — на базовій */
+:root[data-bg="olive"] { --bg-glow: #1f2819; --surface: #1b2216; --surface-2: #263020; --line: #36422b; --line-soft: #2c3624;
+  --text: #ebefdf; --muted: #a0aa8e; }
+:root[data-bg="coyote"] { --bg-glow: #2a2219; --surface: #221c15; --surface-2: #2e261c; --line: #3e3326; --line-soft: #322a1f;
+  --text: #f2ebdf; --muted: #b0a18a; }
+:root:is([data-bg="carbon"], [data-bg="lines"], [data-bg="lines-acc"]) { --bg-glow: #222326; --surface: #1b1c1e; --surface-2: #252629;
+  --line: #323438; --line-soft: #2a2b2e; --text: #ecedef; --muted: #9da0a6; }
+/* Картинки-фони — вертикальні 1080×2160 під телефон; на широкому екрані комп'ютера — горизонтальні 2560×1440 (*-wide.webp).
+   Телефон їх не завантажує, тож і в офлайн-кеш вони не входять */
+@media (min-width: 900px) and (min-aspect-ratio: 4/3) {
+  [data-bg="lines"] { --paper: url(lines-wide.webp) center / cover no-repeat, #0e0f11; }
+  [data-bg="lines-acc"] { --paper: url(lines-acc-wide.webp) center / cover no-repeat, #0e0f11; }
+  [data-bg="l-sand-acc"] { --paper: url(lines-sand-wide.webp) center / cover no-repeat, #ecdfc6; }
+  [data-bg="l-khaki-acc"] { --paper: url(lines-khaki-wide.webp) center / cover no-repeat, #e0e3cf; }
+}
+:root:is([data-bg="lines"], [data-bg="lines-acc"]) { --bg: #0e0f11; }
+:root[data-bg="l-map"] { --bg: #f3eee2; }
+:root[data-bg="l-mm"] { --bg: #f5f6ef; }
+:root[data-bg] body { background: var(--bg); }
+/* Фон — окремий нерухомий шар під сторінкою: background-attachment: fixed на телефоні перемальовує тло на кожному кадрі прокрутки,
+   а шар position: fixed браузер лише зсуває. Висота — велике вікно (lvh), щоб під час ховання адресного рядка не було щілини */
+:root[data-bg] body::before { content: ""; position: fixed; top: 0; left: 0; right: 0; height: 100vh; height: 100lvh; z-index: -1;
+  background: var(--paper); pointer-events: none; }
+
+/* Лента фонів: вибраний посередині в рамці, сусіди видні й гаснуть до країв, «‹ ›» по боках */
+.bg-wheel { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 2px; margin: 0 -8px; }
+.bg-nav { width: 28px; height: 56px; padding: 0; border: 0; background: none; color: var(--muted); font: 600 26px system-ui, sans-serif; cursor: pointer; }
+.bg-picks { position: relative; display: flex; gap: 10px; padding-block: 4px 6px; overflow-x: auto; scroll-snap-type: x mandatory;
+  scrollbar-width: none; overscroll-behavior-x: contain; mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent); }
+.bg-picks::-webkit-scrollbar { display: none; }
+.bg-pick { flex: none; display: grid; gap: 6px; justify-items: center; width: 84px; padding: 0; border: 0; background: none; scroll-snap-align: center;
+  color: var(--muted); font: 600 12px system-ui, sans-serif; text-align: center; cursor: pointer; }
+/* Гасне лише плитка сусіда, підпис лишається читабельним */
+.bg-sw { display: block; width: 100%; aspect-ratio: 3 / 4; border-radius: 12px; background: var(--paper); box-shadow: 0 0 0 1px var(--line); opacity: .55; transition: opacity .2s; }
+.bg-pick.focus .bg-sw { opacity: 1; }
+.bg-pick[aria-checked="true"] { color: var(--accent-2); }
+.bg-pick[aria-checked="true"] .bg-sw { box-shadow: 0 0 0 2px var(--accent); }
