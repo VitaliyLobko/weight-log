@@ -768,6 +768,13 @@ function burnLine(sum, burn) {
   return h('div', { class: 'hero-sub' }, t('Норма {n} · {r}', { n: fmt.int(n), r: rest }));
 }
 
+/** БЖУ дня — окремими плитками під калоріями, як «Норма · Сьогодні · Дефіцит» на головній. */
+function macroTiles(sum) {
+  const cell = (label, g) => h('div', { class: 'kcal-cell' },
+    h('span', { class: 'muted small' }, label), h('b', {}, fmt.int(g), h('small', {}, t('г'))));
+  return h('div', { class: 'kcal-grid food-macros' }, cell(t('Білки'), sum.p), cell(t('Жири'), sum.f), cell(t('Вуглеводи'), sum.c));
+}
+
 function rationToday(state, day, burn) {
   const { plan, pause, meals, planned, extra, sum } = day;
   const norm = plan.norm;
@@ -775,10 +782,10 @@ function rationToday(state, day, burn) {
     h('section', { class: 'hero accent food-hero' },
       h('div', { class: 'hero-label' }, t('Сьогодні')),
       h('div', { class: 'hero-value' }, fmt.int(sum.kcal), h('span', { class: 'hero-unit' }, t('ккал'))),
-      h('div', { class: 'hero-sub' }, t('білки {p} · жири {f} · вуглеводи {c} г', { p: fmt.int(sum.p), f: fmt.int(sum.f), c: fmt.int(sum.c) })),
       extra.kcal ? h('div', { class: 'hero-sub food-split' },
         t('за планом {a} + поза планом {b}', { a: fmt.int(planned.kcal), b: fmt.int(extra.kcal) })) : null,
       burnLine(sum, burn),
+      macroTiles(sum),
       dayPicker(state, day),
       windowEl(plan, Boolean(pause.now))),
     pauseNote(pause),

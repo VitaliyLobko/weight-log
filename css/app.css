@@ -1063,6 +1063,9 @@ button:focus-visible, a:focus-visible, summary:focus-visible, [tabindex]:focus-v
 .day-cell .day-dot { width: 14px; height: 14px; }
 .day-plus { position: absolute; top: 22px; right: calc(50% - 16px); font-size: 11px; font-weight: 800; line-height: 1; color: var(--accent-2); }
 .hero-sub.food-split { margin-top: 2px; font-size: 13px; }
+.food-macros { margin-top: 12px; }
+.food-macros .kcal-cell { background: color-mix(in srgb, var(--surface-2) 75%, transparent); }
+.food-macros b small { margin-left: 3px; font-size: 13px; font-weight: 600; color: var(--muted); }
 .food-ask { display: flex; flex-direction: column; gap: 4px; }
 .food-quick button { display: inline-flex; gap: 6px; align-items: baseline; min-height: 40px; }
 .food-quick button.on .muted, .food-quick button:active .muted { color: inherit; }
