@@ -3,7 +3,7 @@
 import * as db from './db.js';
 import * as sync from './sync.js';
 import * as M from './model.js';
-import { h, fmt, sheet, toast, form, btn, toolBtn, box, confirmSheet, remember, recall, unfold, swipeLeft, segmented } from './ui.js';
+import { h, fmt, sheet, toast, form, btn, toolBtn, box, confirmSheet, remember, recall, unfold, swipeLeft, segmented, isoToDmy } from './ui.js';
 import { t, plural } from './i18n.js';
 import { icon, withIcon } from './icons.js';
 import { dietMemo } from './diet.js';
@@ -27,12 +27,15 @@ export function totals(items) {
 
 const groupOf = (p) => p.group || p.id;
 
+/** Період, коли продукт тимчасово не додається: offs — [{ from, to }], to порожнє — до повернення. */
+export const offAt = (item, date) => (item.offs ?? []).find((p) => p.from <= date && (!p.to || date <= p.to)) ?? null;
+
 /**
  * Продукт дня: вибраний на цю дату, а як ні — пропозиція: група, якої за попередні 6 днів
- * найбільше бракує до її разів на тиждень; учорашню групу — в останню чергу.
+ * найбільше бракує до її разів на тиждень; учорашню групу — в останню чергу. Тимчасово вимкнені — поза вибором.
  */
 export function dayChoice(plan, picks, date) {
-  const list = plan.day?.items ?? [];
+  const list = (plan.day?.items ?? []).filter((p) => !offAt(p, date));
   if (!list.length) return null;
   const chosen = list.find((p) => p.id === picks[date]);
   if (chosen) return { item: chosen, picked: true };
@@ -104,15 +107,19 @@ function today(state, date = M.today()) {
   if (!plan) return null;
   const choice = dayChoice(plan, picksOf(state), date);
   const pause = pauseState(plan, date);
-  // Продукти плану, які цього дня не з'їли, — у підсумок не йдуть
+  // Продукти плану, які цього дня не з'їли або тимчасово не додаються, — у підсумок не йдуть; вимкнені — в кінці прийому
   const skipped = new Set(dayOf(state, date)?.skipped ?? []);
-  const mark = (x) => (skipped.has(x.id) ? { ...x, skipped: true } : x);
+  const mark = (x) => {
+    const off = offAt(x, date);
+    return off ? { ...x, off } : skipped.has(x.id) ? { ...x, skipped: true } : x;
+  };
+  const order = (list) => [...list.filter((x) => !x.off), ...list.filter((x) => x.off)];
   const meals = (plan.meals ?? []).map((m) => ({
     ...m,
-    items: [...(m.items ?? []), ...(choice && plan.day?.meal === m.id ? [{ ...choice.item, isDay: true }] : [])].map(mark),
+    items: order([...(m.items ?? []), ...(choice && plan.day?.meal === m.id ? [{ ...choice.item, isDay: true }] : [])].map(mark)),
   }));
-  if (pause.now && plan.pauseItems?.length) meals.push({ id: 'pause', name: t('Добавка в паузу'), items: plan.pauseItems.map(mark), isPause: true });
-  const planned = totals(meals.flatMap((m) => m.items).filter((x) => !x.skipped));
+  if (pause.now && plan.pauseItems?.length) meals.push({ id: 'pause', name: t('Добавка в паузу'), items: order(plan.pauseItems.map(mark)), isPause: true });
+  const planned = totals(meals.flatMap((m) => m.items).filter((x) => !x.skipped && !x.off));
   const extra = extrasSum(state, date);
   // Підсумок дня — план плюс з'їдене поза планом
   return { plan, choice, pause, meals, planned, extra, sum: totals([planned, extra]) };
@@ -284,6 +291,56 @@ async function removeItem(item) {
   undoToast(t('«{name}» видалено', { name: item.name }), before);
 }
 
+/** Змінити періоди «не додаю» продукту в плані: change(offs) → нові offs. */
+function changeOffs(item, change) {
+  return savePlan((plan) => {
+    const at = locate(plan, item.id);
+    if (at) at.list[at.i] = { ...at.list[at.i], offs: change(at.list[at.i].offs ?? []) };
+  });
+}
+
+/** Тимчасово не додавати з сьогодні: until — останній день без продукту, порожньо — поки не повернете. */
+async function setOff(item, until) {
+  const date = M.today();
+  const before = await changeOffs(item, (offs) => [...offs.filter((p) => !offAt({ offs: [p] }, date)), { from: date, to: until || '' }]);
+  undoToast(until ? t('«{name}» не додаємо до {date} включно', { name: item.name, date: fmt.date(until) })
+    : t('«{name}» не додаємо, поки не повернете', { name: item.name }), before);
+}
+
+/** Повернути з сьогодні: поточний період закінчується вчора, а почався сьогодні — зникає зовсім. */
+async function setOn(item) {
+  const date = M.today();
+  const before = await changeOffs(item, (offs) => offs.flatMap((p) => {
+    if (!offAt({ offs: [p] }, date)) return [p];
+    return p.from === date ? [] : [{ ...p, to: M.addDays(date, -1) }];
+  }));
+  undoToast(t('«{name}» знову в раціоні', { name: item.name }), before);
+}
+
+/** «Тимчасово не додаю»: забули купити, перестали додавати — до дати чи поки не повернете. */
+function offForm(item) {
+  const f = form([{ name: 'until', label: t('Не додавати до (включно)'), type: 'dmy', value: '', hint: t('Порожньо — поки не повернете самі.') }]);
+  const preset = (days) => { f.inputs.until.value = days === null ? '' : isoToDmy(M.addDays(M.today(), days)); };
+  const save = async () => {
+    const bad = f.invalid();
+    const { until } = f.values();
+    if (bad || (until && until < M.today())) { toast(t('Перевірте дату')); return; }
+    close();
+    await setOff(item, until);
+  };
+  const close = sheet(t('Тимчасово не додаю'), h('div', {},
+    h('p', { class: 'muted small' }, t('«{name}» лишиться в плані, але не піде в підсумок дня і не пропонуватиметься продуктом дня.', { name: item.name })),
+    h('div', { class: 'chips' },
+      [[0, t('Лише сьогодні')], [2, t('3 дні')], [6, t('Тиждень')], [null, t('Поки не поверну')]]
+        .map(([d, label]) => h('button', { type: 'button', onclick: () => preset(d) }, label))),
+    f.el), {
+    actions: [btn(t('Скасувати'), () => close()), btn(t('Не додавати'), save, 'primary')],
+  });
+}
+
+/** Підпис періоду: «до 10.11» чи «поки не повернете». */
+const offText = (off) => (off.to ? t('не додаю до {date}', { date: fmt.short(off.to) }) : t('не додаю'));
+
 async function setPick(state, date, id) {
   const days = { ...picksOf(state), [date]: id };
   const keep = M.addDays(date, -PICKS_KEEP);
@@ -304,11 +361,17 @@ function itemSheet(item) {
     item.note ? h('p', { class: 'small' }, item.note) : null,
     alts.length ? [h('h4', {}, t('Чим замінити')),
       h('ul', { class: 'food-alts' }, alts.map((a) => h('li', {}, h('span', { class: 'diet-dot', 'aria-hidden': 'true' }), h('span', {}, a))))] : null);
-  // Сьогодні не з'їв — у підсумок дня не йде; план не змінюється
-  body.append(h('div', { class: 'btn-row' }, btn(item.skipped ? withIcon('check', t('Усе ж з\'їв')) : t('Сьогодні не з\'їв'), () => {
-    close();
-    toggleSkipped(M.today(), item);
-  })));
+  // Сьогодні не з'їв — у підсумок дня не йде; план не змінюється. Тимчасово не додаю — на кілька днів чи довше
+  if (item.off) {
+    body.append(h('p', { class: 'small food-off-note' }, item.off.to
+      ? t('Не додаєте з {from} до {to} включно.', { from: fmt.date(item.off.from), to: fmt.date(item.off.to) })
+      : t('Не додаєте з {from}, поки не повернете.', { from: fmt.date(item.off.from) })),
+    h('div', { class: 'btn-row' }, btn(withIcon('check', t('Повернути в раціон')), () => { close(); setOn(item); }, 'primary')));
+  } else {
+    body.append(h('div', { class: 'btn-row' },
+      btn(item.skipped ? withIcon('check', t('Усе ж з\'їв')) : t('Сьогодні не з\'їв'), () => { close(); toggleSkipped(M.today(), item); }),
+      btn(t('Тимчасово не додаю'), () => { close(); offForm(item); })));
+  }
   // Продукт дня в обіді переставляється серед продуктів дня, а не серед страв обіду
   const close = sheet(item.name, body, {
     tools: [
@@ -461,10 +524,11 @@ function refText(text) {
 function foodRow(item) {
   // Без калорій (кава без цукру) — тихий рядок без «0»: число там лише шумить
   const zero = !(Number(item.kcal) > 0);
-  return h('button', { type: 'button', class: `row food-row ${item.isDay ? 'day' : ''} ${zero ? 'zero' : ''} ${item.skipped ? 'skipped' : ''}`, onclick: () => itemSheet(item) },
+  return h('button', { type: 'button', class: `row food-row ${item.isDay ? 'day' : ''} ${zero ? 'zero' : ''} ${item.skipped ? 'skipped' : ''} ${item.off ? 'off' : ''}`, onclick: () => itemSheet(item) },
     h('div', { class: 'row-main' },
       h('span', { class: 'row-title' }, item.name, item.isDay ? h('span', { class: 'food-tag' }, t('продукт дня')) : null,
-        item.skipped && !item.inMissed ? h('span', { class: 'food-tag skip' }, t('не з\'їв')) : null),
+        item.skipped && !item.inMissed ? h('span', { class: 'food-tag skip' }, t('не з\'їв')) : null,
+        item.off ? h('span', { class: 'food-tag skip' }, offText(item.off)) : null),
       item.qty ? h('span', { class: 'muted small' }, item.qty) : null),
     h('div', { class: 'row-side' }, zero ? null : h('span', { class: 'food-kcal' }, fmt.int(item.kcal)),
       item.alts?.length ? h('span', { class: 'muted small' }, t('замін: {n}', { n: item.alts.length })) : null));
@@ -487,6 +551,8 @@ const swiped = () => { if (!recall(SWIPE_SEEN)) remember(SWIPE_SEEN, '1'); };
 
 /** Продукт прийому: свайп уліво — «не з'їв» сьогодні (ще раз — повернути), тап — картка. */
 function swipeRow(item) {
+  // Тимчасово вимкнений — без свайпу: «не з'їв» йому ні до чого
+  if (item.off) return foodRow(item);
   return swipeLeft(foodRow(item), {
     label: item.skipped ? t('Повернути') : t('Не з\'їв'),
     onSwipe: () => { swiped(); toggleSkipped(M.today(), item); },
@@ -507,10 +573,12 @@ function mealIcon(meal) {
 }
 
 function mealBox(meal, index) {
-  const eaten = meal.items.filter((x) => !x.skipped);
+  // Тимчасово вимкнені не їдяться й не пропускаються — їх ніби немає в прийомі
+  const active = meal.items.filter((x) => !x.off);
+  const eaten = active.filter((x) => !x.skipped);
   const s = totals(eaten);
   // Увесь прийом пропущено — заголовок каже це, ккал у ньому немає
-  const missed = meal.items.length > 0 && !eaten.length;
+  const missed = active.length > 0 && !eaten.length;
   const title = [meal.name, meal.time ? ` · ${meal.time}` : ''].join('');
   const tools = meal.isPause ? [] : [
     toolBtn('plus', t('Додати продукт'), () => itemForm(null, { meal: meal.id })),
@@ -526,10 +594,10 @@ function mealBox(meal, index) {
   let el;
   if (missed) {
     // Пропущений прийом — один рядок замість закреслених продуктів
-    const all = totals(meal.items);
+    const all = totals(active);
     el = box(title2, h('div', { class: 'food-missed' },
       h('p', {}, h('b', {}, t('Не їли · −{k}', { k: kcal(all.kcal) })),
-        h('span', { class: 'muted small' }, meal.items.map((x) => x.name).join(', '))),
+        h('span', { class: 'muted small' }, active.map((x) => x.name).join(', '))),
       h('button', { type: 'button', class: 'btn food-meal-btn', onclick: toggleMeal }, t('Повернути прийом'))), { fold: key, tools });
   } else {
     const hint = index === 0 && !recall(SWIPE_SEEN)
@@ -586,8 +654,16 @@ function pickSheet(state) {
     if (!day) return null;
     const date = M.today();
     const picks = picksOf(current ?? state);
-    const list = day.plan.day?.items ?? [];
+    const all = day.plan.day?.items ?? [];
+    const list = all.filter((p) => !offAt(p, date));
+    const offs = all.filter((p) => offAt(p, date));
     const cur = day.choice?.item.id;
+    // Тимчасово вимкнені — окремо внизу; тап — картка з «Повернути в раціон»
+    const offRows = offs.length ? [h('h4', { class: 'food-sub' }, t('Тимчасово не додаю')), h('div', { class: 'rows' }, offs.map((p) => h('button', {
+      type: 'button', class: 'row pick-row off', onclick: () => { closeIt(); itemSheet({ ...p, isDay: true, off: offAt(p, date) }); },
+    },
+      h('div', { class: 'row-main' }, h('span', { class: 'row-title' }, p.name, h('span', { class: 'food-tag skip' }, offText(offAt(p, date))))),
+      h('div', { class: 'row-side' }, h('span', { class: 'food-kcal' }, fmt.int(p.kcal))))))] : null;
     return h('div', { class: 'pick-list' },
       h('div', { class: 'rows', role: 'radiogroup', 'aria-label': t('Продукт дня') }, list.map((p) => {
         const w = weekCount(day.plan, picks, p, date);
@@ -608,6 +684,7 @@ function pickSheet(state) {
               t(w.shared ? 'разом {n} з {of} за тиж.' : '{n} з {of} за тиж.', { n: w.n, of: w.of })) : null)),
         toolBtn('edit', t('Змінити «{name}»', { name: p.name }), () => { closeIt(); itemForm(p, { day: true }); }));
       })),
+      offRows,
       h('div', { class: 'btn-row' }, btn(withIcon('plus', t('Продукт дня')), () => { closeIt(); itemForm(null, { day: true }); })));
   };
   const closeIt = sheet(t('Продукт дня'), body(), { live: body });

@@ -91,12 +91,14 @@ export async function toggleSkipped(date, item) {
 
 /** Увесь прийом: не з'їли нічого (усі продукти — у «не з'їв») або, якщо вже так, повернути всі. */
 export async function toggleMealSkipped(date, meal) {
-  const ids = meal.items.map((x) => x.id);
+  // Тимчасово вимкнені й так поза підсумком — «не з'їв» їм не ставимо
+  const items = meal.items.filter((x) => !x.off);
+  const ids = items.map((x) => x.id);
   const list = dayOf(await db.loadAll(), date)?.skipped ?? [];
   const all = ids.every((id) => list.includes(id));
   const next = all ? list.filter((id) => !ids.includes(id)) : [...new Set([...list, ...ids])];
   const before = await saveDay(date, { skipped: next });
-  const k = meal.items.reduce((a, x) => a + (Number(x.kcal) || 0), 0);
+  const k = items.reduce((a, x) => a + (Number(x.kcal) || 0), 0);
   undo(all ? t('«{name}» знову в підсумку дня', { name: meal.name }) : t('«{name}» не з\'їли: −{k}', { name: meal.name, k: kcal(k) }), date, before);
 }
 

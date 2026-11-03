@@ -1058,6 +1058,9 @@ button:focus-visible, a:focus-visible, summary:focus-visible, [tabindex]:focus-v
 .food-line .day-dot { width: 10px; height: 10px; margin-right: 4px; vertical-align: -1px; }
 .food-row.skipped .row-title, .food-row.skipped .food-kcal { color: var(--muted); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--muted) 70%, transparent); }
 .food-tag.skip { color: var(--muted); background: var(--surface-2); text-decoration: none; display: inline-block; }
+.food-row.off .row-title, .food-row.off .food-kcal, .pick-row.off .row-title, .pick-row.off .food-kcal { color: var(--muted); }
+.food-row.off, .pick-row.off { opacity: .75; }
+.food-off-note { margin: 10px 0 0; }
 .day-skipped { margin: 10px 2px 0; color: var(--muted); }
 .day-tags { align-items: center; margin: 10px 0 0; }
 .day-tags button { min-height: 40px; }
