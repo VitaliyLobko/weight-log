@@ -432,6 +432,19 @@ function holdNote() {
     h('p', { class: 'small' }, advice));
 }
 
+/**
+ * «Їсте» — середнє, а не сьогодні: вимкнений чи доданий продукт зсуває його на частку за день.
+ * Коли сьогоднішній план помітно інший, кажемо обидва числа, щоб зміна в раціоні не здавалась загубленою.
+ */
+function intakeNote(c) {
+  const avg = c.source === 'real'
+    ? t('«Їсте» — середнє за {n} позначених днів останніх 4 тижнів.', { n: c.en.marked })
+    : t('«Їсте» — середнє за 7 днів.');
+  const differs = c.todayKcal !== null && Math.abs(c.todayKcal - c.intake) >= 20;
+  return h('p', { class: 'muted small' }, avg, differs
+    ? ` ${t('Сьогодні за планом {k} — зміни в раціоні середнє наздожене поступово.', { k: kcalText(c.todayKcal) })}` : null);
+}
+
 /** Норма, скільки їсте, і дефіцит (на утриманні — баланс): з ваших даних, а поки їх мало — за формулою. */
 function caloriesBox() {
   if (!sum.hasAvg) return null;
@@ -462,7 +475,7 @@ function caloriesBox() {
       ? t('Баланс {d} кг на тиждень — на утриманні мета близько нуля', { d: fmt.signed(-perWeek, 2) })
       : t('За розрахунком {r} кг на тиждень', { r: fmt.signed(-perWeek, 2) }),
     real !== null ? t(', на вагах {r} за {w}', { r: fmt.signed(-real, 2), w: sum.recent !== null ? t('останні 4 тижні') : t('весь час') }) : null, '.') : null,
-    c.intake === null ? h('p', { class: 'muted small' }, t('Скільки їсте — порахую за планом у «Раціоні».')) : null,
+    c.intake === null ? h('p', { class: 'muted small' }, t('Скільки їсте — порахую за планом у «Раціоні».')) : intakeNote(c),
     h('p', { class: 'muted small' }, c.source === 'real'
       ? [t('Норма — за вашими даними: {n} позначених днів за {d} дн. і тренд ваги.', { n: c.en.marked, d: c.en.days }),
         f ? ` ${t('За формулою було б ≈{k}.', { k: kcalText(f.burn) })}` : null]

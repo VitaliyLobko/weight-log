@@ -155,10 +155,13 @@ export function energy(state, rows) {
   return { burn, intake, deficit: burn - intake, marked: eaten.length, days };
 }
 
+/** Калорії дня: план (без «не з'їв» і вимкнених) плюс поза планом. */
+export const dayKcal = (state, date) => today(state, date)?.sum.kcal ?? null;
+
 /** Скільки їсте в день за останні 7 днів: план дня (продукт дня, пауза, «не з'їв») плюс поза планом. */
 export function intakeWeek(state, date = M.today()) {
   if (!planOf(state)) return null;
-  const days = Array.from({ length: 7 }, (_, i) => today(state, M.addDays(date, -i)).sum.kcal);
+  const days = Array.from({ length: 7 }, (_, i) => dayKcal(state, M.addDays(date, -i)));
   return days.reduce((a, v) => a + v, 0) / days.length;
 }
 
@@ -172,7 +175,7 @@ export function calories(state, rows, goal, kg) {
   if (!en && !f) return null;
   const burn = en?.burn ?? f.burn;
   const intake = en?.intake ?? intakeWeek(state);
-  return { burn, intake, balance: intake !== null ? intake - burn : null, source: en ? 'real' : 'formula', en, f };
+  return { burn, intake, balance: intake !== null ? intake - burn : null, source: en ? 'real' : 'formula', en, f, todayKcal: dayKcal(state, M.today()) };
 }
 
 // Мітки: до нотатки ваги — про тіло (TRX, недосип), до дня — про їжу й події (брынза, застілля).
