@@ -55,20 +55,20 @@ export function scanSheet(onCode) {
   const digits = h('input', { type: 'text', inputmode: 'numeric', autocomplete: 'off', maxlength: 14, placeholder: '4820000000000' });
   const manual = () => {
     const code = digits.value.replace(/\D/g, '');
-    if (!validCode(code)) { digits.focus(); toast(t('Нужно 8–14 цифр под штрихкодом')); return; }
+    if (!validCode(code)) { digits.focus(); toast(t('Потрібно 8–14 цифр під штрихкодом')); return; }
     done(code);
   };
   digits.addEventListener('keydown', (e) => { if (e.key === 'Enter') manual(); });
   const video = h('video', { class: 'scan-video', muted: true, playsinline: true, autoplay: true });
   video.muted = true;
-  const status = h('p', { class: 'muted small scan-status' }, t('Наведите камеру на штрихкод'));
+  const status = h('p', { class: 'muted small scan-status' }, t('Наведіть камеру на штрихкод'));
   const canScan = 'BarcodeDetector' in window && navigator.mediaDevices?.getUserMedia;
   const body = h('div', { class: 'scan' },
     canScan ? h('div', { class: 'scan-frame' }, video, h('span', { class: 'scan-line', 'aria-hidden': 'true' })) : null,
-    canScan ? status : h('p', { class: 'muted small' }, t('Камера-сканер на этом устройстве недоступна — введите цифры под штрихкодом.')),
-    h('label', { class: 'field' }, h('span', { class: 'field-label' }, t('Цифры штрихкода')), digits));
+    canScan ? status : h('p', { class: 'muted small' }, t('Камера-сканер на цьому пристрої недоступна — введіть цифри під штрихкодом.')),
+    h('label', { class: 'field' }, h('span', { class: 'field-label' }, t('Цифри штрихкоду')), digits));
   const close = sheet(t('Штрихкод'), body, {
-    actions: [btn(t('Найти'), manual, 'primary')],
+    actions: [btn(t('Знайти'), manual, 'primary')],
     onClose: stop,
   });
   if (!canScan) { setTimeout(() => digits.focus(), 250); return; }
@@ -91,8 +91,8 @@ export function scanSheet(onCode) {
       tick();
     } catch (err) {
       status.textContent = err?.name === 'NotAllowedError'
-        ? t('Нет доступа к камере — разрешите его в браузере или введите цифры.')
-        : t('Камера не запустилась — введите цифры под штрихкодом.');
+        ? t('Немає доступу до камери — дозвольте його в браузері або введіть цифри.')
+        : t('Камера не запустилась — введіть цифри під штрихкодом.');
     }
   })();
 }
@@ -126,7 +126,7 @@ export function labelItem(r) {
   if (!(Number(r?.k100) > 0)) return null;
   const serving = Number(r.serving);
   return {
-    name: r.name?.trim() || t('Продукт с этикетки'),
+    name: r.name?.trim() || t('Продукт з етикетки'),
     grams: serving > 0 && serving < 2000 ? Math.round(serving) : 100,
     per100: { kcal: Math.round(r.k100), p: r1(Number(r.p100) || 0), f: r1(Number(r.f100) || 0), c: r1(Number(r.c100) || 0) },
   };

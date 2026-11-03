@@ -19,7 +19,7 @@ class AuthError extends Error {}
 
 class ApiError extends Error {
   constructor(status) {
-    super(t('Google Диск ответил {n}', { n: status }));
+    super(t('Google Диск відповів {n}', { n: status }));
     this.status = status;
   }
 }
@@ -79,7 +79,7 @@ function loadGis() {
     script.src = 'https://accounts.google.com/gsi/client';
     script.async = true;
     script.onload = () => resolve();
-    script.onerror = () => { gisLoading = null; reject(new Error(t('Нет связи с Google'))); };
+    script.onerror = () => { gisLoading = null; reject(new Error(t('Немає зв’язку з Google'))); };
     document.head.append(script);
   });
   return gisLoading;
@@ -105,7 +105,7 @@ function client() {
       save();
       finishAuth();
     },
-    error_callback: (err) => finishAuth(new Error(err?.type === 'popup_closed' ? t('Вход отменён') : (err?.message || t('Ошибка входа в Google')))),
+    error_callback: (err) => finishAuth(new Error(err?.type === 'popup_closed' ? t('Вхід скасовано') : (err?.message || t('Помилка входу в Google')))),
   });
   return tokenClient;
 }
@@ -122,7 +122,7 @@ export async function connect() {
     const c = client();
     if (!c) {
       preload();
-      throw new Error(t('Google ещё загружается — нажмите ещё раз через секунду'));
+      throw new Error(t('Google ще завантажується — натисніть ще раз за секунду'));
     }
     await new Promise((resolve, reject) => {
       authWaiter = { resolve, reject, at: Date.now() };
@@ -167,7 +167,7 @@ async function api(url, options = {}) {
     dropSharedToken(conf.token);
     conf.token = null;
     save();
-    throw new AuthError(t('Сессия Google истекла'));
+    throw new AuthError(t('Сесія Google закінчилася'));
   }
   if (!res.ok) throw new ApiError(res.status);
   return res;
@@ -184,7 +184,7 @@ async function upload(fileId, data) {
 
 /** Копія з Диска для «Відновити з Диска»: вміст weight-log.json (як файл копії) або null — файлу ще нема. */
 export async function fetchBackup() {
-  if (!tokenValid()) throw new AuthError(t('Нажмите, чтобы войти в Google'));
+  if (!tokenValid()) throw new AuthError(t('Натисніть, щоб увійти в Google'));
   const id = await locate(api, FILE_NAME, conf.fileId);
   return id ? readJson(api, id) : null;
 }
@@ -307,7 +307,7 @@ export async function syncNow({ force = false } = {}) {
     return;
   }
   if (!navigator.onLine) { set('offline'); return; }
-  if (!tokenValid()) { set('auth', t('Нажмите, чтобы войти в Google')); return; }
+  if (!tokenValid()) { set('auth', t('Натисніть, щоб увійти в Google')); return; }
   if (running) { again = true; return; }
   running = true;
   set('syncing');
@@ -346,7 +346,7 @@ export async function syncNow({ force = false } = {}) {
     set('idle');
     if (changes) window.dispatchEvent(new Event('sync-applied'));
   } catch (err) {
-    if (err instanceof AuthError) set('auth', t('Нажмите, чтобы войти в Google'));
+    if (err instanceof AuthError) set('auth', t('Натисніть, щоб увійти в Google'));
     else set(navigator.onLine ? 'error' : 'offline', err.message);
   } finally {
     running = false;

@@ -37,8 +37,8 @@ export function googleCalendarUrl(time, appUrl) {
   const day = firstDay(time);
   const params = new URLSearchParams({
     action: 'TEMPLATE',
-    text: t('Взвеситься'),
-    details: t('Натощак, после туалета, до еды. Записать: {url}', { url: appUrl }),
+    text: t('Зважитися'),
+    details: t('Натще, після туалету, до їжі. Записати: {url}', { url: appUrl }),
     dates: `${compact(day, time)}/${compact(day, plusMinutes(time, 5))}`,
     ctz: Intl.DateTimeFormat().resolvedOptions().timeZone,
     recur: 'RRULE:FREQ=DAILY',
@@ -60,10 +60,10 @@ export function icsFile(time, appUrl) {
     `DTSTART:${compact(day, time)}`,
     `DTEND:${compact(day, plusMinutes(time, 5))}`,
     'RRULE:FREQ=DAILY',
-    `SUMMARY:${esc(t('Взвеситься'))}`,
-    `DESCRIPTION:${esc(t('Натощак, после туалета, до еды. Записать: {url}', { url: appUrl }))}`,
+    `SUMMARY:${esc(t('Зважитися'))}`,
+    `DESCRIPTION:${esc(t('Натще, після туалету, до їжі. Записати: {url}', { url: appUrl }))}`,
     `URL:${appUrl}`,
-    'BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${esc(t('Взвеситься'))}`, 'TRIGGER:PT0M', 'END:VALARM',
+    'BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${esc(t('Зважитися'))}`, 'TRIGGER:PT0M', 'END:VALARM',
     'END:VEVENT', 'END:VCALENDAR', '',
   ].join('\r\n');
   return new File([text], 'weight-log-reminder.ics', { type: 'text/calendar' });

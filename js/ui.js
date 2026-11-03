@@ -173,7 +173,7 @@ export function sheet(title, body, { actions = [], onClose, live, tools = [] } =
     h('header', { class: 'sheet-head' },
       h('h2', {}, title),
       h('div', { class: 'sheet-tools' }, tools,
-        h('button', { type: 'button', class: 'icon-btn', 'aria-label': t('Закрыть'), onclick: close }, '✕'))),
+        h('button', { type: 'button', class: 'icon-btn', 'aria-label': t('Закрити'), onclick: close }, '✕'))),
     h('div', { class: 'sheet-body' }, body),
     actions.length ? h('footer', { class: 'sheet-actions' }, actions) : null);
   // Закривати лише якщо й натиск почався на фоні: інакше на сенсорному екрані «фантомний» клік
@@ -297,7 +297,7 @@ export function dmyToIso(text) {
  * Крапки ставляться самі: 03112026 → 03.11.2026; рік можна двома цифрами.
  */
 function dmyInput(iso) {
-  const input = h('input', { type: 'text', inputmode: 'numeric', placeholder: t('ДД.ММ.ГГГГ'), maxlength: 10, autocomplete: 'off', class: 'dmy' });
+  const input = h('input', { type: 'text', inputmode: 'numeric', placeholder: t('ДД.ММ.РРРР'), maxlength: 10, autocomplete: 'off', class: 'dmy' });
   input.value = isoToDmy(iso);
   input.addEventListener('input', () => {
     // Частина перед роздільником завершена: «3.» — це день 03, а не початок «31»
@@ -337,7 +337,7 @@ export function segmented(options, value, onPick) {
 export function confirmSheet(title, text, okLabel, onOk) {
   const close = sheet(title, h('p', {}, text), {
     actions: [
-      btn(t('Отмена'), () => close()),
+      btn(t('Скасувати'), () => close()),
       btn(okLabel, () => { close(); onOk(); }, 'danger'),
     ],
   });

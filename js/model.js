@@ -79,8 +79,17 @@ function addActiveDays(pauses, from, n) {
   return d;
 }
 
-/** План з таблиці: від стартової ваги рівно planRate кг на тиждень; у паузи на підтриманні лінія стоїть. */
+/** Режим «Утримання»: ціль — вага, якої тримаємося в коридорі ±holdBand, а не точка фінішу. */
+export const isHold = (goal) => goal?.mode === 'hold' && Number.isFinite(goal.target);
+const HOLD_BAND = 1;
+export const holdBand = (goal) => (goal?.holdBand > 0 ? goal.holdBand : HOLD_BAND);
+
+/**
+ * План з таблиці: від стартової ваги рівно planRate кг на тиждень; у паузи на підтриманні лінія стоїть.
+ * На утриманні, від дня переходу, план — рівна лінія на вазі цілі.
+ */
 export function planAt(goal, date) {
+  if (isHold(goal) && goal.holdFrom && date >= goal.holdFrom) return goal.target;
   if (!Number.isFinite(goal.start) || !goal.startDate || !Number.isFinite(goal.planRate)) return null;
   return r2(goal.start - (goal.planRate * activeDays(goal.pauses, goal.startDate, date)) / 7);
 }
@@ -96,12 +105,12 @@ export function effectiveGoal(goal, rows) {
 
 /** Категорії ІМТ за ВООЗ; межі — верхні (не включно). */
 export const BMI_CLASSES = [
-  [18.5, 'Недостаточная масса'],
+  [18.5, 'Недостатня маса'],
   [25, 'Норма'],
-  [30, 'Избыточная масса'],
-  [35, 'Ожирение I степени'],
-  [40, 'Ожирение II степени'],
-  [Infinity, 'Ожирение III степени'],
+  [30, 'Надмірна маса'],
+  [35, 'Ожиріння I ступеня'],
+  [40, 'Ожиріння II ступеня'],
+  [Infinity, 'Ожиріння III ступеня'],
 ];
 
 export function bmiOf(kg, heightCm) {
@@ -138,17 +147,55 @@ export function recentRate(rows, pauses = []) {
 export const PLATEAU_DAYS = 14;
 const PLATEAU_KG = 0.1;
 
-/** { days, since, low } — скільки днів середнє не оновлює мінімум (без днів пауз); null — плато немає. */
-export function plateau(rows, pauses = []) {
+/** { days, since, low, last } — останній мінімум середнього і скільки днів без нового (без днів пауз). */
+export function lastLow(rows, pauses = []) {
   const withAvg = rows.filter((r) => r.avg !== null);
   if (!withAvg.length) return null;
   let low = withAvg[0];
   for (const r of withAvg) if (r.avg <= low.avg - PLATEAU_KG) low = r;
   const last = withAvg.at(-1).date;
+  return { days: activeDays(pauses, low.date, last), since: low.date, low: low.avg, last };
+}
+
+/** { days, since, low } — скільки днів середнє не оновлює мінімум (без днів пауз); null — плато немає. */
+export function plateau(rows, pauses = []) {
+  const l = lastLow(rows, pauses);
   // У паузу вага стоїть навмисно — не плато
-  if (inPause(pauses, last)) return null;
-  const days = activeDays(pauses, low.date, last);
-  return days >= PLATEAU_DAYS ? { days, since: low.date, low: low.avg } : null;
+  if (!l || inPause(pauses, l.last)) return null;
+  return l.days >= PLATEAU_DAYS ? { days: l.days, since: l.since, low: l.low } : null;
+}
+
+export const KCAL_PER_KG = 7700;
+/** Утримання: зміна середнього за стільки днів, менша за DRIFT_KG, — вага стоїть. */
+export const DRIFT_KG = 0.3;
+
+/** Зміна середнього за останні days днів: { change, days, kcal } — kcal на день, плюс — їсте понад витрату. */
+export function drift(rows, days = PLATEAU_DAYS) {
+  const withAvg = rows.filter((r) => r.avg !== null);
+  const cur = withAvg.at(-1);
+  if (!cur) return null;
+  const then = withAvg.findLast((r) => r.date <= addDays(cur.date, -days));
+  if (!then) return null;
+  const n = daysBetween(then.date, cur.date);
+  const change = r2(cur.avg - then.avg);
+  return { change, days: n, kcal: (change * KCAL_PER_KG) / n };
+}
+
+/** Рівні активності: коефіцієнт до базового обміну. */
+export const ACTIVITY = [
+  [1.2, 'Сидячий спосіб життя'],
+  [1.375, 'Легка: 1–3 тренування на тиждень або 6–8 тис. кроків'],
+  [1.55, 'Середня: 3–5 тренувань або 10 тис. кроків'],
+  [1.725, 'Висока: тренування щодня'],
+];
+
+/** Витрата за Міффліном–Сан Жеором: базовий обмін × активність; бракує зросту, статі чи року народження — null. */
+export function formulaBurn(goal, kg, date) {
+  const age = Number(date.slice(0, 4)) - goal.birthYear;
+  if (!Number.isFinite(kg) || !(goal.height > 0) || !(age > 0) || !['m', 'f'].includes(goal.sex)) return null;
+  const bmr = 10 * kg + 6.25 * goal.height - 5 * age + (goal.sex === 'm' ? 5 : -161);
+  const activity = Number(goal.activity) || ACTIVITY[0][0];
+  return { bmr, burn: bmr * activity, age, activity, kg };
 }
 
 /**
@@ -171,8 +218,9 @@ export function summary(rows, goal) {
   const forecastRate = recent ?? rate;
   const target = Number.isFinite(g.target) ? g.target : null;
   const toGo = target !== null && current !== null ? r2(current - target) : null;
+  const hold = isHold(g);
   /** Дата, коли середнє дійде до kg темпом прогнозу (паузи попереду відсувають); null — темп не на зниження. */
-  const eta = (kg) => (forecastRate > 0 && current > kg
+  const eta = (kg) => (!hold && forecastRate > 0 && current > kg
     ? addActiveDays(g.pauses, currentDate, Math.round(((current - kg) / forecastRate) * 7)) : null);
   const plan = currentDate ? planAt(g, currentDate) : null;
   const span = base && target !== null ? base.avg - target : null;
@@ -189,13 +237,15 @@ export function summary(rows, goal) {
     forecastRate,
     target,
     toGo,
+    hold,
+    band: holdBand(g),
     days: rows.length,
-    weeksLeft: forecastRate > 0 && toGo > 0 ? Math.ceil(toGo / forecastRate) : null,
+    weeksLeft: !hold && forecastRate > 0 && toGo > 0 ? Math.ceil(toGo / forecastRate) : null,
     finish: target !== null ? eta(target) : null,
     eta,
     plan,
     planDiff: plan !== null && current !== null ? r2(current - plan) : null,
-    progress: span > 0 ? Math.min(1, Math.max(0, lost / span)) : null,
+    progress: !hold && span > 0 ? Math.min(1, Math.max(0, lost / span)) : null,
     weekDelta: cur?.delta ?? null,
     bmi: bmiOf(current, g.height),
   };
@@ -262,6 +312,51 @@ export function parseSizes(text) {
     const words = line.split(/\s+/);
     const at = words.findIndex((w, i) => i > 0 && (/^\d/.test(w) || SIZE_LETTERS.test(w)));
     return at > 0 ? { label: words.slice(0, at).join(' '), value: words.slice(at).join(' ') } : { label: line, value: '' };
+  });
+}
+
+/** Знімок розмірів на дату — налаштування sizes:<дата> { text }; поточні розміри лишаються в sizes. */
+export const SIZES_PREFIX = 'sizes:';
+const isoOfMs = (ms) => {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+/**
+ * Знімки розмірів від старого до нового: { id, date, text }. Поки знімків нема, поточний текст — єдиний
+ * знімок із датою останнього збереження та id null (його ще не записано окремо).
+ */
+export function sizeSnapshots(settings) {
+  const list = settings.filter((s) => s.id.startsWith(SIZES_PREFIX))
+    .map((s) => ({ id: s.id, date: s.id.slice(SIZES_PREFIX.length), text: s.text ?? '' }));
+  if (!list.length) {
+    const cur = settings.find((s) => s.id === SIZES_ID);
+    if (cur?.text?.trim() && cur.updated) list.push({ id: null, date: isoOfMs(cur.updated), text: cur.text });
+  }
+  return list.sort((a, b) => (a.date < b.date ? -1 : 1));
+}
+
+const sizeKey = (label) => label.trim().toLowerCase();
+
+/** Значення розмірів тексту як { назва: значення } — порівняти два знімки. */
+export function sizeValues(text) {
+  return Object.fromEntries(parseSizes(text).map((s) => [sizeKey(s.label), s.value]));
+}
+
+export const sameSizes = (a, b) => JSON.stringify(Object.entries(sizeValues(a)).sort())
+  === JSON.stringify(Object.entries(sizeValues(b)).sort());
+
+/** Поточні розміри з історією змін: { label, value, history: [{ date, value }] } — history від нового до старого. */
+export function sizeHistory(text, snaps) {
+  const parsed = snaps.map((s) => ({ date: s.date, values: sizeValues(s.text) }));
+  return parseSizes(text).map((s) => {
+    const key = sizeKey(s.label);
+    const history = [];
+    for (const snap of parsed) {
+      if (!(key in snap.values)) continue;
+      if (history.at(-1)?.value !== snap.values[key]) history.push({ date: snap.date, value: snap.values[key] });
+    }
+    return { ...s, history: history.reverse() };
   });
 }
 
