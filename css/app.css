@@ -220,6 +220,26 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .kcal-cell b { font-size: 20px; font-variant-numeric: tabular-nums; }
 .kcal-cell.good b { color: var(--good); }
 .kcal-cell.bad b { color: var(--bad); }
+/* Смужки проти норми: мітка, доріжка з рискою норми, число */
+.kcal-bars { display: grid; gap: 8px; margin-top: 14px; }
+.kcal-bar { display: grid; grid-template-columns: 76px 1fr auto; align-items: center; gap: 10px; }
+.kcal-bar-label { white-space: nowrap; }
+.kcal-track { position: relative; height: 10px; border-radius: 99px; background: var(--surface-2); }
+.kcal-fill { position: absolute; inset: 0 auto 0 0; border-radius: 99px; background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
+.kcal-fill.to-norm { border-radius: 99px 0 0 99px; }
+.kcal-over { position: absolute; top: 0; bottom: 0; border-radius: 0 99px 99px 0; background: var(--bad); }
+.kcal-norm { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--text); }
+.kcal-bar-value { min-width: 4.2ch; text-align: right; font-size: 15px; font-variant-numeric: tabular-nums; }
+.kcal-legend { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.kcal-legend-norm { width: 2px; height: 12px; border-radius: 1px; background: var(--text); }
+/* Прогноз за калоріями поруч із тим, що показують ваги */
+.kcal-facts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 12px; }
+.kcal-fact { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 12px; border: 1px solid var(--line-soft); min-width: 0; }
+.kcal-fact b { font-size: 17px; font-variant-numeric: tabular-nums; }
+.kcal-fact.good b { color: var(--good); }
+.kcal-fact.bad b { color: var(--bad); }
+.kcal-how { margin-top: 12px; }
+.kcal-how p { margin: 0 0 4px; }
 .sizes .row-side { max-width: 60%; }
 .sizes .row.stacked { flex-direction: column; align-items: stretch; gap: 2px; }
 .sizes .row.stacked .row-side { max-width: none; align-items: flex-start; }
@@ -353,11 +373,16 @@ button.food-window.open .food-win-text::after { content: ''; }
 .today-note { flex-basis: 100%; overflow-wrap: anywhere; }
 
 .stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin: 0 0 12px; }
+/* На телефоні дві колонки: непарна остання плитка — на всю ширину, без дірки праворуч */
+@media (max-width: 489px) { .stats > :last-child:nth-child(odd) { grid-column: 1 / -1; } }
 .stat { padding: 10px 12px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line-soft); min-width: 0; }
 .stat-label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
 .stat-label .ico { width: 16px; height: 16px; color: var(--accent-2); }
 .stat-value { margin-top: 2px; font-size: 22px; font-weight: 800; overflow-wrap: anywhere; }
 .stat-sub { margin-top: 2px; font-size: 12px; overflow-wrap: anywhere; }
+.stat-steps { display: flex; gap: 2px; margin-top: 8px; }
+.stat-steps span { flex: 1; height: 6px; border-radius: 2px; background: var(--surface-2); }
+.stat-steps span.on { background: var(--accent-2); }
 .stat.good .stat-value { color: var(--good); }
 .stat.bad .stat-value { color: var(--bad); }
 

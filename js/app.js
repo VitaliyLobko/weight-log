@@ -244,11 +244,18 @@ function trendClass(v) {
   return v < 0 ? 'good' : 'bad';
 }
 
-function stat(name, label, value, sub, cls = '') {
+function stat(name, label, value, sub, cls = '', extra = null) {
   return h('div', { class: `stat ${cls}` },
     h('div', { class: 'stat-label' }, icon(name), label),
     h('div', { class: 'stat-value' }, value),
+    extra,
     sub ? h('div', { class: 'stat-sub muted' }, sub) : null);
+}
+
+/** Шкала «скільки днів із 14 без нового мінімуму»: заповнені — минули, порожні — лишилось до плато. */
+function plateauSteps(days, total) {
+  return h('div', { class: 'stat-steps', role: 'img', 'aria-label': t('До плато лишилось {n} дн.', { n: total - days }) },
+    Array.from({ length: total }, (_, i) => h('span', { class: i < days ? 'on' : '' })));
 }
 
 function hero(todayRow) {
@@ -275,7 +282,7 @@ function hero(todayRow) {
       h('div', { class: 'goal-bar' },
         h('div', { class: 'goal-fill', style: `width:${pos(s.current)}` }),
         M.checkpoints(rows, goal, s).filter((c) => !c.isTarget).map((c) => h('span', { class: `goal-tick ${c.reached ? 'done' : ''}`, style: `left:${pos(c.kg)}` }))),
-      h('div', { class: 'goal-ends' }, h('span', {}, fmt.fix(s.base.avg, 2)), h('span', {}, s.toGo > 0
+      h('div', { class: 'goal-ends' }, h('span', {}, t('старт {kg}', { kg: fmt.fix(s.base.avg, 2) })), h('span', {}, s.toGo > 0
         ? t('ціль {kg} · ще {d}', { kg: fmt.fix(s.target), d: fmt.fix(s.toGo, 1) })
         : t('ціль {kg}', { kg: fmt.fix(s.target) })))) : null,
     todayRow ? todayLine(todayRow) : null);
@@ -298,9 +305,10 @@ function statsGrid() {
     // Крупно — темп за 4 тижні: ним рахується прогноз, і на плато він не хвалить загальним темпом
     const rate = s.recent ?? s.rate;
     const planOk = !s.hold && Number.isFinite(g.planRate) && rate >= g.planRate;
-    tiles.push(stat('speed', s.recent !== null ? t('Темп за 4 тиж.') : t('Темп'), `${fmt.fix(rate, 2)} ${t('кг/тиж')}`,
-      [s.recent !== null ? t('від початку {r}', { r: fmt.fix(s.rate, 2) }) : null,
-        !s.hold && Number.isFinite(g.planRate) ? t('план {r}', { r: fmt.fix(g.planRate, 2) }) : null].filter(Boolean).join(' · ') || null,
+    // Зі знаком, як «За тиждень» і прогноз у калоріях: «−0,77» — худнете
+    tiles.push(stat('speed', s.recent !== null ? t('Темп за 4 тиж.') : t('Темп'), `${fmt.signed(-rate, 2)} ${t('кг/тиж')}`,
+      [s.recent !== null ? t('від початку {r}', { r: fmt.signed(-s.rate, 2) }) : null,
+        !s.hold && Number.isFinite(g.planRate) ? t('план {r}', { r: fmt.signed(-g.planRate, 2) }) : null].filter(Boolean).join(' · ') || null,
       planOk ? 'good' : !s.hold && rate <= 0 ? 'bad' : ''));
   }
   if (s.weekDelta !== null) {
@@ -318,8 +326,8 @@ function statsGrid() {
   const low = !s.hold && !M.plateau(rows, goal.pauses) ? M.lastLow(rows, goal.pauses) : null;
   if (low) {
     tiles.push(stat('flag', t('Мінімум середнього'), kg(low.low, 2), low.days
-      ? t('{n} з {p} дн. без нового — далі плато', { n: low.days, p: M.PLATEAU_DAYS })
-      : t('новий — сьогодні'), low.days ? '' : 'good'));
+      ? t('{n} з {p} дн. без нового', { n: low.days, p: M.PLATEAU_DAYS })
+      : t('новий — сьогодні'), low.days ? '' : 'good', low.days ? plateauSteps(low.days, M.PLATEAU_DAYS) : null));
   }
   // Дата фінішу з прогнозом — у «Контрольних точках» рядком цілі; плитка лишається для «ціль досягнута» і «не знижується».
   // На утриманні фінішу немає
@@ -462,26 +470,57 @@ function caloriesBox() {
       : cell(t('Дефіцит'), day !== null ? deficitText(-day) : '—', day !== null ? (day < 0 ? 'good' : 'bad') : ''),
   ];
   const f = c.f;
-  const span = c.source === 'real' ? t('за {n} позначених днів 4 тижнів', { n: c.en.marked }) : t('за 7 днів');
+  const fact = (label, value, sub, cls = '') => h('div', { class: `kcal-fact ${cls}` },
+    h('span', { class: 'muted small' }, label), h('b', {}, value), sub ? h('span', { class: 'muted small' }, sub) : null);
   // Зміна ваги зі знаком: «−0,63» — худнете, «+0,20» — набираєте
-  const weekly = perWeek === null ? null : [
+  const facts = perWeek === null ? null : h('div', { class: 'kcal-facts' },
     sum.hold
-      ? t('У середньому {s}: їсте {k}, баланс {b} — {d} кг на тиждень, на утриманні мета близько нуля',
-        { s: span, k: kcalText(c.intake), b: fmt.signed(round10(c.balance), 0), d: fmt.signed(-perWeek, 2) })
-      : t('У середньому {s}: їсте {k}, дефіцит {b} — це {r} кг на тиждень',
-        { s: span, k: kcalText(c.intake), b: deficitText(deficit), r: fmt.signed(-perWeek, 2) }),
-    real !== null ? t(', на вагах {r} за {w}', { r: fmt.signed(-real, 2), w: sum.recent !== null ? t('останні 4 тижні') : t('весь час') }) : null, '.'];
+      ? fact(t('Баланс у середньому'), t('{d} кг/тиж', { d: fmt.signed(-perWeek, 2) }), t('мета — близько нуля'),
+        Math.abs(perWeek) <= 0.1 ? 'good' : 'bad')
+      : fact(t('Прогноз за калоріями'), t('{d} кг/тиж', { d: fmt.signed(-perWeek, 2) }), deficit >= 0 ? t('сер. дефіцит {k}', { k: fmt.int(round10(deficit)) }) : t('сер. понад норму {k}', { k: fmt.int(round10(-deficit)) })),
+    real !== null ? fact(t('Насправді на вагах'), t('{d} кг/тиж', { d: fmt.signed(-real, 2) }),
+      sum.recent !== null ? t('за останні 4 тижні') : t('за весь час')) : null);
   return box(withIcon('speed', t('Калорії на день')), h('div', { class: 'kcal' },
     h('div', { class: 'kcal-grid' }, cells),
-    weekly ? h('p', { class: 'small' }, weekly) : null,
+    kcalBars(c),
+    facts,
     c.intake === null ? h('p', { class: 'muted small' }, t('Скільки їсте — порахую за планом у «Раціоні».')) : null,
-    h('p', { class: 'muted small' }, c.source === 'real'
-      ? [t('Норма — за вашими даними: {n} позначених днів за {d} дн. і тренд ваги.', { n: c.en.marked, d: c.en.days }),
-        f ? ` ${t('За формулою було б ≈{k}.', { k: kcalText(f.burn) })}` : null]
-      : [t('Норма — за формулою Міффліна–Сан Жеора: вага {kg}, зріст {h} см, {a} р., активність {k}.',
-        { kg: fmt.fix(f.kg, 1), h: fmt.int(sum.goal.height), a: f.age, k: numStr(f.activity) }),
-      ' ', t('Коли за 4 тижні буде 14 позначених днів «Як день?», порахую за вашими даними.')])),
+    // Як рахується норма — довідка, щодня не потрібна: згорнута, у заголовку лише звідки норма
+    h('details', { class: 'about-more kcal-how' },
+      h('summary', {}, c.source === 'real' ? t('Як рахується норма · за вашими даними') : t('Як рахується норма · поки за формулою')),
+      h('p', { class: 'muted small' }, c.source === 'real'
+        ? [t('Норма — за вашими даними: {n} позначених днів за {d} дн. і тренд ваги.', { n: c.en.marked, d: c.en.days }),
+          f ? ` ${t('За формулою було б ≈{k}.', { k: kcalText(f.burn) })}` : null]
+        : [t('Норма — за формулою Міффліна–Сан Жеора: вага {kg}, зріст {h} см, {a} р., активність {k}.',
+          { kg: fmt.fix(f.kg, 1), h: fmt.int(sum.goal.height), a: f.age, k: numStr(f.activity) }),
+        ' ', t('Коли за 4 тижні буде 14 позначених днів «Як день?», порахую за вашими даними.')]))),
   { tools: [toolBtn('edit', t('Змінити'), () => openSettings('body'))] });
+}
+
+/**
+ * Смужки «Сьогодні» і «Середнє» проти норми (bullet chart): довжина — скільки їсте, риска — норма,
+ * понад норму — червоним. Числа поруч, тож колір не єдиний носій змісту.
+ */
+function kcalBars(c) {
+  const list = [
+    [t('Сьогодні'), c.todayKcal],
+    [c.source === 'real' ? t('Сер. 4 тиж.') : t('Сер. 7 дн.'), c.intake],
+  ].filter(([, v]) => v !== null);
+  if (!list.length) return null;
+  const max = Math.max(c.burn, ...list.map(([, v]) => v)) * 1.04;
+  const pct = (v) => `${((v / max) * 100).toFixed(1)}%`;
+  const bar = ([label, v]) => h('div', { class: 'kcal-bar' },
+    h('span', { class: 'kcal-bar-label muted small' }, label),
+    h('span', { class: 'kcal-track' },
+      h('span', { class: `kcal-fill ${v > c.burn ? 'to-norm' : ''}`, style: `width: ${pct(Math.min(v, c.burn))}` }),
+      v > c.burn ? h('span', { class: 'kcal-over', style: `left: ${pct(c.burn)}; width: ${pct(v - c.burn)}` }) : null,
+      h('span', { class: 'kcal-norm', style: `left: ${pct(c.burn)}` })),
+    h('b', { class: 'kcal-bar-value' }, fmt.int(round10(v))));
+  return h('div', {
+    class: 'kcal-bars', role: 'img',
+    'aria-label': [...list.map(([l, v]) => `${l}: ${kcalText(v)}`), `${t('Норма')}: ${kcalText(c.burn)}`].join(', '),
+  }, list.map(bar),
+  h('div', { class: 'kcal-legend muted small', 'aria-hidden': 'true' }, h('span', { class: 'kcal-legend-norm' }), t('норма {k}', { k: kcalText(c.burn) })));
 }
 
 /** Тижневі стовпчики з підписом «5/7» — днів за планом із позначених. */
