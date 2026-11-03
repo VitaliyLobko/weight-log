@@ -22,8 +22,8 @@ const MAX_TEXT = 300;
 const NUMS = ['kcal', 'p', 'f', 'c'];
 
 // Ключі збігаються з ботом (worker.js: DAY_STATUS, DAY_REASONS)
-export const STATUS = { ok: 'За планом', off: 'Немного не так', slip: 'Срыв' };
-const REASONS = { hunger: 'Голод', stress: 'Стресс', boredom: 'Скука', event: 'Событие', tired: 'Усталость' };
+export const STATUS = { ok: 'За планом', off: 'Трохи не так', slip: 'Зрив' };
+const REASONS = { hunger: 'Голод', stress: 'Стрес', boredom: 'Нудьга', event: 'Подія', tired: 'Втома' };
 
 // Останній стан — для живих шторок (день з полоси тижня), що перебудовуються після запису
 let current = null;
@@ -63,7 +63,7 @@ async function saveDay(date, patch) {
 
 function undo(message, date, before) {
   toast(message, {
-    action: t('Отменить'),
+    action: t('Скасувати'),
     onAction: () => {
       const { updated, ...rec } = before ?? { id: `${DAY_PREFIX}${date}`, date, status: null, reason: null, extras: [] };
       db.write({ settings: { put: [rec] } });
@@ -85,8 +85,8 @@ export async function toggleSkipped(date, item) {
   const list = dayOf(await db.loadAll(), date)?.skipped ?? [];
   const off = list.includes(item.id);
   const before = await saveDay(date, { skipped: off ? list.filter((x) => x !== item.id) : [...list, item.id] });
-  undo(off ? t('«{name}» снова в итоге дня', { name: item.name })
-    : t('«{name}» не съели: −{k}', { name: item.name, k: kcal(item.kcal) }), date, before);
+  undo(off ? t('«{name}» знову в підсумку дня', { name: item.name })
+    : t('«{name}» не з\'їли: −{k}', { name: item.name, k: kcal(item.kcal) }), date, before);
 }
 
 /** Увесь прийом: не з'їли нічого (усі продукти — у «не з'їв») або, якщо вже так, повернути всі. */
@@ -97,7 +97,7 @@ export async function toggleMealSkipped(date, meal) {
   const next = all ? list.filter((id) => !ids.includes(id)) : [...new Set([...list, ...ids])];
   const before = await saveDay(date, { skipped: next });
   const k = meal.items.reduce((a, x) => a + (Number(x.kcal) || 0), 0);
-  undo(all ? t('«{name}» снова в итоге дня', { name: meal.name }) : t('«{name}» не съели: −{k}', { name: meal.name, k: kcal(k) }), date, before);
+  undo(all ? t('«{name}» знову в підсумку дня', { name: meal.name }) : t('«{name}» не з\'їли: −{k}', { name: meal.name, k: kcal(k) }), date, before);
 }
 
 const toggleTag = (state, date, tag) => {
@@ -139,24 +139,24 @@ async function addExtras(date, items) {
 // ---------- шторки ----------
 
 const AI_ERRORS = {
-  'no-bot': 'Подсчёт работает через Telegram-бот — подключите его в «Данных». Пока — вручную.',
-  offline: 'Нет сети — введите вручную.',
-  limit: 'Лимит подсчётов на сегодня исчерпан — введите вручную.',
-  'no-ai': 'Бот не может посчитать — введите вручную.',
+  'no-bot': 'Підрахунок працює через Telegram-бота — підключіть його в «Даних». Поки — вручну.',
+  offline: 'Нема мережі — введіть вручну.',
+  limit: 'Ліміт підрахунків на сьогодні вичерпано — введіть вручну.',
+  'no-ai': 'Бот не може порахувати — введіть вручну.',
 };
 
 // Звідки значення — підпис над продуктами в редакторі
 const SOURCE_NOTE = {
-  table: 'По справочнику — значения примерные, проверьте граммы.',
-  my: 'Из «Моих продуктов».',
-  off: 'Из базы Open Food Facts по штрихкоду — значения с упаковки.',
-  label: 'С фото этикетки — сверьте с упаковкой.',
+  table: 'За довідником — значення приблизні, перевірте грами.',
+  my: 'З «Моїх продуктів».',
+  off: 'З бази Open Food Facts за штрихкодом — значення з упаковки.',
+  label: 'З фото етикетки — звірте з упаковкою.',
 };
 const sourceNote = (items) => {
   const srcs = new Set(items.map((x) => x.src).filter(Boolean));
-  return srcs.size === 1 ? t(SOURCE_NOTE[[...srcs][0]] ?? '') || null : srcs.size ? t('Часть — по справочнику, часть — из «Моих продуктов».') : null;
+  return srcs.size === 1 ? t(SOURCE_NOTE[[...srcs][0]] ?? '') || null : srcs.size ? t('Частина — за довідником, частина — з «Моїх продуктів».') : null;
 };
-const errorText = (err) => t(AI_ERRORS[err?.message] ?? 'Не удалось посчитать — введите вручную.');
+const errorText = (err) => t(AI_ERRORS[err?.message] ?? 'Не вдалося порахувати — введіть вручну.');
 
 /**
  * «З'їв поза планом»: текст → спершу «Мої продукти» й довідник без мережі, решта — модель через бота;
@@ -166,7 +166,7 @@ export function foodSheet(date = M.today()) {
   const state = current;
   const text = h('textarea', {
     rows: 3, maxlength: MAX_TEXT, autocomplete: 'off',
-    placeholder: t('Например: 2 куска пиццы и кола 0,5'),
+    placeholder: t('Наприклад: 2 шматки піци й кола 0,5'),
   });
   const connected = Boolean(bot.botConfig().from);
   const foods = state ? topFoods(state) : [];
@@ -175,11 +175,11 @@ export function foodSheet(date = M.today()) {
     close();
     const item = withoutStats(f);
     const before = await addExtras(date, [item]);
-    undo(t('Добавлено: {name} · {k}', { name: f.name, k: kcal(f.kcal) }), date, before);
+    undo(t('Додано: {name} · {k}', { name: f.name, k: kcal(f.kcal) }), date, before);
   };
   const count = async () => {
     const q = text.value.trim();
-    if (!q) { text.focus(); toast(t('Напишите, что съели')); return; }
+    if (!q) { text.focus(); toast(t('Напишіть, що з\'їли')); return; }
     const local = resolveLocal(q, mine);
     if (local.items.length && !local.missing.length) {
       close();
@@ -191,17 +191,17 @@ export function foodSheet(date = M.today()) {
       close();
       editor(date, [...local.items, ...local.missing.map((name) => ({ name }))], {
         note: t(local.items.length
-          ? 'Не всё нашлось в справочнике — допишите калории. ИИ-подсчёт работает через Telegram-бот.'
-          : 'В справочнике не нашлось — введите калории. ИИ-подсчёт работает через Telegram-бот.'),
+          ? 'Не все знайшлося в довіднику — допишіть калорії. ШІ-підрахунок працює через Telegram-бот.'
+          : 'У довіднику не знайшлося — введіть калорії. ШІ-підрахунок працює через Telegram-бот.'),
       });
       return;
     }
     go.disabled = true;
-    go.textContent = t('Считаю…');
+    go.textContent = t('Рахую…');
     try {
       const r = await bot.askFood(q);
       close();
-      if (!r.items?.length) editor(date, [{ name: q }], { note: r.note || t('Не похоже на еду — введите вручную.') });
+      if (!r.items?.length) editor(date, [{ name: q }], { note: r.note || t('Не схоже на їжу — введіть вручну.') });
       else editor(date, r.items.map(fromModel), { note: r.note, source: r.source });
     } catch (err) {
       close();
@@ -214,12 +214,12 @@ export function foodSheet(date = M.today()) {
     scanSheet(async (code) => {
       const known = mine.find((x) => x.barcode === code);
       if (known) { editor(date, [withoutStats(known)], { note: t(SOURCE_NOTE.my) }); return; }
-      toast(t('Ищу штрихкод {code}…', { code }));
+      toast(t('Шукаю штрихкод {code}…', { code }));
       try {
         const it = await lookupBarcode(code);
         if (!it) {
           editor(date, [{ name: '', barcode: code }], {
-            note: t('Штрихкода {code} нет в Open Food Facts — сфотографируйте таблицу на упаковке или введите вручную.', { code }), error: true,
+            note: t('Штрихкоду {code} немає в Open Food Facts — сфотографуйте таблицю на упаковці або введіть вручну.', { code }), error: true,
           });
           return;
         }
@@ -230,16 +230,16 @@ export function foodSheet(date = M.today()) {
     });
   };
   const photo = async () => {
-    if (!connected) { toast(t('Фото этикетки читает Telegram-бот — подключите его в «Данных».')); return; }
+    if (!connected) { toast(t('Фото етикетки читає Telegram-бот — підключіть його в «Даних».')); return; }
     const image = await pickLabelPhoto();
     if (!image) return;
     close();
-    toast(t('Читаю этикетку…'), { timeout: 20000 });
+    toast(t('Читаю етикетку…'), { timeout: 20000 });
     try {
       const r = await bot.askLabel(image);
       const it = labelItem(r);
       document.querySelector('.toast')?.remove();
-      if (!it) { editor(date, [{ name: r.name ?? '' }], { note: r.note || t('Таблицу не удалось прочитать — введите вручную.'), error: true }); return; }
+      if (!it) { editor(date, [{ name: r.name ?? '' }], { note: r.note || t('Таблицю не вдалося прочитати — введіть вручну.'), error: true }); return; }
       editor(date, [{ ...it, qty: '', ...fromPer100(it.per100, it.grams), src: 'label' }], {
         note: [t(SOURCE_NOTE.label), r.note].filter(Boolean).join(' '), source: 'label',
       });
@@ -249,20 +249,20 @@ export function foodSheet(date = M.today()) {
     }
   };
   const manual = () => { close(); editor(date, [{ name: text.value.trim() }], {}); };
-  const go = btn(withIcon('spark', t('Посчитать')), count, 'primary');
+  const go = btn(withIcon('spark', t('Порахувати')), count, 'primary');
   const body = h('div', { class: 'food-ask' },
-    h('label', { class: 'field' }, h('span', { class: 'field-label' }, t('Что съели')), text,
+    h('label', { class: 'field' }, h('span', { class: 'field-label' }, t('Що з\'їли')), text,
       h('small', { class: 'muted' }, connected
-        ? t('Можно несколько продуктов с граммами или штуками. Сначала — «Мои продукты» и справочник, остальное посчитает ИИ.')
-        : t('Можно несколько продуктов с граммами или штуками — посчитаю по справочнику. Для остального подключите Telegram-бот в «Данных».'))),
+        ? t('Можна кілька продуктів із грамами чи штуками. Спершу — «Мої продукти» й довідник, решту порахує ШІ.')
+        : t('Можна кілька продуктів із грамами чи штуками — порахую за довідником. Для решти підключіть Telegram-бот у «Даних».'))),
     h('div', { class: 'food-src-btns' },
       btn(withIcon('barcode', t('Штрихкод')), scan),
-      btn(withIcon('camera', t('Фото этикетки')), photo)),
-    foods.length ? [h('h4', { class: 'food-sub' }, t('Мои продукты')),
+      btn(withIcon('camera', t('Фото етикетки')), photo)),
+    foods.length ? [h('h4', { class: 'food-sub' }, t('Мої продукти')),
       h('div', { class: 'chips food-quick' }, foods.map((f) => h('button', { type: 'button', onclick: () => quick(f) },
         h('span', {}, f.name), h('span', { class: 'muted' }, fmt.int(f.kcal)))))] : null);
-  const close = sheet(dateTitle(t('Вне плана'), date), body, {
-    actions: [btn(t('Вручную'), manual), go],
+  const close = sheet(dateTitle(t('Поза планом'), date), body, {
+    actions: [btn(t('Вручну'), manual), go],
   });
   setTimeout(() => text.focus(), 250);
 }
@@ -299,18 +299,18 @@ function itemCard(item, onChange, onRemove) {
   };
   const onNum = () => { per100 = null; onChange(); };
   const f = {
-    name: field('name', t('Название'), item.name ?? ''),
-    qty: field('qty', t('Порция'), item.qty ?? '', 'third'),
-    grams: field('grams', t('Граммы'), num(item.grams), 'third', onGrams),
+    name: field('name', t('Назва'), item.name ?? ''),
+    qty: field('qty', t('Порція'), item.qty ?? '', 'third'),
+    grams: field('grams', t('Грами'), num(item.grams), 'third', onGrams),
     kcal: field('kcal', t('Ккал'), num(item.kcal), 'third', onNum),
     p: field('p', t('Б'), num(item.p), '', onNum),
     f: field('f', t('Ж'), num(item.f), '', onNum),
-    c: field('c', t('У'), num(item.c), '', onNum),
+    c: field('c', t('В'), num(item.c), '', onNum),
   };
   const check = h('p', { class: 'small food-check', hidden: true }, icon('warning'),
-    h('span', {}, t('Калории не сходятся с БЖУ (4·Б + 9·Ж + 4·У) — проверьте цифры.')));
+    h('span', {}, t('Калорії не сходяться з БЖВ (4·Б + 9·Ж + 4·В) — перевірте цифри.')));
   const el = h('div', { class: 'food-card' },
-    h('div', { class: 'food-card-head' }, f.name.el, onRemove ? toolBtn('delete', t('Удалить'), onRemove, 'danger') : null),
+    h('div', { class: 'food-card-head' }, f.name.el, onRemove ? toolBtn('delete', t('Видалити'), onRemove, 'danger') : null),
     h('div', { class: 'food-card-row' }, f.qty.el, f.grams.el, f.kcal.el),
     h('div', { class: 'food-card-macros' }, f.p.el, f.f.el, f.c.el),
     check);
@@ -346,7 +346,7 @@ function editor(date, items, { note, source, error, index = null } = {}) {
   const paint = () => {
     const vals = cards.map((c) => c.read());
     const s = vals.reduce((a, v) => a + (Number.isFinite(v.kcal) ? v.kcal : 0), 0);
-    total.replaceChildren(h('b', {}, kcal(s)), h('span', { class: 'muted' }, t('{n} {w}', { n: vals.length, w: plural(vals.length, [t('продукт'), t('продукта'), t('продуктов')]) })));
+    total.replaceChildren(h('b', {}, kcal(s)), h('span', { class: 'muted' }, t('{n} {w}', { n: vals.length, w: plural(vals.length, [t('продукт'), t('продукти'), t('продуктів')]) })));
   };
   const add = (item) => {
     const card = itemCard(item, paint, index === null ? () => {
@@ -364,33 +364,33 @@ function editor(date, items, { note, source, error, index = null } = {}) {
     const vals = cards.map((c) => c.read()).filter((v) => v.name || Number.isFinite(v.kcal));
     if (!vals.length) { close(); return; }
     const bad = vals.find((v) => !v.name || !Number.isFinite(v.kcal));
-    if (bad) { toast(bad.name ? t('Укажите калории: «{name}»', { name: bad.name }) : t('Укажите название')); return; }
+    if (bad) { toast(bad.name ? t('Вкажіть калорії: «{name}»', { name: bad.name }) : t('Вкажіть назву')); return; }
     close();
     if (index !== null) {
       const before = await saveDay(date, {
         extras: extrasOf(await db.loadAll(), date).map((x, i) => (i === index ? { ...x, ...vals[0] } : x)),
       });
       await rememberFoods(vals);
-      undo(t('Сохранено'), date, before);
+      undo(t('Збережено'), date, before);
       return;
     }
     const before = await addExtras(date, vals);
-    undo(t('Добавлено: {k}', { k: kcal(vals.reduce((a, v) => a + v.kcal, 0)) }), date, before);
+    undo(t('Додано: {k}', { k: kcal(vals.reduce((a, v) => a + v.kcal, 0)) }), date, before);
   };
   const remove = async () => {
     close();
     const before = await saveDay(date, { extras: extrasOf(await db.loadAll(), date).filter((_, i) => i !== index) });
-    undo(t('«{name}» удалено', { name: items[0].name }), date, before);
+    undo(t('«{name}» видалено', { name: items[0].name }), date, before);
   };
   const body = h('div', { class: 'food-edit' },
     note ? h('p', { class: `small food-ai-note ${error ? 'error-text' : 'muted'}` },
       source ? [icon('spark'), ' '] : null, note) : null,
     list,
-    index === null ? h('div', { class: 'btn-row' }, btn(withIcon('plus', t('Ещё продукт')), () => { add({}).focus(); paint(); })) : null,
+    index === null ? h('div', { class: 'btn-row' }, btn(withIcon('plus', t('Ще продукт')), () => { add({}).focus(); paint(); })) : null,
     total);
-  const close = sheet(index === null ? t('Проверьте и сохраните') : items[0].name, body, {
-    tools: index !== null ? [toolBtn('delete', t('Удалить'), remove, 'danger')] : [],
-    actions: [btn(t('Отмена'), () => close()), btn(t('Сохранить'), save, 'primary')],
+  const close = sheet(index === null ? t('Перевірте й збережіть') : items[0].name, body, {
+    tools: index !== null ? [toolBtn('delete', t('Видалити'), remove, 'danger')] : [],
+    actions: [btn(t('Скасувати'), () => close()), btn(t('Зберегти'), save, 'primary')],
   });
   if (!items[0]?.name) setTimeout(() => cards[0]?.focus(), 250);
 }
@@ -409,7 +409,7 @@ function dayBody(state, date) {
   const dayTags = [...new Set([...tagLists(planOf(state)).day, ...(rec?.tags ?? [])])];
   const skipped = rec?.skipped?.length ? skippedItems(state, rec.skipped) : [];
   return h('div', { class: 'day-body' },
-    h('div', { class: 'day-status', role: 'group', 'aria-label': t('Как прошёл день') },
+    h('div', { class: 'day-status', role: 'group', 'aria-label': t('Як минув день') },
       Object.entries(STATUS).map(([k, label]) => h('button', {
         type: 'button', class: `day-btn ${k} ${status === k ? 'on' : ''}`, 'aria-pressed': String(status === k),
         onclick: () => setStatus(state, date, k),
@@ -418,20 +418,20 @@ function dayBody(state, date) {
       // Правило — з довідки плану («Правило зриву»), щоб правилось в одному місці
       rule.length ? h('ul', { class: 'food-alts day-rule' }, rule.map((line) => h('li', {},
         h('span', { class: 'diet-dot', 'aria-hidden': 'true' }), h('span', {}, line))))
-        : h('p', { class: 'small' }, t('Один день не считается: ≈0,2 кг результата, не больше. Завтра — обычный завтрак, не меньше.')),
+        : h('p', { class: 'small' }, t('Один день не рахується: ≈0,2 кг результату, не більше. Завтра — звичайний сніданок, не менше.')),
       h('div', { class: 'chips day-reasons', role: 'group', 'aria-label': t('Причина') },
         h('span', { class: 'muted small' }, t('Причина:')),
         Object.entries(REASONS).map(([k, label]) => h('button', {
           type: 'button', class: rec?.reason === k ? 'on' : '', 'aria-pressed': String(rec?.reason === k),
           onclick: () => setReason(state, date, k),
         }, t(label))))) : null,
-    dayTags.length ? h('div', { class: 'chips day-tags', role: 'group', 'aria-label': t('Что было') },
-      h('span', { class: 'muted small' }, t('Что было:')),
+    dayTags.length ? h('div', { class: 'chips day-tags', role: 'group', 'aria-label': t('Що було') },
+      h('span', { class: 'muted small' }, t('Що було:')),
       dayTags.map((tag) => {
         const on = Boolean(rec?.tags?.includes(tag));
         return h('button', { type: 'button', class: on ? 'on' : '', 'aria-pressed': String(on), onclick: () => toggleTag(state, date, tag) }, tag);
       })) : null,
-    skipped.length ? h('p', { class: 'small day-skipped' }, t('Не съел из плана: {list} · −{k}', {
+    skipped.length ? h('p', { class: 'small day-skipped' }, t('Не з\'їв із плану: {list} · −{k}', {
       list: skippedNames(state, rec.skipped), k: kcal(skipped.reduce((a, x) => a + (Number(x.kcal) || 0), 0)),
     })) : null,
     extras.length ? h('div', { class: 'rows day-extras' }, extras.map((x, i) => h('button', {
@@ -439,9 +439,9 @@ function dayBody(state, date) {
     },
       h('div', { class: 'row-main' }, h('span', { class: 'row-title' }, x.name), x.qty ? h('span', { class: 'muted small' }, x.qty) : null),
       h('div', { class: 'row-side' }, h('span', { class: 'food-kcal' }, fmt.int(x.kcal)))))) : null,
-    extras.length > 1 ? h('div', { class: 'food-sum' }, h('b', {}, t('Вне плана: {k}', { k: kcal(xs.kcal) })),
+    extras.length > 1 ? h('div', { class: 'food-sum' }, h('b', {}, t('Поза планом: {k}', { k: kcal(xs.kcal) })),
       h('span', { class: 'muted' }, t('Б {p} · Ж {f} · В {c}', { p: fmt.int(xs.p), f: fmt.int(xs.f), c: fmt.int(xs.c) }))) : null,
-    h('div', { class: 'btn-row' }, btn(withIcon('pig', t('Съел вне плана'), 'ico-pig'), (e) => { oink(); hop(e.currentTarget.querySelector('.ico-pig')); foodSheet(date); })));
+    h('div', { class: 'btn-row' }, btn(withIcon('pig', t('З\'їв поза планом'), 'ico-pig'), (e) => { oink(); hop(e.currentTarget.querySelector('.ico-pig')); foodSheet(date); })));
 }
 
 /** Продукти плану за id: з прийомів, продуктів дня й добавки в паузу. */
@@ -459,7 +459,7 @@ function skippedNames(state, ids) {
   for (const m of planOf(state)?.meals ?? []) {
     const items = m.items ?? [];
     if (items.length > 1 && items.every((x) => set.has(x.id))) {
-      out.push(t('{name} — целиком', { name: m.name }));
+      out.push(t('{name} — цілком', { name: m.name }));
       for (const x of items) used.add(x.id);
     }
   }
@@ -489,7 +489,7 @@ function weekStrip(state) {
   return h('div', { class: 'day-week' }, days.map((d) => {
     const rec = dayOf(state, d);
     const s = rec?.status ?? 'none';
-    const label = `${fmt.weekday(d)} ${fmt.short(d)}: ${rec?.status ? t(STATUS[rec.status]) : t('не отмечен')}`;
+    const label = `${fmt.weekday(d)} ${fmt.short(d)}: ${rec?.status ? t(STATUS[rec.status]) : t('не позначено')}`;
     return h('button', {
       type: 'button', class: `day-cell ${d === date ? 'today' : ''}`, 'aria-label': label, title: label,
       onclick: () => daySheet(d),
@@ -539,7 +539,7 @@ function calendarBody(state) {
     }
     const c = calDay(state, d);
     if (c.eaten !== null) { stats.marked += 1; stats.eaten += c.eaten; stats.extra += extrasSum(state, d).kcal; }
-    const label = `${fmt.weekday(d)} ${fmt.short(d)}: ${c.eaten !== null ? kcal(c.eaten) : t('не отмечен')}`;
+    const label = `${fmt.weekday(d)} ${fmt.short(d)}: ${c.eaten !== null ? kcal(c.eaten) : t('не позначено')}`;
     cells.push(h('button', {
       type: 'button', class: `cal-cell ${c.cls} ${d === today ? 'today' : ''}`, 'aria-label': label, title: label,
       onclick: () => daySheet(d),
@@ -551,13 +551,13 @@ function calendarBody(state) {
   const wds = Array.from({ length: 7 }, (_, i) => fmt.weekday(M.addDays(start, i)));
   const el = h('div', { class: 'cal' },
     h('div', { class: 'cal-head' },
-      h('button', { type: 'button', class: 'icon-btn', 'aria-label': t('Предыдущий месяц'), onclick: nav(prevMonth) }, '‹'),
+      h('button', { type: 'button', class: 'icon-btn', 'aria-label': t('Попередній місяць'), onclick: nav(prevMonth) }, '‹'),
       h('b', {}, fmt.month(ym)),
-      h('button', { type: 'button', class: 'icon-btn', 'aria-label': t('Следующий месяц'), disabled: ym >= today.slice(0, 7), onclick: nav(nextMonth) }, '›')),
+      h('button', { type: 'button', class: 'icon-btn', 'aria-label': t('Наступний місяць'), disabled: ym >= today.slice(0, 7), onclick: nav(nextMonth) }, '›')),
     h('div', { class: 'cal-grid' }, wds.map((w) => h('span', { class: 'cal-wd' }, w)), cells),
-    h('div', { class: 'cal-legend' }, [['ok', 'по плану'], ['more', 'немного больше'], ['much', `+${CAL_LITTLE} и больше`], ['slip', 'срыв'], ['none', 'не отмечен']]
+    h('div', { class: 'cal-legend' }, [['ok', 'за планом'], ['more', 'трохи більше'], ['much', `+${CAL_LITTLE} и больше`], ['slip', 'зрив'], ['none', 'не позначено']]
       .map(([k, l]) => h('span', {}, h('i', { class: `cal-key ${k}`, 'aria-hidden': 'true' }), t(l)))),
-    stats.marked ? h('p', { class: 'muted small' }, t('Отмечено {n} дн. · в среднем {a} · вне плана {x}', {
+    stats.marked ? h('p', { class: 'muted small' }, t('Позначено {n} дн. · у середньому {a} · поза планом {x}', {
       n: stats.marked, a: kcal(stats.eaten / stats.marked), x: kcal(stats.extra),
     })) : null);
   const rebuild = () => el.replaceWith(calendarBody(current ?? state));
@@ -567,7 +567,7 @@ function calendarBody(state) {
 /** Календар калорій — окремий підрозділ «Раціону», тому без згортання. */
 export function calendarPanel(state) {
   use(state);
-  return h('section', { class: 'panel cal-panel' }, h('h3', {}, t('Календарь калорий')), calendarBody(state));
+  return h('section', { class: 'panel cal-panel' }, h('h3', {}, t('Календар калорій')), calendarBody(state));
 }
 
 /** Картка «Як день?» на «Раціоні»: сьогоднішня позначка, поза планом, тиждень і серія. */
@@ -576,8 +576,8 @@ export function dayCard(state) {
   const n = streak(state);
   return h('section', { class: 'panel day-card' },
     h('div', { class: 'day-head' },
-      h('h3', {}, t('Как день?')),
-      n >= 2 ? h('span', { class: 'day-streak' }, icon('trophy'), t('{n} {d} без срыва', { n, d: plural(n, [t('день'), t('дня'), t('дней')]) })) : null),
+      h('h3', {}, t('Як день?')),
+      n >= 2 ? h('span', { class: 'day-streak' }, icon('trophy'), t('{n} {d} без зриву', { n, d: plural(n, [t('день'), t('дні'), t('днів')]) })) : null),
     dayBody(state, M.today()),
     weekStrip(state));
 }
@@ -597,26 +597,26 @@ export function monthBox(state, en = null) {
   const wd = new Map();
   for (const r of slips) wd.set(fmt.weekday(r.date), (wd.get(fmt.weekday(r.date)) ?? 0) + 1);
   const [worst] = [...wd].sort((a, b) => b[1] - a[1]);
-  return box(withIcon('chart', t('30 дней по рациону')), h('div', { class: 'day-month' },
+  return box(withIcon('chart', t('30 днів за раціоном')), h('div', { class: 'day-month' },
     h('div', { class: 'day-counts' }, Object.entries(STATUS).map(([k, label]) => h('span', { class: 'day-count' },
       h('span', { class: `day-dot ${k}`, 'aria-hidden': 'true' }), h('b', {}, fmt.int(by(k))), ' ', h('span', { class: 'muted' }, t(label))))),
-    reasons.length ? h('p', { class: 'small' }, t('Причины срывов: {list}', { list: reasons.map(([l, n]) => `${t(l).toLowerCase()} ×${n}`).join(', ') })) : null,
-    worst && worst[1] >= 2 ? h('p', { class: 'small' }, t('Чаще всего срывы: {wd} ({n})', { wd: worst[0], n: worst[1] })) : null,
-    extraKcal ? h('p', { class: 'small' }, t('Вне плана: {k} ≈ {kg} кг', { k: kcal(extraKcal), kg: fmt.fix(extraKcal / KCAL_PER_KG, 2) })) : null,
-    h('p', { class: 'muted small' }, t('Отмечено {n} из 30 дней.', { n: marked.length })),
+    reasons.length ? h('p', { class: 'small' }, t('Причини зривів: {list}', { list: reasons.map(([l, n]) => `${t(l).toLowerCase()} ×${n}`).join(', ') })) : null,
+    worst && worst[1] >= 2 ? h('p', { class: 'small' }, t('Найчастіше зриви: {wd} ({n})', { wd: worst[0], n: worst[1] })) : null,
+    extraKcal ? h('p', { class: 'small' }, t('Поза планом: {k} ≈ {kg} кг', { k: kcal(extraKcal), kg: fmt.fix(extraKcal / KCAL_PER_KG, 2) })) : null,
+    h('p', { class: 'muted small' }, t('Позначено {n} з 30 днів.', { n: marked.length })),
     energyLine(en)), { fold: 'day-month' });
 }
 
 /** Реальна витрата за 4 тижні: з'їдене в позначені дні + тренд ваги. */
 function energyLine(en) {
   if (!en) {
-    return h('p', { class: 'muted small' }, t('Реальный расход посчитается, когда за 4 недели будет хотя бы 14 отмеченных дней.'));
+    return h('p', { class: 'muted small' }, t('Реальна витрата порахується, коли за 4 тижні буде хоча б 14 позначених днів.'));
   }
   return h('div', { class: 'day-energy' },
-    h('h4', { class: 'food-sub' }, withIcon('speed', t('Реальный расход'))),
-    h('p', { class: 'small' }, h('b', {}, t('≈{k} в день', { k: kcal(Math.round(en.burn / 10) * 10) })), ' · ',
-      t('едите ≈{a}, дефицит ≈{d}', { a: fmt.int(Math.round(en.intake / 10) * 10), d: fmt.int(Math.round(en.deficit / 10) * 10) })),
-    h('p', { class: 'muted small' }, t('По тренду среднего веса и {n} отмеченным дням за {days} дн. Срыв без записанной еды занижает расход.', { n: en.marked, days: en.days })));
+    h('h4', { class: 'food-sub' }, withIcon('speed', t('Реальна витрата'))),
+    h('p', { class: 'small' }, h('b', {}, t('≈{k} на день', { k: kcal(Math.round(en.burn / 10) * 10) })), ' · ',
+      t('їсте ≈{a}, дефіцит ≈{d}', { a: fmt.int(Math.round(en.intake / 10) * 10), d: fmt.int(Math.round(en.deficit / 10) * 10) })),
+    h('p', { class: 'muted small' }, t('За трендом середньої ваги й {n} позначеними днями за {days} дн. Зрив без записаної їжі занижує витрату.', { n: en.marked, days: en.days })));
 }
 
 /** Тиждень за раціоном: { ok, off, slip, marked } за дні [from, to]. */
@@ -676,14 +676,14 @@ export function journalDay(state, date) {
   const missedKcal = missed.reduce((a, x) => a + (Number(x.kcal) || 0), 0);
   const empty = !rec?.status && !extras.length && !missed.length;
   const names = [
-    extras.length ? t('вне плана: {list}', { list: extras.map((x) => x.name).join(', ') }) : null,
-    missed.length ? t('не съел: {list}', { list: skippedNames(state, rec.skipped) }) : null,
+    extras.length ? t('поза планом: {list}', { list: extras.map((x) => x.name).join(', ') }) : null,
+    missed.length ? t('не з\'їв: {list}', { list: skippedNames(state, rec.skipped) }) : null,
     rec?.tags?.length ? rec.tags.join(', ') : null,
   ].filter(Boolean);
   return h('button', { type: 'button', class: `log-food ${empty ? 'none' : ''}`, onclick: () => daySheet(date) },
     h('span', { class: 'log-food-head' },
       h('span', { class: `day-dot ${rec?.status ?? 'none'}`, 'aria-hidden': 'true' }),
-      h('span', {}, rec?.status ? t(STATUS[rec.status]) : t('День не отмечен')),
+      h('span', {}, rec?.status ? t(STATUS[rec.status]) : t('День не позначено')),
       rec?.status === 'slip' && REASONS[rec.reason] ? h('span', { class: 'muted' }, `· ${t(REASONS[rec.reason]).toLowerCase()}`) : null,
       xs ? h('span', { class: 'log-chip plus' }, `+${fmt.int(xs)}`) : null,
       missedKcal ? h('span', { class: 'log-chip minus' }, `−${fmt.int(missedKcal)}`) : null,
@@ -706,8 +706,8 @@ export function yesterdayText(state, date) {
   const prev = dayOf(state, M.addDays(date, -1));
   if (!prev) return null;
   const xs = (prev.extras ?? []).reduce((a, x) => a + (Number(x.kcal) || 0), 0);
-  const parts = [prev.status ? t(STATUS[prev.status]) : null, xs ? t('вне плана {k}', { k: kcal(xs) }) : null, ...(prev.tags ?? [])].filter(Boolean);
-  return parts.length ? t('Накануне: {s}', { s: parts.join(', ') }) : null;
+  const parts = [prev.status ? t(STATUS[prev.status]) : null, xs ? t('поза планом {k}', { k: kcal(xs) }) : null, ...(prev.tags ?? [])].filter(Boolean);
+  return parts.length ? t('Напередодні: {s}', { s: parts.join(', ') }) : null;
 }
 
 /** На головній: вага зросла після зриву чи з'їденого поза планом — пояснити, що це переважно вода. */
@@ -718,12 +718,12 @@ export function weightHint(state, row) {
   const xs = (prev?.extras ?? []).reduce((a, x) => a + (Number(x.kcal) || 0), 0);
   const tags = prev?.tags ?? [];
   if (!(prev?.status === 'slip' || prev?.status === 'off' || xs > 0 || tags.length)) return null;
-  const why = prev?.status === 'slip' ? t('вчера был срыв') : prev?.status === 'off' ? t('вчера было немного не по плану')
-    : xs > 0 ? t('вчера была еда вне плана') : t('вчера: {tags}', { tags: tags.join(', ') });
+  const why = prev?.status === 'slip' ? t('учора був зрив') : prev?.status === 'off' ? t('учора було трохи не за планом')
+    : xs > 0 ? t('учора була їжа поза планом') : t('учора: {tags}', { tags: tags.join(', ') });
   return h('details', { class: 'plateau day-hint' },
     h('summary', {},
-      h('div', { class: 'plateau-head' }, icon('trend'), h('b', {}, t('Вес {d} — {why}', { d: fmt.signed(row.day), why }))),
-      h('p', { class: 'small' }, xs ? t('Вне плана {k} — это ≈{kg} кг жира, остальное — вода и соль.', { k: kcal(xs), kg: fmt.fix(xs / KCAL_PER_KG, 2) })
-        : t('Почти всё это — вода и соль, не жир.'))),
-    h('p', { class: 'small' }, t('Солёное и углеводы держат воду 1–3 дня. Вернитесь к плану — без голодания и урезанного завтрака — и вес уйдёт сам.')));
+      h('div', { class: 'plateau-head' }, icon('trend'), h('b', {}, t('Вага {d} — {why}', { d: fmt.signed(row.day), why }))),
+      h('p', { class: 'small' }, xs ? t('Поза планом {k} — це ≈{kg} кг жиру, решта — вода й сіль.', { k: kcal(xs), kg: fmt.fix(xs / KCAL_PER_KG, 2) })
+        : t('Майже все це — вода й сіль, не жир.'))),
+    h('p', { class: 'small' }, t('Солоне й вуглеводи тримають воду 1–3 дні. Поверніться до плану — без голодування й урізаного сніданку — і вага піде сама.')));
 }

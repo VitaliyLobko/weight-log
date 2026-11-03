@@ -85,18 +85,18 @@ export function play(m) {
 }
 
 function title(m) {
-  if (m.kind === 'century') return t('Двузначное!');
-  if (m.kind === 'target') return t('Цель достигнута!');
-  if (m.kind === 'streak') return t('{n} дней без срыва!', { n: m.n });
-  return t('Контрольная точка {kg}', { kg: `${fmt.fix(m.kg)} ${t('кг')}` });
+  if (m.kind === 'century') return t('Двозначне!');
+  if (m.kind === 'target') return t('Ціль досягнута!');
+  if (m.kind === 'streak') return t('{n} днів без зриву!', { n: m.n });
+  return t('Контрольна точка {kg}', { kg: `${fmt.fix(m.kg)} ${t('кг')}` });
 }
 
 function text(m) {
-  if (m.kind === 'streak') return t('Рацион держится. Один срыв ничего не обнуляет — но пусть серия растёт.');
+  if (m.kind === 'streak') return t('Раціон тримається. Один зрив нічого не обнуляє — але хай серія росте.');
   const avg = fmt.fix(m.avg, 2);
-  if (m.kind === 'century') return t('Среднее за 7 дней впервые ниже сотни — {avg} кг.', { avg });
-  if (m.kind === 'target') return t('Среднее за 7 дней — {avg} кг, минус {lost} кг от начала.', { avg, lost: fmt.fix(m.lost, 1) });
-  return t('Среднее за 7 дней — {avg} кг. Так держать!', { avg });
+  if (m.kind === 'century') return t('Середнє за 7 днів уперше нижче сотні — {avg} кг.', { avg });
+  if (m.kind === 'target') return t('Середнє за 7 днів — {avg} кг, мінус {lost} кг від початку.', { avg, lost: fmt.fix(m.lost, 1) });
+  return t('Середнє за 7 днів — {avg} кг. Так тримати!', { avg });
 }
 
 /**

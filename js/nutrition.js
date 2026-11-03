@@ -76,7 +76,7 @@ const clock = (hhmm) => String(hhmm ?? '').replace(/^0(\d)/, '$1');
 function leftText(min) {
   const hh = Math.floor(min / 60);
   const mm = min % 60;
-  return hh ? t('{h} ч {m} мин', { h: hh, m: mm }) : t('{m} мин', { m: mm });
+  return hh ? t('{h} год {m} хв', { h: hh, m: mm }) : t('{m} хв', { m: mm });
 }
 
 /** Вікно їжі зараз: ще не відкрилось, відкрите (скільки лишилось) чи закрите. */
@@ -86,12 +86,12 @@ export function windowText(plan, now = new Date()) {
   const to = minutesOf(w?.to);
   if (from === null || to === null) return null;
   const cur = now.getHours() * 60 + now.getMinutes();
-  if (cur < from) return { state: 'before', text: t('Окно еды с {from} до {to}', { from: clock(w.from), to: clock(w.to) }) };
-  if (cur < to) return { state: 'open', text: t('Окно еды до {to} · осталось {left}', { to: clock(w.to), left: leftText(to - cur) }) };
+  if (cur < from) return { state: 'before', text: t('Вікно їжі з {from} до {to}', { from: clock(w.from), to: clock(w.to) }) };
+  if (cur < to) return { state: 'open', text: t('Вікно їжі до {to} · лишилось {left}', { to: clock(w.to), left: leftText(to - cur) }) };
   return {
     state: 'closed',
-    text: t('Окно закрыто до завтра {from}', { from: clock(w.from) }),
-    sub: w.lateNote && minutesOf(w.late) > cur ? t('Если голодно — {note}, не позже {late}', { note: w.lateNote, late: clock(w.late) }) : null,
+    text: t('Вікно закрите до завтра {from}', { from: clock(w.from) }),
+    sub: w.lateNote && minutesOf(w.late) > cur ? t('Якщо голодно — {note}, не пізніше {late}', { note: w.lateNote, late: clock(w.late) }) : null,
   };
 }
 
@@ -184,7 +184,7 @@ export function tagLists(plan) {
 function tagsForm(plan) {
   const lists = tagLists(plan);
   const area = (list) => {
-    const el = h('textarea', { rows: 4, autocomplete: 'off', placeholder: t('Одна метка — одна строка') });
+    const el = h('textarea', { rows: 4, autocomplete: 'off', placeholder: t('Одна мітка — один рядок') });
     el.value = list.join('\n');
     return el;
   };
@@ -194,14 +194,14 @@ function tagsForm(plan) {
   const save = async () => {
     close();
     await savePlan((p) => { p.tags = read(note); p.dayTags = read(day); });
-    toast(t('Сохранено'));
+    toast(t('Збережено'));
   };
-  const close = sheet(t('Метки'), h('div', { class: 'form' },
-    h('label', { class: 'field' }, h('span', { class: 'field-label' }, t('К весу — о теле')), note,
-      h('small', { class: 'muted' }, t('Под заметкой к взвешиванию: тренировка, сон, болезнь.'))),
-    h('label', { class: 'field' }, h('span', { class: 'field-label' }, t('К дню — еда и события')), day,
-      h('small', { class: 'muted' }, t('В карточке «Как день?»: солёное, застолье. Отсюда же подсказка, почему вырос вес.')))), {
-    actions: [btn(t('Отмена'), () => close()), btn(t('Сохранить'), save, 'primary')],
+  const close = sheet(t('Мітки'), h('div', { class: 'form' },
+    h('label', { class: 'field' }, h('span', { class: 'field-label' }, t('До ваги — про тіло')), note,
+      h('small', { class: 'muted' }, t('Під нотаткою до зважування: тренування, сон, хвороба.'))),
+    h('label', { class: 'field' }, h('span', { class: 'field-label' }, t('До дня — їжа й події')), day,
+      h('small', { class: 'muted' }, t('У картці «Як день?»: солоне, застілля. Звідси ж підказка, чому зросла вага.')))), {
+    actions: [btn(t('Скасувати'), () => close()), btn(t('Зберегти'), save, 'primary')],
   });
 }
 
@@ -226,7 +226,7 @@ async function savePlan(change) {
 function undoToast(message, before) {
   if (!before) return;
   toast(message, {
-    action: t('Отменить'),
+    action: t('Скасувати'),
     onAction: () => {
       const { updated, ...plan } = before;
       db.write({ settings: { put: [plan] } });
@@ -272,8 +272,8 @@ async function moveItem(id, step) {
     [at.list[at.i], at.list[j]] = [at.list[j], at.list[at.i]];
     moved = true;
   });
-  if (moved) toast(step < 0 ? t('Перемещено выше') : t('Перемещено ниже'));
-  else toast(step < 0 ? t('Уже первый') : t('Уже последний'));
+  if (moved) toast(step < 0 ? t('Переміщено вище') : t('Переміщено нижче'));
+  else toast(step < 0 ? t('Уже перший') : t('Уже останній'));
 }
 
 async function removeItem(item) {
@@ -281,7 +281,7 @@ async function removeItem(item) {
     const at = locate(plan, item.id);
     if (at) at.list.splice(at.i, 1);
   });
-  undoToast(t('«{name}» удалено', { name: item.name }), before);
+  undoToast(t('«{name}» видалено', { name: item.name }), before);
 }
 
 async function setPick(state, date, id) {
@@ -302,19 +302,19 @@ function itemSheet(item) {
       h('span', {}, kcal(item.kcal)),
       h('span', { class: 'muted' }, macros(totals([item])))),
     item.note ? h('p', { class: 'small' }, item.note) : null,
-    alts.length ? [h('h4', {}, t('Чем заменить')),
+    alts.length ? [h('h4', {}, t('Чим замінити')),
       h('ul', { class: 'food-alts' }, alts.map((a) => h('li', {}, h('span', { class: 'diet-dot', 'aria-hidden': 'true' }), h('span', {}, a))))] : null);
   // Сьогодні не з'їв — у підсумок дня не йде; план не змінюється
-  body.append(h('div', { class: 'btn-row' }, btn(item.skipped ? withIcon('check', t('Всё-таки съел')) : t('Сегодня не съел'), () => {
+  body.append(h('div', { class: 'btn-row' }, btn(item.skipped ? withIcon('check', t('Усе ж з\'їв')) : t('Сьогодні не з\'їв'), () => {
     close();
     toggleSkipped(M.today(), item);
   })));
   // Продукт дня в обіді переставляється серед продуктів дня, а не серед страв обіду
   const close = sheet(item.name, body, {
     tools: [
-      toolBtn('up', t('Выше'), () => moveItem(item.id, -1)),
-      toolBtn('down', t('Ниже'), () => moveItem(item.id, 1)),
-      toolBtn('edit', t('Изменить'), () => { close(); itemForm(item, item.isDay ? { day: true } : {}); }),
+      toolBtn('up', t('Вище'), () => moveItem(item.id, -1)),
+      toolBtn('down', t('Нижче'), () => moveItem(item.id, 1)),
+      toolBtn('edit', t('Змінити'), () => { close(); itemForm(item, item.isDay ? { day: true } : {}); }),
     ],
   });
 }
@@ -324,25 +324,25 @@ function itemForm(item, where = {}) {
   const isDay = Boolean(where.day || item?.isDay);
   const num = (v) => (Number.isFinite(v) ? fmt.fix(v, v % 1 ? 1 : 0) : '');
   const f = form([
-    { name: 'name', label: t('Название'), value: item?.name ?? '', required: true },
-    { name: 'qty', label: t('Сколько'), value: item?.qty ?? '', placeholder: t('175 г, 3 шт, 1 ч.л.') },
+    { name: 'name', label: t('Назва'), value: item?.name ?? '', required: true },
+    { name: 'qty', label: t('Скільки'), value: item?.qty ?? '', placeholder: t('175 г, 3 шт, 1 ч.л.') },
     { name: 'kcal', label: t('Ккал'), type: 'number', value: num(item?.kcal), required: true, min: 0, max: 5000, half: true },
-    { name: 'p', label: t('Белки, г'), type: 'number', value: num(item?.p), min: 0, max: 500, half: true },
-    { name: 'f', label: t('Жиры, г'), type: 'number', value: num(item?.f), min: 0, max: 500, half: true },
-    { name: 'c', label: t('Углеводы, г'), type: 'number', value: num(item?.c), min: 0, max: 500, half: true },
+    { name: 'p', label: t('Білки, г'), type: 'number', value: num(item?.p), min: 0, max: 500, half: true },
+    { name: 'f', label: t('Жири, г'), type: 'number', value: num(item?.f), min: 0, max: 500, half: true },
+    { name: 'c', label: t('Вуглеводи, г'), type: 'number', value: num(item?.c), min: 0, max: 500, half: true },
     ...(isDay ? [
-      { name: 'short', label: t('Коротко, на кнопке'), value: item?.short ?? '', half: true },
-      { name: 'perWeek', label: t('Раз в неделю'), type: 'number', value: num(item?.perWeek), min: 0, max: 7, half: true },
-      { name: 'group', label: t('Группа'), value: item?.group ?? '', hint: t('Одна группа — общие разы в неделю: например, три вида рыбы на 2 раза.') },
+      { name: 'short', label: t('Коротко, на кнопці'), value: item?.short ?? '', half: true },
+      { name: 'perWeek', label: t('Разів на тиждень'), type: 'number', value: num(item?.perWeek), min: 0, max: 7, half: true },
+      { name: 'group', label: t('Група'), value: item?.group ?? '', hint: t('Одна група — спільні рази на тиждень: наприклад, три види риби на 2 рази.') },
     ] : []),
-    { name: 'note', label: t('Заметка'), value: item?.note ?? '' },
+    { name: 'note', label: t('Нотатка'), value: item?.note ?? '' },
   ]);
-  const alts = h('textarea', { rows: 6, placeholder: t('Одна замена — одна строка') });
+  const alts = h('textarea', { rows: 6, placeholder: t('Одна заміна — один рядок') });
   alts.value = (item?.alts ?? []).join('\n');
-  f.el.append(h('label', { class: 'field' }, h('span', { class: 'field-label' }, t('Чем заменить')), alts));
+  f.el.append(h('label', { class: 'field' }, h('span', { class: 'field-label' }, t('Чим замінити')), alts));
   const save = async () => {
     const bad = f.invalid();
-    if (bad) { toast(t('Проверьте поле «{f}»', { f: bad.label })); return; }
+    if (bad) { toast(t('Перевірте поле «{f}»', { f: bad.label })); return; }
     const v = f.values();
     close();
     await saveItem({
@@ -352,25 +352,25 @@ function itemForm(item, where = {}) {
       ...(isDay ? { short: v.short, perWeek: v.perWeek ?? 0, group: v.group } : {}),
       alts: alts.value.split('\n').map((s) => s.trim()).filter(Boolean),
     }, where);
-    toast(item ? t('Сохранено') : t('Добавлено'));
+    toast(item ? t('Збережено') : t('Додано'));
   };
   const remove = () => { close(); removeItem(item); };
-  const close = sheet(item ? item.name : t('Новый продукт'), f.el, {
-    tools: item ? [toolBtn('delete', t('Удалить'), remove, 'danger')] : [],
-    actions: [btn(t('Отмена'), () => close()), btn(t('Сохранить'), save, 'primary')],
+  const close = sheet(item ? item.name : t('Новий продукт'), f.el, {
+    tools: item ? [toolBtn('delete', t('Видалити'), remove, 'danger')] : [],
+    actions: [btn(t('Скасувати'), () => close()), btn(t('Зберегти'), save, 'primary')],
   });
 }
 
 /** Прийом їжі: назва, час, порада під ним; видалити — разом із продуктами. */
 function mealForm(meal) {
   const f = form([
-    { name: 'name', label: t('Название'), value: meal?.name ?? '', required: true, half: true },
-    { name: 'time', label: t('Время'), value: meal?.time ?? '', placeholder: '11:00–12:00', half: true },
-    { name: 'note', label: t('Заметка'), value: meal?.note ?? '' },
+    { name: 'name', label: t('Назва'), value: meal?.name ?? '', required: true, half: true },
+    { name: 'time', label: t('Час'), value: meal?.time ?? '', placeholder: '11:00–12:00', half: true },
+    { name: 'note', label: t('Нотатка'), value: meal?.note ?? '' },
   ]);
   const save = async () => {
     const bad = f.invalid();
-    if (bad) { toast(t('Проверьте поле «{f}»', { f: bad.label })); return; }
+    if (bad) { toast(t('Перевірте поле «{f}»', { f: bad.label })); return; }
     const v = f.values();
     close();
     await savePlan((plan) => {
@@ -379,46 +379,46 @@ function mealForm(meal) {
       if (m) Object.assign(m, v);
       else plan.meals.push({ id: newId(), ...v, items: [] });
     });
-    toast(meal ? t('Сохранено') : t('Добавлено'));
+    toast(meal ? t('Збережено') : t('Додано'));
   };
-  const remove = () => confirmSheet(t('Удалить «{name}»?', { name: meal.name }),
-    t('Вместе с продуктами: {n}.', { n: meal.items?.filter((x) => !x.isDay).length ?? 0 }), t('Удалить'), async () => {
+  const remove = () => confirmSheet(t('Видалити «{name}»?', { name: meal.name }),
+    t('Разом із продуктами: {n}.', { n: meal.items?.filter((x) => !x.isDay).length ?? 0 }), t('Видалити'), async () => {
       close();
       const before = await savePlan((plan) => { plan.meals = plan.meals.filter((x) => x.id !== meal.id); });
-      undoToast(t('«{name}» удалено', { name: meal.name }), before);
+      undoToast(t('«{name}» видалено', { name: meal.name }), before);
     });
-  const close = sheet(meal ? meal.name : t('Новый приём еды'), f.el, {
-    tools: meal ? [toolBtn('delete', t('Удалить'), remove, 'danger')] : [],
-    actions: [btn(t('Отмена'), () => close()), btn(t('Сохранить'), save, 'primary')],
+  const close = sheet(meal ? meal.name : t('Новий прийом їжі'), f.el, {
+    tools: meal ? [toolBtn('delete', t('Видалити'), remove, 'danger')] : [],
+    actions: [btn(t('Скасувати'), () => close()), btn(t('Зберегти'), save, 'primary')],
   });
 }
 
 /** Пауза: дати від і до; index — позиція в plan.pauses, null — нова. */
 function pauseForm(pause, index) {
   const f = form([
-    { name: 'from', label: t('С'), type: 'dmy', value: pause?.from ?? '', required: true, half: true },
+    { name: 'from', label: t('З'), type: 'dmy', value: pause?.from ?? '', required: true, half: true },
     { name: 'to', label: t('По'), type: 'dmy', value: pause?.to ?? '', required: true, half: true },
   ]);
   const save = async () => {
     const bad = f.invalid();
-    if (bad) { toast(t('Проверьте поле «{f}»', { f: bad.label })); return; }
+    if (bad) { toast(t('Перевірте поле «{f}»', { f: bad.label })); return; }
     const v = f.values();
-    if (v.to < v.from) { toast(t('Конец паузы раньше начала')); return; }
+    if (v.to < v.from) { toast(t('Кінець паузи раніше за початок')); return; }
     close();
     await savePlan((plan) => {
       plan.pauses ??= [];
       if (index === null) plan.pauses.push(v); else plan.pauses[index] = v;
     });
-    toast(pause ? t('Сохранено') : t('Добавлено'));
+    toast(pause ? t('Збережено') : t('Додано'));
   };
   const remove = async () => {
     close();
     const before = await savePlan((plan) => { plan.pauses.splice(index, 1); });
-    undoToast(t('Пауза удалена'), before);
+    undoToast(t('Паузу видалено'), before);
   };
-  const close = sheet(pause ? t('Пауза') : t('Новая пауза'), f.el, {
-    tools: pause ? [toolBtn('delete', t('Удалить'), remove, 'danger')] : [],
-    actions: [btn(t('Отмена'), () => close()), btn(t('Сохранить'), save, 'primary')],
+  const close = sheet(pause ? t('Пауза') : t('Нова пауза'), f.el, {
+    tools: pause ? [toolBtn('delete', t('Видалити'), remove, 'danger')] : [],
+    actions: [btn(t('Скасувати'), () => close()), btn(t('Зберегти'), save, 'primary')],
   });
 }
 
@@ -429,11 +429,11 @@ function refForm(ref) {
     close();
     const text = input.value.split('\n').map((s) => s.trimEnd()).join('\n').trim();
     await savePlan((plan) => { const r = plan.refs?.find((x) => x.id === ref.id); if (r) r.text = text; });
-    toast(t('Сохранено'));
+    toast(t('Збережено'));
   };
   const close = sheet(ref.title, h('div', { class: 'form' },
-    h('label', { class: 'field' }, input, h('small', { class: 'muted' }, t('Строка с # — заголовок, с «-» — пункт списка.')))), {
-    actions: [btn(t('Сохранить'), save, 'primary')],
+    h('label', { class: 'field' }, input, h('small', { class: 'muted' }, t('Рядок з # — заголовок, з «-» — пункт списку.')))), {
+    actions: [btn(t('Зберегти'), save, 'primary')],
   });
 }
 
@@ -464,10 +464,10 @@ function foodRow(item) {
   return h('button', { type: 'button', class: `row food-row ${item.isDay ? 'day' : ''} ${zero ? 'zero' : ''} ${item.skipped ? 'skipped' : ''}`, onclick: () => itemSheet(item) },
     h('div', { class: 'row-main' },
       h('span', { class: 'row-title' }, item.name, item.isDay ? h('span', { class: 'food-tag' }, t('продукт дня')) : null,
-        item.skipped && !item.inMissed ? h('span', { class: 'food-tag skip' }, t('не съел')) : null),
+        item.skipped && !item.inMissed ? h('span', { class: 'food-tag skip' }, t('не з\'їв')) : null),
       item.qty ? h('span', { class: 'muted small' }, item.qty) : null),
     h('div', { class: 'row-side' }, zero ? null : h('span', { class: 'food-kcal' }, fmt.int(item.kcal)),
-      item.alts?.length ? h('span', { class: 'muted small' }, t('замен: {n}', { n: item.alts.length })) : null));
+      item.alts?.length ? h('span', { class: 'muted small' }, t('замін: {n}', { n: item.alts.length })) : null));
 }
 
 /** Прийом їжі вперше на екрані — розгорнутий; далі пам'ятається, як його лишили. */
@@ -488,7 +488,7 @@ const swiped = () => { if (!recall(SWIPE_SEEN)) remember(SWIPE_SEEN, '1'); };
 /** Продукт прийому: свайп уліво — «не з'їв» сьогодні (ще раз — повернути), тап — картка. */
 function swipeRow(item) {
   return swipeLeft(foodRow(item), {
-    label: item.skipped ? t('Вернуть') : t('Не съел'),
+    label: item.skipped ? t('Повернути') : t('Не з\'їв'),
     onSwipe: () => { swiped(); toggleSkipped(M.today(), item); },
   });
 }
@@ -513,27 +513,27 @@ function mealBox(meal, index) {
   const missed = meal.items.length > 0 && !eaten.length;
   const title = [meal.name, meal.time ? ` · ${meal.time}` : ''].join('');
   const tools = meal.isPause ? [] : [
-    toolBtn('plus', t('Добавить продукт'), () => itemForm(null, { meal: meal.id })),
-    toolBtn('edit', t('Изменить'), () => mealForm(meal)),
+    toolBtn('plus', t('Додати продукт'), () => itemForm(null, { meal: meal.id })),
+    toolBtn('edit', t('Змінити'), () => mealForm(meal)),
   ];
   const key = `meal:${meal.id}`;
   openFirstTime(key);
   const toggleMeal = () => toggleMealSkipped(M.today(), meal);
   const title2 = [withIcon(mealIcon(meal), title), missed ? h('span', { class: 'food-tag skip' }, t('пропущено')) : null];
   if (!meal.items.length) {
-    return box(title2, h('p', { class: 'muted small' }, t('Пусто — добавьте продукт «+»')), { fold: key, tools });
+    return box(title2, h('p', { class: 'muted small' }, t('Порожньо — додайте продукт «+»')), { fold: key, tools });
   }
   let el;
   if (missed) {
     // Пропущений прийом — один рядок замість закреслених продуктів
     const all = totals(meal.items);
     el = box(title2, h('div', { class: 'food-missed' },
-      h('p', {}, h('b', {}, t('Не ели · −{k}', { k: kcal(all.kcal) })),
+      h('p', {}, h('b', {}, t('Не їли · −{k}', { k: kcal(all.kcal) })),
         h('span', { class: 'muted small' }, meal.items.map((x) => x.name).join(', '))),
-      h('button', { type: 'button', class: 'btn food-meal-btn', onclick: toggleMeal }, t('Вернуть приём'))), { fold: key, tools });
+      h('button', { type: 'button', class: 'btn food-meal-btn', onclick: toggleMeal }, t('Повернути прийом'))), { fold: key, tools });
   } else {
     const hint = index === 0 && !recall(SWIPE_SEEN)
-      ? h('p', { class: 'muted small food-swipe-hint' }, t('Свайп влево по продукту — не съел, по заголовку — весь приём.')) : null;
+      ? h('p', { class: 'muted small food-swipe-hint' }, t('Свайп уліво по продукту — не з\'їв, по заголовку — весь прийом.')) : null;
     // Згорнутий прийом показує ккал у заголовку
     el = box(title2, h('div', {},
       h('div', { class: 'rows' }, meal.items.map(swipeRow)),
@@ -544,7 +544,7 @@ function mealBox(meal, index) {
   el.classList.add('food-meal');
   // Свайп по заголовку — увесь прийом; смуга на всю ширину блоку, заголовок великий
   return swipeLeft(el, {
-    label: missed ? t('Вернуть приём') : t('Не ел'),
+    label: missed ? t('Повернути прийом') : t('Не їв'),
     canStart: (e) => e.clientY < el.querySelector('legend').getBoundingClientRect().bottom + 8
       && !e.target.closest('.rows, .food-missed'),
     onSwipe: () => { swiped(); toggleMeal(); },
@@ -569,13 +569,13 @@ function dayPicker(state, day) {
   const choice = day.choice;
   if (!choice) {
     return h('button', { type: 'button', class: 'food-pick empty', onclick: () => itemForm(null, { day: true }) },
-      icon('plus'), h('span', {}, t('Добавить продукт дня')));
+      icon('plus'), h('span', {}, t('Додати продукт дня')));
   }
   return h('button', { type: 'button', class: 'food-pick', 'aria-haspopup': 'dialog', onclick: () => pickSheet(state) },
     h('span', { class: 'food-pick-main' },
       h('span', { class: 'food-pick-label' }, t('Продукт дня')),
       h('b', {}, `${choice.item.name} · ${kcal(choice.item.kcal)}`),
-      choice.picked ? null : h('span', { class: 'food-pick-hint' }, t('предложение — нажмите, чтобы выбрать'))),
+      choice.picked ? null : h('span', { class: 'food-pick-hint' }, t('пропозиція — натисніть, щоб вибрати'))),
     h('span', { class: 'chevron-right', 'aria-hidden': 'true' }, '›'));
 }
 
@@ -600,13 +600,13 @@ function pickSheet(state) {
         },
           h('span', { class: 'pick-radio', 'aria-hidden': 'true' }),
           h('div', { class: 'row-main' },
-            h('span', { class: 'row-title' }, p.name, on && !day.choice.picked ? h('span', { class: 'food-tag' }, t('предложение')) : null),
+            h('span', { class: 'row-title' }, p.name, on && !day.choice.picked ? h('span', { class: 'food-tag' }, t('пропозиція')) : null),
             h('span', { class: 'muted small' }, [p.qty, t('Б {p}', { p: fmt.int(p.p) })].filter(Boolean).join(' · '))),
           h('div', { class: 'row-side' },
             h('span', { class: 'food-kcal' }, fmt.int(p.kcal)),
             w.of ? h('span', { class: `small ${w.n >= w.of ? 'good' : 'muted'}` },
-              t(w.shared ? 'вместе {n} из {of} за нед.' : '{n} из {of} за нед.', { n: w.n, of: w.of })) : null)),
-        toolBtn('edit', t('Изменить «{name}»', { name: p.name }), () => { closeIt(); itemForm(p, { day: true }); }));
+              t(w.shared ? 'разом {n} з {of} за тиж.' : '{n} з {of} за тиж.', { n: w.n, of: w.of })) : null)),
+        toolBtn('edit', t('Змінити «{name}»', { name: p.name }), () => { closeIt(); itemForm(p, { day: true }); }));
       })),
       h('div', { class: 'btn-row' }, btn(withIcon('plus', t('Продукт дня')), () => { closeIt(); itemForm(null, { day: true }); })));
   };
@@ -618,12 +618,12 @@ function pauseNote(pause) {
   if (!p) return null;
   if (pause.now) {
     return h('div', { class: 'food-pause on' }, icon('calendar'),
-      h('span', {}, h('b', {}, t('Пауза на поддержании')), ' ', t('до {date} — еды больше, вес не снижается', { date: fmt.date(p.to) })));
+      h('span', {}, h('b', {}, t('Пауза на підтриманні')), ' ', t('до {date} — їжі більше, вага не знижується', { date: fmt.date(p.to) })));
   }
   const days = M.daysBetween(M.today(), p.from);
   if (days > 30) return null;
   return h('div', { class: 'food-pause' }, icon('calendar'),
-    h('span', {}, t('Пауза на поддержании с {date} — через {n} {d}', { date: fmt.date(p.from), n: days, d: plural(days, [t('день'), t('дня'), t('дней')]) })));
+    h('span', {}, t('Пауза на підтриманні з {date} — через {n} {d}', { date: fmt.date(p.from), n: days, d: plural(days, [t('день'), t('дні'), t('днів')]) })));
 }
 
 /** Дати пауз і добавка до них — правляться тут, бо сама добавка видна лише під час паузи. */
@@ -631,7 +631,7 @@ function pausesBox(plan) {
   const date = M.today();
   const list = (plan.pauses ?? []).map((p, i) => ({ ...p, i })).sort((a, b) => (a.from < b.from ? -1 : 1));
   const extra = plan.pauseItems ?? [];
-  return box(withIcon('calendar', t('Паузы: даты и добавка')), h('div', {},
+  return box(withIcon('calendar', t('Паузи: дати й добавка')), h('div', {},
     list.length ? h('div', { class: 'rows' }, list.map((p) => h('button', {
       type: 'button', class: `row ${p.to < date ? 'past' : ''}`, onclick: () => pauseForm(plan.pauses[p.i], p.i),
     },
@@ -648,14 +648,14 @@ function pausesBox(plan) {
 let current = null;
 
 // Підрозділи «Раціону»: день — щоденна робота, календар — історія, довідка — рідко
-const RATION_SEGS = [['today', 'Сегодня'], ['calendar', 'Календарь'], ['refs', 'Справка']];
+const RATION_SEGS = [['today', 'Сьогодні'], ['calendar', 'Календар'], ['refs', 'Довідка']];
 const SEG_KEY = 'weight-log:ration-seg';
 let rationSeg = RATION_SEGS.some(([k]) => k === recall(SEG_KEY)) ? recall(SEG_KEY) : 'today';
 
 export function renderRation(state, { noPlan, render }) {
   current = state;
   const day = today(state);
-  if (!day) return h('div', {}, noPlan(), box(withIcon('leaf', t('Питание при диабете')), dietMemo(), { fold: 'diet' }));
+  if (!day) return h('div', {}, noPlan(), box(withIcon('leaf', t('Харчування при діабеті')), dietMemo(), { fold: 'diet' }));
   const seg = segmented(RATION_SEGS.map(([k, l]) => [k, t(l)]), rationSeg, (v) => {
     rationSeg = v;
     remember(SEG_KEY, v);
@@ -670,18 +670,18 @@ function rationToday(state, day) {
   const norm = plan.norm;
   return h('div', {},
     h('section', { class: 'hero accent food-hero' },
-      h('div', { class: 'hero-label' }, t('Сегодня')),
+      h('div', { class: 'hero-label' }, t('Сьогодні')),
       h('div', { class: 'hero-value' }, fmt.int(sum.kcal), h('span', { class: 'hero-unit' }, t('ккал'))),
       h('div', { class: 'hero-sub' }, macros(sum)),
       extra.kcal ? h('div', { class: 'hero-sub food-split' },
-        t('план {a} + вне плана {b}', { a: fmt.int(planned.kcal), b: fmt.int(extra.kcal) })) : null,
+        t('план {a} + поза планом {b}', { a: fmt.int(planned.kcal), b: fmt.int(extra.kcal) })) : null,
       dayPicker(state, day),
       windowEl(plan, Boolean(pause.now))),
     pauseNote(pause),
     dayCard(state),
     meals.map(mealBox),
-    h('div', { class: 'btn-row' }, btn(withIcon('plus', t('Приём еды')), () => mealForm(null))),
-    norm ? h('p', { class: 'muted small food-norm' }, t('Норма в среднем за неделю: {k} · {m}', { k: kcal(norm.kcal), m: macros(norm) })) : null);
+    h('div', { class: 'btn-row' }, btn(withIcon('plus', t('Прийом їжі')), () => mealForm(null))),
+    norm ? h('p', { class: 'muted small food-norm' }, t('Норма в середньому за тиждень: {k} · {m}', { k: kcal(norm.kcal), m: macros(norm) })) : null);
 }
 
 function rationCalendar(state, { plan }) {
@@ -694,10 +694,10 @@ function rationCalendar(state, { plan }) {
 function rationRefs(state, { plan }) {
   return h('div', {},
     (plan.refs ?? []).map((r) => box(withIcon('book', r.title), refText(r.text), {
-      fold: `ref:${r.id}`, tools: [toolBtn('edit', t('Изменить'), () => refForm(r))],
+      fold: `ref:${r.id}`, tools: [toolBtn('edit', t('Змінити'), () => refForm(r))],
     })),
-    box(withIcon('leaf', t('Питание при диабете')), dietMemo(), { fold: 'diet' }),
-    h('div', { class: 'btn-row' }, btn(withIcon('note', t('Метки')), () => tagsForm(plan))));
+    box(withIcon('leaf', t('Харчування при діабеті')), dietMemo(), { fold: 'diet' }),
+    h('div', { class: 'btn-row' }, btn(withIcon('note', t('Мітки')), () => tagsForm(plan))));
 }
 
 /**
@@ -745,7 +745,7 @@ export function homeLine(state) {
     const win = windowText(day.plan);
     // Вікно закрите — час позначити день; позначений — показати як
     if (status) sub.replaceChildren(h('span', { class: `day-dot ${status}`, 'aria-hidden': 'true' }), t(STATUS[status]));
-    else if (win?.state === 'closed') sub.textContent = t('Как день? Отметьте в «Рационе»');
+    else if (win?.state === 'closed') sub.textContent = t('Як день? Позначте в «Раціоні»');
     else sub.textContent = win?.text ?? '';
     sub.hidden = !status && !win;
   };
