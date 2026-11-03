@@ -761,10 +761,11 @@ function burnLine(sum, burn) {
   const b = burn?.();
   if (!b?.kcal) return null;
   const r10 = (v) => Math.round(v / 10) * 10;
-  const diff = r10(sum.kcal - b.kcal);
+  // Дефіцит — від показаної (округленої) норми, щоб «норма − з'їдене» сходилося в голові
+  const n = r10(b.kcal); const diff = r10(sum.kcal - n);
   const rest = b.hold ? t('баланс {d}', { d: fmt.signed(diff, 0) })
     : diff <= 0 ? t('дефіцит {d}', { d: fmt.int(-diff) }) : t('понад норму {d}', { d: fmt.int(diff) });
-  return h('div', { class: 'hero-sub' }, t('Норма {n} · {r}', { n: fmt.int(r10(b.kcal)), r: rest }));
+  return h('div', { class: 'hero-sub' }, t('Норма {n} · {r}', { n: fmt.int(n), r: rest }));
 }
 
 function rationToday(state, day, burn) {
@@ -774,9 +775,9 @@ function rationToday(state, day, burn) {
     h('section', { class: 'hero accent food-hero' },
       h('div', { class: 'hero-label' }, t('Сьогодні')),
       h('div', { class: 'hero-value' }, fmt.int(sum.kcal), h('span', { class: 'hero-unit' }, t('ккал'))),
-      h('div', { class: 'hero-sub' }, macros(sum)),
+      h('div', { class: 'hero-sub' }, t('білки {p} · жири {f} · вуглеводи {c} г', { p: fmt.int(sum.p), f: fmt.int(sum.f), c: fmt.int(sum.c) })),
       extra.kcal ? h('div', { class: 'hero-sub food-split' },
-        t('план {a} + поза планом {b}', { a: fmt.int(planned.kcal), b: fmt.int(extra.kcal) })) : null,
+        t('за планом {a} + поза планом {b}', { a: fmt.int(planned.kcal), b: fmt.int(extra.kcal) })) : null,
       burnLine(sum, burn),
       dayPicker(state, day),
       windowEl(plan, Boolean(pause.now))),
@@ -784,7 +785,7 @@ function rationToday(state, day, burn) {
     dayCard(state),
     meals.map(mealBox),
     h('div', { class: 'btn-row' }, btn(withIcon('plus', t('Прийом їжі')), () => mealForm(null))),
-    norm ? h('p', { class: 'muted small food-norm' }, t('Норма в середньому за тиждень: {k} · {m}', { k: kcal(norm.kcal), m: macros(norm) })) : null);
+    norm ? h('p', { class: 'muted small food-norm' }, t('План у середньому за тиждень: {k} · {m}', { k: kcal(norm.kcal), m: macros(norm) })) : null);
 }
 
 function rationCalendar(state, { plan }) {

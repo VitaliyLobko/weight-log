@@ -470,7 +470,8 @@ function caloriesBox() {
       h('span', { class: 'chevron-right', 'aria-hidden': 'true' }, '›'));
   }
   const cell = (label, value, cls = '') => h('div', { class: `kcal-cell ${cls}` }, h('span', { class: 'muted small' }, label), h('b', {}, value));
-  const day = c.todayKcal !== null ? c.todayKcal - c.burn : null;
+  // Різниця — з показаних (округлених) чисел, щоб плитки сходилися: Сьогодні − Норма = Дефіцит
+  const day = c.todayKcal !== null ? round10(c.todayKcal) - round10(c.burn) : null;
   const deficit = c.balance !== null ? -c.balance : null;
   const perWeek = deficit !== null ? (deficit * 7) / M.KCAL_PER_KG : null;
   const real = sum.recent ?? sum.rate;
