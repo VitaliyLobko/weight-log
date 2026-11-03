@@ -7,7 +7,7 @@ import * as bot from './bot.js';
 import { h, fmt, sheet, toast, btn, toolBtn, box, parseNum } from './ui.js';
 import { t, plural } from './i18n.js';
 import { icon, withIcon, hop } from './icons.js';
-import { planOf, tagLists, slipRule, plannedKcal } from './nutrition.js';
+import { planOf, tagLists, slipRule, plannedKcal, cutOf, cutText, portionText } from './nutrition.js';
 import { resolveLocal, fromModel, fromPer100, per100Of, kcalMismatch, withoutStats } from './foods.js';
 import { scanSheet, lookupBarcode, pickLabelPhoto, labelItem } from './scan.js';
 import { oink } from './oink.js';
@@ -87,6 +87,31 @@ export async function toggleSkipped(date, item) {
   const before = await saveDay(date, { skipped: off ? list.filter((x) => x !== item.id) : [...list, item.id] });
   undo(off ? t('«{name}» знову в підсумку дня', { name: item.name })
     : t('«{name}» не з\'їли: −{k}', { name: item.name, k: kcal(item.kcal) }), date, before);
+}
+
+/** Не вся порція продукту чи прийому (key — id чи `meal:<id>`); null — знову як у плані. Зі скасуванням. */
+export async function setPortion(date, key, name, portion) {
+  const cur = { ...(dayOf(await db.loadAll(), date)?.portions ?? {}) };
+  if (portion === null) delete cur[key];
+  else cur[key] = portion;
+  const before = await saveDay(date, { portions: cur });
+  undo(portion === null || portion === 1 ? t('«{name}» — уся порція', { name })
+    : t('«{name}» — {p} порції', { name, p: portionText(portion) }), date, before);
+}
+
+/**
+ * Порція всього прийому; unskip — прийом був пропущений: повернути його й поставити частку одним записом
+ * (одне «Скасувати»). Продукти, що не з'їли окремо в непропущеному прийомі, так і лишаються «не з'їв».
+ */
+export async function setMealPortion(date, meal, portion, { unskip = false } = {}) {
+  const rec = dayOf(await db.loadAll(), date);
+  const ids = new Set(meal.items.filter((x) => !x.off).map((x) => x.id));
+  const portions = { ...(rec?.portions ?? {}) };
+  if (portion === null || portion === 1) delete portions[`meal:${meal.id}`];
+  else portions[`meal:${meal.id}`] = portion;
+  const before = await saveDay(date, { portions, ...(unskip ? { skipped: (rec?.skipped ?? []).filter((id) => !ids.has(id)) } : {}) });
+  undo(portion === null || portion === 1 ? t('«{name}» — уся порція', { name: meal.name })
+    : t('«{name}» — {p} порції', { name: meal.name, p: portionText(portion) }), date, before);
 }
 
 /** Увесь прийом: не з'їли нічого (усі продукти — у «не з'їв») або, якщо вже так, повернути всі. */
@@ -409,7 +434,7 @@ function dayBody(state, date) {
   const xs = extrasSum(state, date);
   const rule = slipRule(state);
   const dayTags = [...new Set([...tagLists(planOf(state)).day, ...(rec?.tags ?? [])])];
-  const skipped = rec?.skipped?.length ? skippedItems(state, rec.skipped) : [];
+  const cut = cutOf(state, date);
   return h('div', { class: 'day-body' },
     h('div', { class: 'day-status', role: 'group', 'aria-label': t('Як минув день') },
       Object.entries(STATUS).map(([k, label]) => h('button', {
@@ -433,9 +458,7 @@ function dayBody(state, date) {
         const on = Boolean(rec?.tags?.includes(tag));
         return h('button', { type: 'button', class: on ? 'on' : '', 'aria-pressed': String(on), onclick: () => toggleTag(state, date, tag) }, tag);
       })) : null,
-    skipped.length ? h('p', { class: 'small day-skipped' }, t('Не з\'їв із плану: {list} · −{k}', {
-      list: skippedNames(state, rec.skipped), k: kcal(skipped.reduce((a, x) => a + (Number(x.kcal) || 0), 0)),
-    })) : null,
+    cut.kcal > 0 ? h('p', { class: 'small day-skipped' }, t('{what} · −{k}', { what: cutText(cut, { first: true }), k: kcal(cut.kcal) })) : null,
     extras.length ? h('div', { class: 'rows day-extras' }, extras.map((x, i) => h('button', {
       type: 'button', class: 'row food-row', onclick: () => editor(date, [x], { index: i }),
     },
@@ -444,29 +467,6 @@ function dayBody(state, date) {
     extras.length > 1 ? h('div', { class: 'food-sum' }, h('b', {}, t('Поза планом: {k}', { k: kcal(xs.kcal) })),
       h('span', { class: 'muted' }, t('Б {p} · Ж {f} · В {c}', { p: fmt.int(xs.p), f: fmt.int(xs.f), c: fmt.int(xs.c) }))) : null,
     h('div', { class: 'btn-row' }, btn(withIcon('pig', t('З\'їв поза планом'), 'ico-pig'), (e) => { oink(); hop(e.currentTarget.querySelector('.ico-pig')); foodSheet(date); })));
-}
-
-/** Продукти плану за id: з прийомів, продуктів дня й добавки в паузу. */
-function skippedItems(state, ids) {
-  const plan = planOf(state);
-  const all = [...(plan?.meals ?? []).flatMap((m) => m.items ?? []), ...(plan?.day?.items ?? []), ...(plan?.pauseItems ?? [])];
-  return ids.map((id) => all.find((x) => x.id === id)).filter(Boolean);
-}
-
-/** Що не з'їли — назвами; прийом, пропущений цілком, — одним словом «Обід — цілком». */
-function skippedNames(state, ids) {
-  const set = new Set(ids);
-  const out = [];
-  const used = new Set();
-  for (const m of planOf(state)?.meals ?? []) {
-    const items = m.items ?? [];
-    if (items.length > 1 && items.every((x) => set.has(x.id))) {
-      out.push(t('{name} — цілком', { name: m.name }));
-      for (const x of items) used.add(x.id);
-    }
-  }
-  for (const x of skippedItems(state, ids)) if (!used.has(x.id)) out.push(x.name);
-  return out.join(', ');
 }
 
 function daySheet(date) {
@@ -508,14 +508,14 @@ function weekStrip(state) {
 const CAL_LITTLE = 300;
 let calMonth = null;
 
-/** День у календарі: що з'їли (план мінус «не з'їв» плюс поза планом) і клас кольору. */
+/** День у календарі: що з'їли (план мінус «не з'їв» і недоїдені порції плюс поза планом) і клас кольору. */
 function calDay(state, date) {
   const rec = dayOf(state, date);
   const extra = extrasSum(state, date).kcal;
-  if (!rec?.status && !extra && !rec?.skipped?.length) return { cls: 'none', eaten: null };
+  const cut = cutOf(state, date).kcal;
+  if (!rec?.status && !extra && !cut) return { cls: 'none', eaten: null };
   const eaten = (plannedKcal(state, date) ?? 0) + extra;
-  const skippedKcal = rec?.skipped?.length ? skippedItems(state, rec.skipped).reduce((a, x) => a + (Number(x.kcal) || 0), 0) : 0;
-  const over = extra - skippedKcal;
+  const over = extra - cut;
   const cls = rec?.status === 'slip' ? 'slip'
     : over > CAL_LITTLE ? 'much'
       : over > 0 || rec?.status === 'off' ? 'more'
@@ -674,12 +674,12 @@ export function journalDay(state, date) {
   const rec = dayOf(state, date);
   const extras = rec?.extras ?? [];
   const xs = extrasSum(state, date).kcal;
-  const missed = skippedItems(state, rec?.skipped ?? []);
-  const missedKcal = missed.reduce((a, x) => a + (Number(x.kcal) || 0), 0);
-  const empty = !rec?.status && !extras.length && !missed.length;
+  const cut = cutOf(state, date);
+  const missedKcal = cut.kcal;
+  const empty = !rec?.status && !extras.length && !missedKcal;
   const names = [
     extras.length ? t('поза планом: {list}', { list: extras.map((x) => x.name).join(', ') }) : null,
-    missed.length ? t('не з\'їв: {list}', { list: skippedNames(state, rec.skipped) }) : null,
+    missedKcal ? cutText(cut) : null,
     rec?.tags?.length ? rec.tags.join(', ') : null,
   ].filter(Boolean);
   return h('button', { type: 'button', class: `log-food ${empty ? 'none' : ''}`, onclick: () => daySheet(date) },

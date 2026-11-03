@@ -211,6 +211,7 @@ const TOOL_ICON = {
   plus: '<path d="M12 5v14M5 12h14"/>',
   up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
   down: '<path d="M12 5v14M6 13l6 6 6-6"/>',
+  half: '<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor"/>',
 };
 
 /** Кнопка-іконка в шапці шторки. */

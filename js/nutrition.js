@@ -7,7 +7,7 @@ import { h, fmt, sheet, toast, form, btn, toolBtn, box, confirmSheet, remember, 
 import { t, plural } from './i18n.js';
 import { icon, withIcon } from './icons.js';
 import { dietMemo } from './diet.js';
-import { dayCard, monthBox, extrasSum, dayOf, STATUS, toggleSkipped, toggleMealSkipped, calendarPanel } from './daylog.js';
+import { dayCard, monthBox, extrasSum, dayOf, STATUS, toggleSkipped, toggleMealSkipped, setPortion, setMealPortion, calendarPanel } from './daylog.js';
 
 export const PLAN_ID = 'nutrition';
 /** Вибір продукту дня — окремим записом: тап на телефоні не перетирає правку плану з іншого пристрою. */
@@ -119,21 +119,67 @@ function buildDay(state, date) {
   const choice = dayChoice(plan, picksOf(state), date);
   const pause = pauseState(plan, date);
   // Продукти плану, які цього дня не з'їли або тимчасово не додаються, — у підсумок не йдуть; вимкнені — в кінці прийому
-  const skipped = new Set(dayOf(state, date)?.skipped ?? []);
-  const mark = (x) => {
+  const rec = dayOf(state, date);
+  const skipped = new Set(rec?.skipped ?? []);
+  const portions = rec?.portions ?? {};
+  const mark = (x, mealId) => {
     const off = offAt(x, date);
-    return off ? { ...x, off } : skipped.has(x.id) ? { ...x, skipped: true } : x;
+    if (off) return { ...x, off };
+    if (skipped.has(x.id)) return { ...x, skipped: true };
+    // Не вся порція: своя в продукту важить більше, ніж порція всього прийому; full — як у плані
+    const own = portions[x.id];
+    const portion = own ?? portions[`meal:${mealId}`];
+    if (!(portion > 0 && portion < 1)) return x;
+    return { ...x, ...Object.fromEntries(KEYS.map((k) => [k, (Number(x[k]) || 0) * portion])), portion, ownPortion: own !== undefined, full: x };
   };
   const order = (list) => [...list.filter((x) => !x.off), ...list.filter((x) => x.off)];
   const meals = (plan.meals ?? []).map((m) => ({
     ...m,
-    items: order([...(m.items ?? []), ...(choice && plan.day?.meal === m.id ? [{ ...choice.item, isDay: true }] : [])].map(mark)),
+    portion: portions[`meal:${m.id}`] ?? null,
+    items: order([...(m.items ?? []), ...(choice && plan.day?.meal === m.id ? [{ ...choice.item, isDay: true }] : [])].map((x) => mark(x, m.id))),
   }));
-  if (pause.now && plan.pauseItems?.length) meals.push({ id: 'pause', name: t('Добавка в паузу'), items: order(plan.pauseItems.map(mark)), isPause: true });
+  if (pause.now && plan.pauseItems?.length) {
+    meals.push({ id: 'pause', name: t('Добавка в паузу'), portion: portions['meal:pause'] ?? null, items: order(plan.pauseItems.map((x) => mark(x, 'pause'))), isPause: true });
+  }
   const planned = totals(meals.flatMap((m) => m.items).filter((x) => !x.skipped && !x.off));
   const extra = extrasSum(state, date);
   // Підсумок дня — план плюс з'їдене поза планом
-  return { plan, choice, pause, meals, planned, extra, sum: totals([planned, extra]) };
+  return { plan, choice, pause, meals, planned, extra, sum: totals([planned, extra]), cut: cutOfMeals(meals) };
+}
+
+/** Частка порції коротко: ½, ¾, ¼, інакше відсотки. */
+export const portionText = (p) => ({ 0.25: '¼', 0.5: '½', 0.75: '¾' })[p] ?? `${Math.round(p * 100)} %`;
+
+/**
+ * Скільки з плану не з'їли: { kcal, names, parts }. names — не з'їв: прийом цілком — «Обід — цілком», далі продукти;
+ * parts — з'їв частину: «Обід ½» (порція прийому), «Гречка ¾» (своя порція).
+ */
+function cutOfMeals(meals) {
+  let kcalCut = 0;
+  const names = [];
+  const parts = [];
+  for (const m of meals) {
+    const active = m.items.filter((x) => !x.off);
+    kcalCut += active.reduce((a, x) => a + (Number((x.full ?? x).kcal) || 0) - (x.skipped ? 0 : Number(x.kcal) || 0), 0);
+    const whole = active.length > 1 && active.every((x) => x.skipped);
+    if (whole) { names.push(t('{name} — цілком', { name: m.name })); continue; }
+    if (m.portion > 0 && m.portion < 1 && active.some((x) => x.portion && !x.ownPortion)) parts.push(`${m.name} ${portionText(m.portion)}`);
+    for (const x of active) {
+      if (x.skipped) names.push(x.name);
+      else if (x.ownPortion) parts.push(`${x.name} ${portionText(x.portion)}`);
+    }
+  }
+  return { kcal: kcalCut, names, parts };
+}
+
+/** Що з плану цього дня не з'їли (не з'їв і не вся порція): { kcal, names, parts }. */
+export const cutOf = (state, date) => today(state, date)?.cut ?? { kcal: 0, names: [], parts: [] };
+
+/** «не з'їв: … · з'їв частину: …» — для шторки дня й журналу; first — з великої. */
+export function cutText(cut, { first = false } = {}) {
+  const out = [cut.names.length ? t('не з\'їв: {list}', { list: cut.names.join(', ') }) : null,
+    cut.parts.length ? t('з\'їв частину: {list}', { list: cut.parts.join(', ') }) : null].filter(Boolean).join(' · ');
+  return first ? out.replace(/^./, (c) => c.toUpperCase()) : out;
 }
 
 /** Калорії плану на дату: прийоми, продукт дня, добавка в паузу (без поза планом). */
@@ -365,13 +411,27 @@ async function setPick(state, date, id) {
 
 // ---------- шторки ----------
 
-function itemSheet(item) {
+/**
+ * «З'їв не всю порцію» сьогодні: ¼ · ½ · ¾ · уся. key — id продукту чи `meal:<id>`; now — вибрана частка.
+ * «Уся» в продукту, коли в прийому порція, — явна 1: продукт з'їли цілком, хоч прийом і не весь.
+ */
+function portionChips(key, name, now, { mealPortion = null, done, onPick, caption = t('З\'їв сьогодні:'), whole = true } = {}) {
+  const pick = (p) => { done?.(); (onPick ?? ((v) => setPortion(M.today(), key, name, v === 1 && !mealPortion ? null : v)))(p); };
+  return h('div', { class: 'chips food-portion', role: 'group', 'aria-label': t('Порція сьогодні') },
+    h('span', { class: 'muted small' }, caption),
+    [[0.25, '¼'], [0.5, '½'], [0.75, '¾'], ...(whole ? [[1, t('усе')]] : [])].map(([p, label]) => h('button', {
+      type: 'button', class: now === p ? 'on' : '', 'aria-pressed': String(now === p), onclick: () => pick(p),
+    }, label)));
+}
+
+function itemSheet(item, meal = null) {
   const alts = item.alts ?? [];
+  const full = item.full ?? item;
   const body = h('div', { class: 'food-sheet' },
     h('div', { class: 'food-figures' },
-      item.qty ? h('b', {}, item.qty) : null,
-      h('span', {}, kcal(item.kcal)),
-      h('span', { class: 'muted' }, macros(totals([item])))),
+      full.qty ? h('b', {}, full.qty) : null,
+      h('span', {}, kcal(full.kcal)),
+      h('span', { class: 'muted' }, macros(totals([full])))),
     item.note ? h('p', { class: 'small' }, item.note) : null,
     alts.length ? [h('h4', {}, t('Чим замінити')),
       h('ul', { class: 'food-alts' }, alts.map((a) => h('li', {}, h('span', { class: 'diet-dot', 'aria-hidden': 'true' }), h('span', {}, a))))] : null);
@@ -382,16 +442,24 @@ function itemSheet(item) {
       : t('Не додаєте з {from}, поки не повернете.', { from: fmt.date(item.off.from) })),
     h('div', { class: 'btn-row' }, btn(withIcon('check', t('Повернути в раціон')), () => { close(); setOn(item); }, 'primary')));
   } else {
+    // Порція — лише коли продукт з'їли: «не з'їв» і так знімає його цілком
+    const mealPortion = meal?.portion > 0 && meal.portion < 1 ? meal.portion : null;
+    if (!item.skipped && Number(full.kcal) > 0) {
+      body.append(portionChips(item.id, item.name, item.portion ?? 1, { mealPortion, done: () => close() }),
+        item.portion ? h('p', { class: 'muted small food-portion-note' }, t('Сьогодні в підсумку {k} з {all}{why}', {
+          k: kcal(item.kcal), all: kcal(full.kcal), why: item.ownPortion ? '' : t(' — порція всього прийому'),
+        })) : null);
+    }
     body.append(h('div', { class: 'btn-row' },
       btn(item.skipped ? withIcon('check', t('Усе ж з\'їв')) : t('Сьогодні не з\'їв'), () => { close(); toggleSkipped(M.today(), item); }),
       btn(t('Тимчасово не додаю'), () => { close(); offForm(item); })));
   }
-  // Продукт дня в обіді переставляється серед продуктів дня, а не серед страв обіду
+  // Продукт дня в обіді переставляється серед продуктів дня, а не серед страв обіду; правка — повні числа плану
   const close = sheet(item.name, body, {
     tools: [
       toolBtn('up', t('Вище'), () => moveItem(item.id, -1)),
       toolBtn('down', t('Нижче'), () => moveItem(item.id, 1)),
-      toolBtn('edit', t('Змінити'), () => { close(); itemForm(item, item.isDay ? { day: true } : {}); }),
+      toolBtn('edit', t('Змінити'), () => { close(); itemForm(full, full.isDay ? { day: true } : {}); }),
     ],
   });
 }
@@ -535,14 +603,15 @@ function refText(text) {
 
 // ---------- екран ----------
 
-function foodRow(item) {
+function foodRow(item, meal = null) {
   // Без калорій (кава без цукру) — тихий рядок без «0»: число там лише шумить
   const zero = !(Number(item.kcal) > 0);
-  return h('button', { type: 'button', class: `row food-row ${item.isDay ? 'day' : ''} ${zero ? 'zero' : ''} ${item.skipped ? 'skipped' : ''} ${item.off ? 'off' : ''}`, onclick: () => itemSheet(item) },
+  return h('button', { type: 'button', class: `row food-row ${item.isDay ? 'day' : ''} ${zero ? 'zero' : ''} ${item.skipped ? 'skipped' : ''} ${item.off ? 'off' : ''}`, onclick: () => itemSheet(item, meal) },
     h('div', { class: 'row-main' },
       h('span', { class: 'row-title' }, item.name, item.isDay ? h('span', { class: 'food-tag' }, t('продукт дня')) : null,
         item.skipped && !item.inMissed ? h('span', { class: 'food-tag skip' }, t('не з\'їв')) : null,
-        item.off ? h('span', { class: 'food-tag skip' }, offText(item.off)) : null),
+        item.off ? h('span', { class: 'food-tag skip' }, offText(item.off)) : null,
+        item.ownPortion ? h('span', { class: 'food-tag part' }, portionText(item.portion)) : null),
       item.qty ? h('span', { class: 'muted small' }, item.qty) : null),
     h('div', { class: 'row-side' }, zero ? null : h('span', { class: 'food-kcal' }, fmt.int(item.kcal)),
       item.alts?.length ? h('span', { class: 'muted small' }, t('замін: {n}', { n: item.alts.length })) : null));
@@ -564,10 +633,10 @@ const SWIPE_SEEN = 'weight-log:swipe-seen';
 const swiped = () => { if (!recall(SWIPE_SEEN)) remember(SWIPE_SEEN, '1'); };
 
 /** Продукт прийому: свайп уліво — «не з'їв» сьогодні (ще раз — повернути), тап — картка. */
-function swipeRow(item) {
+function swipeRow(item, meal) {
   // Тимчасово вимкнений — без свайпу: «не з'їв» йому ні до чого
-  if (item.off) return foodRow(item);
-  return swipeLeft(foodRow(item), {
+  if (item.off) return foodRow(item, meal);
+  return swipeLeft(foodRow(item, meal), {
     label: item.skipped ? t('Повернути') : t('Не з\'їв'),
     onSwipe: () => { swiped(); toggleSkipped(M.today(), item); },
   });
@@ -586,6 +655,16 @@ function mealIcon(meal) {
   return hour < 11 ? 'cup' : hour < 16 ? 'plate' : 'moon';
 }
 
+/** Не весь прийом: частка на всі його продукти; окремий продукт — у своїй картці. */
+function mealPortionSheet(meal, { missed = false } = {}) {
+  const close = sheet(meal.name, h('div', { class: 'food-sheet' },
+    h('p', { class: 'small' }, t('Скільки з прийому з\'їли сьогодні — калорії й БЖУ всіх його продуктів порахуються з цієї частки.')),
+    portionChips(`meal:${meal.id}`, meal.name, missed ? null : meal.portion ?? 1, {
+      done: () => close(), onPick: (p) => setMealPortion(M.today(), meal, p, { unskip: missed }),
+    }),
+    h('p', { class: 'muted small' }, t('Один продукт з\'їли інакше — тапніть його: своя порція важить більше.'))));
+}
+
 function mealBox(meal, index) {
   // Тимчасово вимкнені не їдяться й не пропускаються — їх ніби немає в прийомі
   const active = meal.items.filter((x) => !x.off);
@@ -594,13 +673,18 @@ function mealBox(meal, index) {
   // Увесь прийом пропущено — заголовок каже це, ккал у ньому немає
   const missed = active.length > 0 && !eaten.length;
   const title = [meal.name, meal.time ? ` · ${meal.time}` : ''].join('');
-  const tools = meal.isPause ? [] : [
-    toolBtn('plus', t('Додати продукт'), () => itemForm(null, { meal: meal.id })),
-    toolBtn('edit', t('Змінити'), () => mealForm(meal)),
-  ];
+  const tools = [
+    active.length ? toolBtn('half', t('Порція'), () => mealPortionSheet(meal, { missed })) : null,
+    ...(meal.isPause ? [] : [
+      toolBtn('plus', t('Додати продукт'), () => itemForm(null, { meal: meal.id })),
+      toolBtn('edit', t('Змінити'), () => mealForm(meal)),
+    ]),
+  ].filter(Boolean);
   const key = `meal:${meal.id}`;
   openFirstTime(key);
   const toggleMeal = () => toggleMealSkipped(M.today(), meal);
+  // Не весь прийом — частка в тій самій плашці, що й ккал: шапка не розлазиться на кілька рядків
+  const part = !missed && meal.portion > 0 && meal.portion < 1 ? `${portionText(meal.portion)} · ` : '';
   const title2 = [withIcon(mealIcon(meal), title), missed ? h('span', { class: 'food-tag skip' }, t('пропущено')) : null];
   if (!meal.items.length) {
     return box(title2, h('p', { class: 'muted small' }, t('Порожньо — додайте продукт «+»')), { fold: key, tools });
@@ -612,16 +696,20 @@ function mealBox(meal, index) {
     el = box(title2, h('div', { class: 'food-missed' },
       h('p', {}, h('b', {}, t('Не їли · −{k}', { k: kcal(all.kcal) })),
         h('span', { class: 'muted small' }, active.map((x) => x.name).join(', '))),
-      h('button', { type: 'button', class: 'btn food-meal-btn', onclick: toggleMeal }, t('Повернути прийом'))), { fold: key, tools });
+      h('button', { type: 'button', class: 'btn food-meal-btn', onclick: toggleMeal }, t('Повернути прийом')),
+      // З'їли не нічого, а частину — повернути прийом із часткою одним тапом
+      portionChips(key, meal.name, null, {
+        caption: t('З\'їв частину:'), whole: false, onPick: (p) => setMealPortion(M.today(), meal, p, { unskip: true }),
+      })), { fold: key, tools });
   } else {
     const hint = index === 0 && !recall(SWIPE_SEEN)
       ? h('p', { class: 'muted small food-swipe-hint' }, t('Свайп уліво по продукту — не з\'їв, по заголовку — весь прийом.')) : null;
     // Згорнутий прийом показує ккал у заголовку
     el = box(title2, h('div', {},
-      h('div', { class: 'rows' }, meal.items.map(swipeRow)),
+      h('div', { class: 'rows' }, meal.items.map((x) => swipeRow(x, meal))),
       h('div', { class: 'food-sum' }, h('b', {}, kcal(s.kcal)), h('span', { class: 'muted' }, macros(s))),
       meal.note ? h('p', { class: 'muted small food-note' }, meal.note) : null,
-      hint), { fold: key, count: Math.round(s.kcal) ? kcal(s.kcal) : null, tools });
+      hint), { fold: key, count: Math.round(s.kcal) ? `${part}${kcal(s.kcal)}` : null, tools });
   }
   el.classList.add('food-meal');
   // Свайп по заголовку — увесь прийом; смуга на всю ширину блоку, заголовок великий
