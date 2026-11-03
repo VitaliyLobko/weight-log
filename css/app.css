@@ -123,9 +123,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
   top: 0;
   z-index: 5;
   padding: calc(env(safe-area-inset-top) + 12px) 16px 10px;
-  background: color-mix(in srgb, var(--bg) 86%, transparent);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  /* Без розмиття під шапкою: blur перемальовує все, що під нею, на кожному кадрі — «Раціон» малювався вчетверо довше */
+  background: color-mix(in srgb, var(--bg) 97%, transparent);
   border-bottom: 1px solid var(--line-soft);
 }
 .topbar > * { max-width: 688px; margin-inline: auto; }
@@ -291,6 +290,14 @@ button.food-window.open .food-win-text::after { content: ''; }
 .food-line > .ico { flex: none; width: 20px; height: 20px; color: var(--accent-2); }
 .food-line-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .food-line .chevron-right { font-size: 22px; line-height: 1; color: var(--muted); }
+/* Тиждень за раціоном — праворуч у рядку їжі, відокремлений рискою */
+.food-week { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 1px; padding-left: 10px; border-left: 1px solid var(--line-soft); text-align: right; }
+.food-week b { font-size: 16px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.food-week .small { white-space: nowrap; }
+/* Підпис вікна їжі поруч зі значком тижня переноситься — рівними рядками, без «хв» самотою */
+.food-line-main > .small { text-wrap: balance; }
+.food-week.good b { color: var(--good); }
+.food-week.bad b { color: var(--bad); }
 .chips .chip-add { min-width: 44px; padding: 6px 12px; font-size: 18px; line-height: 1; color: var(--accent-2); border-style: dashed; }
 .food-sub { margin: 14px 2px 6px; font-size: 14px; color: var(--accent-2); }
 .row.past .row-title { color: var(--muted); font-weight: 500; }
@@ -816,9 +823,8 @@ button.row { cursor: pointer; }
   grid-template-columns: repeat(4, 1fr);
   height: calc(var(--tabs-h) + env(safe-area-inset-bottom));
   padding-bottom: env(safe-area-inset-bottom);
-  background: color-mix(in srgb, var(--surface) 92%, transparent);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  /* Без розмиття, як і шапка: майже непрозора смуга дешевша і на телефоні не смикається */
+  background: color-mix(in srgb, var(--surface) 98%, transparent);
   border-top: 1px solid var(--line-soft);
 }
 .tabs a {

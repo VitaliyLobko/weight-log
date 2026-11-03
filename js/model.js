@@ -69,14 +69,24 @@ const inPause = (pauses, date) => (pauses ?? []).some((p) => p.from <= date && d
 /** Дні схуднення між a і b: календарні мінус паузи. */
 const activeDays = (pauses, a, b) => daysBetween(a, b) - pauseDays(pauses, a, b);
 
-/** Дата через n днів схуднення: дні пауз не рахуються. */
+/**
+ * Дата через n днів схуднення: дні пауз не рахуються. Стрибком: кінець відсувається на дні пауз,
+ * що в нього потрапили, — а не перебором день за днем (на 250 днів до цілі це сотні дат на кожну точку).
+ */
 function addActiveDays(pauses, from, n) {
-  let d = from;
-  for (let left = n, guard = 0; left > 0 && guard < 5000; guard++) {
-    d = addDays(d, 1);
-    if (!inPause(pauses, d)) left -= 1;
+  if (n <= 0) return from;
+  const list = (pauses ?? []).filter((p) => p.to > from).sort((a, b) => (a.from < b.from ? -1 : 1));
+  let end = addDays(from, n);
+  let covered = from;
+  for (const p of list) {
+    if (p.from > end) break;
+    const start = p.from > covered ? p.from : addDays(covered, 1);
+    if (start > p.to) continue;
+    // Днів паузи, що лягли у (from, end], — на стільки ж відсувається кінець
+    end = addDays(end, daysBetween(start, p.to) + 1);
+    covered = p.to;
   }
-  return d;
+  return end;
 }
 
 /** Режим «Утримання»: ціль — вага, якої тримаємося в коридорі ±holdBand, а не точка фінішу. */

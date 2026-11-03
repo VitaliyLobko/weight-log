@@ -335,17 +335,29 @@ function statsGrid() {
   else if (!s.hold && !s.finish && s.toGo !== null && s.rate !== null) {
     tiles.push(stat('flag', t('Прогноз фінішу'), '—', s.recent !== null ? t('за 4 тиж. вага не знижується') : t('вага не знижується'), 'bad'));
   }
-  // З планом харчування — тиждень за раціоном замість «Днів записано»
-  const wk = planOf(state) ? weekMarks(state, M.addDays(M.today(), -6), M.today()) : null;
-  if (wk?.marked) {
-    const n = streak(state);
-    tiles.push(stat('leaf', t('За раціоном за 7 дн.'), t('{a} з {b}', { a: wk.ok, b: wk.marked }),
-      [wk.slip ? t('зривів: {n}', { n: wk.slip }) : null, n >= 2 ? t('{n} дн. без зриву', { n }) : null].filter(Boolean).join(' · ') || t('за планом'),
-      wk.slip ? 'bad' : wk.ok === wk.marked ? 'good' : ''));
-  } else {
+  // Тиждень за раціоном — у рядку їжі (rationBadge); без позначених днів — «Днів записано»
+  if (!rationWeek()) {
     tiles.push(stat('calendar-check', t('Днів записано'), fmt.int(s.days), g.startDate ? t('з {date}', { date: fmt.date(g.startDate) }) : null));
   }
   return h('div', { class: 'stats' }, tiles);
+}
+
+/** Тиждень за раціоном: скільки з позначених за 7 днів — за планом; без плану чи позначок — null. */
+function rationWeek() {
+  const wk = planOf(state) ? weekMarks(state, M.addDays(M.today(), -6), M.today()) : null;
+  return wk?.marked ? wk : null;
+}
+
+/** «5 з 7 · 3 дн. без зриву» праворуч у рядку їжі: про харчування — поруч із харчуванням, а не окремою плиткою. */
+function rationBadge() {
+  const wk = rationWeek();
+  if (!wk) return null;
+  const n = streak(state);
+  const note = wk.slip ? t('зривів: {n}', { n: wk.slip }) : n >= 2 ? t('{n} дн. без зриву', { n }) : t('за планом');
+  const cls = wk.slip ? 'bad' : wk.ok === wk.marked ? 'good' : '';
+  return h('span', { class: `food-week ${cls}`, 'aria-label': t('За раціоном за 7 днів: {a} з {b}, {note}', { a: wk.ok, b: wk.marked, note }) },
+    h('b', { 'aria-hidden': 'true' }, t('{a} з {b}', { a: wk.ok, b: wk.marked })),
+    h('span', { class: 'muted small', 'aria-hidden': 'true' }, note));
 }
 
 /** Плашка «Плато»: середнє давно не оновлює мінімум. */
@@ -611,7 +623,7 @@ function renderHome() {
     hero(todayRow),
     weightHint(state, todayRow),
     sum.hold ? holdNote() : [plateauNote(), holdOffer()],
-    homeLine(state),
+    homeLine(state, rationBadge()),
     statsGrid(),
     caloriesBox(),
     sum.hold ? null : checkpointsBox());

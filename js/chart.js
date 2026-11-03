@@ -119,6 +119,13 @@ export function lineChart(spec) {
   // Лінії aside (прогноз) меж не розсувають: за останнім днем лише spec.ahead днів запасу
   const allDates = [...new Set(spec.series.filter((se) => !se.aside).flatMap((se) => se.points.map((p) => p.date)))].sort();
   const D0 = allDates[0];
+  // Зсув дати від D0 — на кожну точку при кожному кадрі масштабу; дат мало, тож рахуємо один раз
+  const offs = new Map();
+  const offOf = (date) => {
+    let v = offs.get(date);
+    if (v === undefined) { v = daysBetween(D0, date); offs.set(date, v); }
+    return v;
+  };
   const full = allDates.length ? Math.max(1, daysBetween(D0, allDates.at(-1)) + (spec.ahead ?? 0)) : 1;
   const minSpan = Math.min(MIN_SPAN, full);
   const clampView = ([a, b]) => {
@@ -199,7 +206,7 @@ export function lineChart(spec) {
     const [v0, v1] = view;
     const spanDays = v1 - v0;
     if (fullBtn) fullBtn.hidden = !zoomed();
-    const off = (date) => daysBetween(D0, date);
+    const off = offOf;
     const inView = (p) => off(p.date) >= v0 - 1e-6 && off(p.date) <= v1 + 1e-6;
     // Лінії тягнемо до сусідньої точки за краєм — обрізає clipPath; крапки — лише видимі
     const shown = spec.series.map((se) => {

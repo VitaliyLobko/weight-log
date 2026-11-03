@@ -101,8 +101,19 @@ export function windowText(plan, now = new Date()) {
 const macros = (s) => t('Б {p} · Ж {f} · В {c}', { p: fmt.int(s.p), f: fmt.int(s.f), c: fmt.int(s.c) });
 const kcal = (v) => t('{n} ккал', { n: fmt.int(v) });
 
+// settings після кожного запису — новий масив (як у settingsIndex), тож підсумок дня кешуємо на масив і дату:
+// енергія за 28 днів, середнє за тиждень, головна й «Раціон» інакше перераховують ті самі дні по кілька разів
+const dayCache = new WeakMap();
+
 /** Усе, що їсться сьогодні: прийоми, продукт дня в своєму прийомі, добавка в паузу. */
 function today(state, date = M.today()) {
+  let byDate = dayCache.get(state.settings);
+  if (!byDate) { byDate = new Map(); dayCache.set(state.settings, byDate); }
+  if (!byDate.has(date)) byDate.set(date, buildDay(state, date));
+  return byDate.get(date);
+}
+
+function buildDay(state, date) {
   const plan = planOf(state);
   if (!plan) return null;
   const choice = dayChoice(plan, picksOf(state), date);
@@ -822,7 +833,7 @@ export function tickWindow() {
 }
 
 /** Рядок на головній: що сьогодні їсти й скільки лишилось вікна — тап веде у «Раціон». */
-export function homeLine(state) {
+export function homeLine(state, badge = null) {
   const day = today(state);
   if (!day) return null;
   const sub = h('span', { class: 'muted small' });
@@ -831,6 +842,7 @@ export function homeLine(state) {
     h('span', { class: 'food-line-main' },
       h('b', {}, day.choice ? `${day.choice.item.short || day.choice.item.name} · ${kcal(day.sum.kcal)}` : kcal(day.sum.kcal)),
       sub),
+    badge,
     h('span', { class: 'chevron-right', 'aria-hidden': 'true' }, '›'));
   const status = dayOf(state, M.today())?.status;
   el.paint = () => {
