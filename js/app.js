@@ -1429,6 +1429,23 @@ function avatarHi(e) {
   el.hiTimer = setTimeout(() => el.classList.remove('hi'), 600);
 }
 
+const CUP_SVG = '<svg viewBox="0 0 16 20" aria-hidden="true">'
+  + '<path class="st" d="M6 8.5c-2-2 2-3 0-6"/><path class="st" d="M10 8.5c-2-2 2-3 0-6"/>'
+  + '<path d="M3 10h9v6a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3z" fill="#f4f1ea" stroke="#3a2a1c"/>'
+  + '<path d="M12 11.5h1.2a2 2 0 0 1 0 4H12" fill="none" stroke="#3a2a1c"/><ellipse cx="7.5" cy="10.4" rx="4" ry=".9" fill="#6b3f1f"/></svg>';
+
+/** «На каву автору», як у Shooter’s Log: банка Монобанку звичайним посиланням, без сторонніх скриптів. */
+function donateCard() {
+  return h('a', { class: 'donate-card', href: 'https://send.monobank.ua/jar/XJKDMyVfW', target: '_blank', rel: 'noopener' },
+    h('span', { class: 'donate-art' },
+      h('span', { class: 'donate-cat' }, h('img', { src: './icons/cat-portrait.png', alt: '', width: 50, height: 50 }),
+        Object.assign(h('span', { class: 'donate-cup' }), { innerHTML: CUP_SVG })),
+      // табличка під рамою, як підпис під картиною: чий це котик — банка monobank
+      h('span', { class: 'donate-plate', 'aria-hidden': 'true' }, 'mono')),
+    h('span', { class: 'donate-text' }, h('b', {}, t('На каву автору')), h('small', {}, t('Безкоштовно й без реклами — тримається на вашій підтримці'))),
+    h('span', { class: 'donate-go', 'aria-hidden': 'true' }, '→'));
+}
+
 /** «Про застосунок», як у shooting-log: аватар автора, версія, що це таке, встановлення, де дані, з чого почати. */
 function aboutPanel() {
   const more = (title, node) => h('details', { class: 'about-more' }, h('summary', {}, title), node);
@@ -1441,6 +1458,7 @@ function aboutPanel() {
         h('h3', {}, 'Weight Log'),
         h('p', { class: 'muted small' }, t('Версія {v} · збірка {b}', { v: self.APP_VERSION, b: self.APP_BUILD ?? '—' })))),
     h('p', { class: 'muted small' }, t('Weight Log — щоденна вага, середнє за 7 днів, темп і прогноз цілі. Працює без інтернету: усе рахується на пристрої.')),
+    donateCard(),
     more(t('Встановлення на телефон'), h('div', { class: 'muted small' },
       h('p', {}, t('Chrome → меню ⋮ → «Додати на головний екран» / «Установити застосунок». Після встановлення працює без інтернету.')))),
     more(t('Де мої дані'), h('div', { class: 'muted small' },
