@@ -655,14 +655,15 @@ function mealIcon(meal) {
   return hour < 11 ? 'cup' : hour < 16 ? 'plate' : 'moon';
 }
 
-/** Не весь прийом: частка на всі його продукти; окремий продукт — у своїй картці. */
-function mealPortionSheet(meal, { missed = false } = {}) {
-  const close = sheet(meal.name, h('div', { class: 'food-sheet' },
-    h('p', { class: 'small' }, t('Скільки з прийому з\'їли сьогодні — калорії й БЖУ всіх його продуктів порахуються з цієї частки.')),
-    portionChips(`meal:${meal.id}`, meal.name, missed ? null : meal.portion ?? 1, {
-      done: () => close(), onPick: (p) => setMealPortion(M.today(), meal, p, { unskip: missed }),
-    }),
-    h('p', { class: 'muted small' }, t('Один продукт з\'їли інакше — тапніть його: своя порція важить більше.'))));
+/**
+ * «З'їв частину: ¼ ½ ¾» усередині прийому, а не кнопкою в шапці — на телефоні шапці бракує місця.
+ * Пропущений прийом частка й повертає; вибрана частка — ще й «усе», щоб зняти її.
+ */
+function mealPortionRow(meal, { missed = false } = {}) {
+  const now = missed ? null : meal.portion;
+  return portionChips(`meal:${meal.id}`, meal.name, now, {
+    caption: t('З\'їв частину:'), whole: Boolean(now), onPick: (p) => setMealPortion(M.today(), meal, p, { unskip: missed }),
+  });
 }
 
 function mealBox(meal, index) {
@@ -673,13 +674,10 @@ function mealBox(meal, index) {
   // Увесь прийом пропущено — заголовок каже це, ккал у ньому немає
   const missed = active.length > 0 && !eaten.length;
   const title = [meal.name, meal.time ? ` · ${meal.time}` : ''].join('');
-  const tools = [
-    active.length ? toolBtn('half', t('Порція'), () => mealPortionSheet(meal, { missed })) : null,
-    ...(meal.isPause ? [] : [
-      toolBtn('plus', t('Додати продукт'), () => itemForm(null, { meal: meal.id })),
-      toolBtn('edit', t('Змінити'), () => mealForm(meal)),
-    ]),
-  ].filter(Boolean);
+  const tools = meal.isPause ? [] : [
+    toolBtn('plus', t('Додати продукт'), () => itemForm(null, { meal: meal.id })),
+    toolBtn('edit', t('Змінити'), () => mealForm(meal)),
+  ];
   const key = `meal:${meal.id}`;
   openFirstTime(key);
   const toggleMeal = () => toggleMealSkipped(M.today(), meal);
@@ -698,9 +696,7 @@ function mealBox(meal, index) {
         h('span', { class: 'muted small' }, active.map((x) => x.name).join(', '))),
       h('button', { type: 'button', class: 'btn food-meal-btn', onclick: toggleMeal }, t('Повернути прийом')),
       // З'їли не нічого, а частину — повернути прийом із часткою одним тапом
-      portionChips(key, meal.name, null, {
-        caption: t('З\'їв частину:'), whole: false, onPick: (p) => setMealPortion(M.today(), meal, p, { unskip: true }),
-      })), { fold: key, tools });
+      mealPortionRow(meal, { missed: true })), { fold: key, tools });
   } else {
     const hint = index === 0 && !recall(SWIPE_SEEN)
       ? h('p', { class: 'muted small food-swipe-hint' }, t('Свайп уліво по продукту — не з\'їв, по заголовку — весь прийом.')) : null;
@@ -708,6 +704,7 @@ function mealBox(meal, index) {
     el = box(title2, h('div', {},
       h('div', { class: 'rows' }, meal.items.map((x) => swipeRow(x, meal))),
       h('div', { class: 'food-sum' }, h('b', {}, kcal(s.kcal)), h('span', { class: 'muted' }, macros(s))),
+      active.length ? mealPortionRow(meal) : null,
       meal.note ? h('p', { class: 'muted small food-note' }, meal.note) : null,
       hint), { fold: key, count: Math.round(s.kcal) ? `${part}${kcal(s.kcal)}` : null, tools });
   }

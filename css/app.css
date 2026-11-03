@@ -1168,10 +1168,12 @@ button.food-pick .chevron-right { font-size: 22px; line-height: 1; color: var(--
 .swipe.moving > .box { background: var(--bg); }
 .box .rows > .swipe + .swipe > .row { border-top: 1px solid var(--line-soft); }
 .box > legend .food-tag.skip { margin-left: 2px; }
-/* Не вся порція: частка біля назви теплим кольором, вибір частки в шторці */
+/* Не вся порція: частка біля назви теплим кольором; вибір частки — у картці продукту й під сумою прийому */
 .food-tag.part { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
 .food-portion { align-items: center; margin: 4px 0 6px; }
 .food-portion button { min-width: 48px; }
+.food-meal .food-portion { margin: 8px 2px 2px; }
+.food-meal .food-portion button { min-width: 42px; min-height: 32px; padding: 3px 12px; }
 .food-portion-note { margin: 0 0 8px; }
 .food-swipe-hint { margin: 8px 2px 0; }
 @media (prefers-reduced-motion: reduce) { .swipe-bg { transition: none; } }
