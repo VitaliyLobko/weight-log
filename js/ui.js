@@ -447,11 +447,12 @@ export function fold(key, head, body) {
   return el;
 }
 
-/** Блок із заголовком на лінії рамки (як в 1С); fold — ключ згортання, count — кількість у заголовку. */
+/** Блок із заголовком на лінії рамки (як в 1С); fold — ключ згортання, count — число або готовий підпис у заголовку. */
 export function box(title, content, { fold: foldKey, count, tools } = {}) {
   const legendTools = tools ? h('span', { class: 'box-tools' }, tools) : null;
   if (!foldKey) return h('fieldset', { class: 'box' }, h('legend', {}, title, legendTools), content);
-  return foldFrame('box', `box:${foldKey}`, [title, count ? h('span', { class: 'box-count' }, fmt.int(count)) : null], content, legendTools);
+  const badge = typeof count === 'number' ? fmt.int(count) : count;
+  return foldFrame('box', `box:${foldKey}`, [title, count ? h('span', { class: 'box-count' }, badge) : null], content, legendTools);
 }
 
 /** Рамка cls з назвою на лінії, що згортається тапом по назві: за замовчуванням згорнута, розгорнуту запам'ятовує. */

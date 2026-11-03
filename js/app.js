@@ -233,7 +233,7 @@ function todayLine(row) {
   return h('button', { type: 'button', class: 'today-line', onclick: () => weightForm(row.date) },
     h('span', { class: `today-label${just ? ' just' : ''}` }, icon('check'), t('Сьогодні')),
     h('b', { class: 'today-kg' }, kg(row.kg)),
-    prev ? h('span', { class: `today-delta ${trendClass(row.day)}` }, t('{d} до {date}', { d: fmt.signed(row.day), date: fmt.short(prev.date) })) : null,
+    prev ? h('span', { class: `today-delta ${trendClass(row.day)}` }, t('{d} кг від {date}', { d: fmt.signed(row.day), date: fmt.short(prev.date) })) : null,
     icon('edit'),
     row.note ? h('span', { class: 'today-note muted small' }, row.note) : null);
 }

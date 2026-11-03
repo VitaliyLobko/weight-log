@@ -621,7 +621,7 @@ function mealBox(meal, index) {
       h('div', { class: 'rows' }, meal.items.map(swipeRow)),
       h('div', { class: 'food-sum' }, h('b', {}, kcal(s.kcal)), h('span', { class: 'muted' }, macros(s))),
       meal.note ? h('p', { class: 'muted small food-note' }, meal.note) : null,
-      hint), { fold: key, count: Math.round(s.kcal), tools });
+      hint), { fold: key, count: Math.round(s.kcal) ? kcal(s.kcal) : null, tools });
   }
   el.classList.add('food-meal');
   // Свайп по заголовку — увесь прийом; смуга на всю ширину блоку, заголовок великий
