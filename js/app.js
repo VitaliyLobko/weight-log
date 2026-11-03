@@ -432,20 +432,13 @@ function holdNote() {
     h('p', { class: 'small' }, advice));
 }
 
-/**
- * «Їсте» — середнє, а не сьогодні: вимкнений чи доданий продукт зсуває його на частку за день.
- * Коли сьогоднішній план помітно інший, кажемо обидва числа, щоб зміна в раціоні не здавалась загубленою.
- */
-function intakeNote(c) {
-  const avg = c.source === 'real'
-    ? t('«Їсте» — середнє за {n} позначених днів останніх 4 тижнів.', { n: c.en.marked })
-    : t('«Їсте» — середнє за 7 днів.');
-  const differs = c.todayKcal !== null && Math.abs(c.todayKcal - c.intake) >= 20;
-  return h('p', { class: 'muted small' }, avg, differs
-    ? ` ${t('Сьогодні за планом {k} — зміни в раціоні середнє наздожене поступово.', { k: kcalText(c.todayKcal) })}` : null);
-}
+/** Дефіцит зі знаком, як на плитці: «760» — їсте менше норми, «+120» — більше. */
+const deficitText = (d) => (d > 0 ? fmt.int(round10(d)) : fmt.signed(round10(d), 0));
 
-/** Норма, скільки їсте, і дефіцит (на утриманні — баланс): з ваших даних, а поки їх мало — за формулою. */
+/**
+ * Плитки — за сьогодні: норма, скільки за планом сьогодні, дефіцит (на утриманні — баланс).
+ * Під ними — середнє, з якого рахується прогноз: вага йде від того, що їсте в середньому, а не за один день.
+ */
 function caloriesBox() {
   if (!sum.hasAvg) return null;
   const c = calories(state, rows, sum.goal, sum.current);
@@ -457,25 +450,31 @@ function caloriesBox() {
       h('span', { class: 'chevron-right', 'aria-hidden': 'true' }, '›'));
   }
   const cell = (label, value, cls = '') => h('div', { class: `kcal-cell ${cls}` }, h('span', { class: 'muted small' }, label), h('b', {}, value));
+  const day = c.todayKcal !== null ? c.todayKcal - c.burn : null;
   const deficit = c.balance !== null ? -c.balance : null;
   const perWeek = deficit !== null ? (deficit * 7) / M.KCAL_PER_KG : null;
   const real = sum.recent ?? sum.rate;
   const cells = [
     cell(t('Норма'), fmt.int(round10(c.burn))),
-    cell(t('Їсте'), c.intake !== null ? fmt.int(round10(c.intake)) : '—'),
+    cell(t('Сьогодні'), c.todayKcal !== null ? fmt.int(round10(c.todayKcal)) : '—'),
     sum.hold
-      ? cell(t('Баланс'), c.balance !== null ? fmt.signed(round10(c.balance), 0) : '—', c.balance !== null && Math.abs(c.balance) > 150 ? 'bad' : 'good')
-      : cell(t('Дефіцит'), deficit !== null ? (deficit > 0 ? fmt.int(round10(deficit)) : fmt.signed(round10(deficit), 0)) : '—', deficit !== null ? (deficit > 0 ? 'good' : 'bad') : ''),
+      ? cell(t('Баланс'), day !== null ? fmt.signed(round10(day), 0) : '—', day !== null && Math.abs(day) > 150 ? 'bad' : 'good')
+      : cell(t('Дефіцит'), day !== null ? deficitText(-day) : '—', day !== null ? (day < 0 ? 'good' : 'bad') : ''),
   ];
   const f = c.f;
+  const span = c.source === 'real' ? t('за {n} позначених днів 4 тижнів', { n: c.en.marked }) : t('за 7 днів');
   // Зміна ваги зі знаком: «−0,63» — худнете, «+0,20» — набираєте
+  const weekly = perWeek === null ? null : [
+    sum.hold
+      ? t('У середньому {s}: їсте {k}, баланс {b} — {d} кг на тиждень, на утриманні мета близько нуля',
+        { s: span, k: kcalText(c.intake), b: fmt.signed(round10(c.balance), 0), d: fmt.signed(-perWeek, 2) })
+      : t('У середньому {s}: їсте {k}, дефіцит {b} — це {r} кг на тиждень',
+        { s: span, k: kcalText(c.intake), b: deficitText(deficit), r: fmt.signed(-perWeek, 2) }),
+    real !== null ? t(', на вагах {r} за {w}', { r: fmt.signed(-real, 2), w: sum.recent !== null ? t('останні 4 тижні') : t('весь час') }) : null, '.'];
   return box(withIcon('speed', t('Калорії на день')), h('div', { class: 'kcal' },
     h('div', { class: 'kcal-grid' }, cells),
-    perWeek !== null ? h('p', { class: 'small' }, sum.hold
-      ? t('Баланс {d} кг на тиждень — на утриманні мета близько нуля', { d: fmt.signed(-perWeek, 2) })
-      : t('За розрахунком {r} кг на тиждень', { r: fmt.signed(-perWeek, 2) }),
-    real !== null ? t(', на вагах {r} за {w}', { r: fmt.signed(-real, 2), w: sum.recent !== null ? t('останні 4 тижні') : t('весь час') }) : null, '.') : null,
-    c.intake === null ? h('p', { class: 'muted small' }, t('Скільки їсте — порахую за планом у «Раціоні».')) : intakeNote(c),
+    weekly ? h('p', { class: 'small' }, weekly) : null,
+    c.intake === null ? h('p', { class: 'muted small' }, t('Скільки їсте — порахую за планом у «Раціоні».')) : null,
     h('p', { class: 'muted small' }, c.source === 'real'
       ? [t('Норма — за вашими даними: {n} позначених днів за {d} дн. і тренд ваги.', { n: c.en.marked, d: c.en.days }),
         f ? ` ${t('За формулою було б ≈{k}.', { k: kcalText(f.burn) })}` : null]
@@ -1624,6 +1623,8 @@ const VIEWS = {
     title: 'Раціон',
     render: () => renderRation(state, {
       render,
+      // Норма — та сама, що на головній: з ваших даних або за формулою; без зросту й віку — нема
+      burn: () => ({ kcal: calories(state, rows, sum.goal, sum.current)?.burn ?? null, hold: sum.hold }),
       noPlan: () => empty('leaf', t('Плану харчування ще немає'),
         t('Завантажте файл із планом: Дані → Копія у файл → Відновити з файлу → Об’єднати.'),
         btn(withIcon('upload', t('Відкрити «Дані»')), () => openSettings('file'))),

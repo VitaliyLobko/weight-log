@@ -732,7 +732,7 @@ const RATION_SEGS = [['today', 'Сьогодні'], ['calendar', 'Календа
 const SEG_KEY = 'weight-log:ration-seg';
 let rationSeg = RATION_SEGS.some(([k]) => k === recall(SEG_KEY)) ? recall(SEG_KEY) : 'today';
 
-export function renderRation(state, { noPlan, render }) {
+export function renderRation(state, { noPlan, render, burn }) {
   current = state;
   const day = today(state);
   if (!day) return h('div', {}, noPlan(), box(withIcon('leaf', t('Харчування при діабеті')), dietMemo(), { fold: 'diet' }));
@@ -742,10 +742,21 @@ export function renderRation(state, { noPlan, render }) {
     render();
   });
   const body = { today: rationToday, calendar: rationCalendar, refs: rationRefs }[rationSeg];
-  return h('div', {}, seg, body(state, day));
+  return h('div', {}, seg, body(state, day, burn));
 }
 
-function rationToday(state, day) {
+/** «Норма 2 490 · дефіцит 760» під підсумком дня; на утриманні — баланс зі знаком. */
+function burnLine(sum, burn) {
+  const b = burn?.();
+  if (!b?.kcal) return null;
+  const r10 = (v) => Math.round(v / 10) * 10;
+  const diff = r10(sum.kcal - b.kcal);
+  const rest = b.hold ? t('баланс {d}', { d: fmt.signed(diff, 0) })
+    : diff <= 0 ? t('дефіцит {d}', { d: fmt.int(-diff) }) : t('понад норму {d}', { d: fmt.int(diff) });
+  return h('div', { class: 'hero-sub' }, t('Норма {n} · {r}', { n: fmt.int(r10(b.kcal)), r: rest }));
+}
+
+function rationToday(state, day, burn) {
   const { plan, pause, meals, planned, extra, sum } = day;
   const norm = plan.norm;
   return h('div', {},
@@ -755,6 +766,7 @@ function rationToday(state, day) {
       h('div', { class: 'hero-sub' }, macros(sum)),
       extra.kcal ? h('div', { class: 'hero-sub food-split' },
         t('план {a} + поза планом {b}', { a: fmt.int(planned.kcal), b: fmt.int(extra.kcal) })) : null,
+      burnLine(sum, burn),
       dayPicker(state, day),
       windowEl(plan, Boolean(pause.now))),
     pauseNote(pause),
