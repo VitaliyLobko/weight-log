@@ -207,6 +207,19 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .plateau > summary::-webkit-details-marker { display: none; }
 .plateau > summary .plateau-head::after { content: '›'; margin-left: auto; font-size: 20px; line-height: 1; color: var(--muted); transform: rotate(90deg); transition: transform .15s; }
 .plateau[open] > summary .plateau-head::after { transform: rotate(-90deg); }
+.plateau.good { background: color-mix(in srgb, var(--good) 10%, var(--surface)); border-color: color-mix(in srgb, var(--good) 40%, var(--line)); }
+.plateau.good .plateau-head { color: color-mix(in srgb, var(--good) 75%, var(--text)); }
+.plateau .btn-row { margin-top: 10px; }
+.kcal-prompt { display: flex; align-items: center; gap: 10px; width: 100%; margin-bottom: 12px; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.kcal-prompt > .ico { flex: none; width: 20px; height: 20px; color: var(--accent-2); }
+.kcal-prompt .food-line-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.kcal-prompt .chevron-right { font-size: 22px; line-height: 1; color: var(--muted); }
+.kcal p { margin: 8px 0 0; }
+.kcal-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.kcal-cell { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 12px; background: var(--surface-2); min-width: 0; }
+.kcal-cell b { font-size: 20px; font-variant-numeric: tabular-nums; }
+.kcal-cell.good b { color: var(--good); }
+.kcal-cell.bad b { color: var(--bad); }
 .sizes .row-side { max-width: 60%; }
 .sizes .row.stacked { flex-direction: column; align-items: stretch; gap: 2px; }
 .sizes .row.stacked .row-side { max-width: none; align-items: flex-start; }

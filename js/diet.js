@@ -1,7 +1,6 @@
 // Коротка пам'ятка «харчування при діабеті»: що можна і чого уникати. Текст двома мовами тут же,
 // щоб не роздувати словник інтерфейсу; групи — заголовок і перелік.
 import { h } from './ui.js';
-import { lang } from './i18n.js';
 
 const ALLOWED = [
   [{ ru: 'Овощи', uk: 'Овочі' }, {
@@ -62,7 +61,7 @@ const TEXT = {
   },
 };
 
-const pick = (v) => v[lang()] ?? v.ru;
+const pick = (v) => v.uk ?? v.ru;
 
 function group(cls, title, list) {
   return h('div', { class: `diet-group ${cls}` },

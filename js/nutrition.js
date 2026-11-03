@@ -148,6 +148,26 @@ export function energy(state, rows) {
   return { burn, intake, deficit: burn - intake, marked: eaten.length, days };
 }
 
+/** Скільки їсте в день за останні 7 днів: план дня (продукт дня, пауза, «не з'їв») плюс поза планом. */
+export function intakeWeek(state, date = M.today()) {
+  if (!planOf(state)) return null;
+  const days = Array.from({ length: 7 }, (_, i) => today(state, M.addDays(date, -i)).sum.kcal);
+  return days.reduce((a, v) => a + v, 0) / days.length;
+}
+
+/**
+ * Норма й баланс калорій: { burn, intake, balance, source, en, f }. Норма — з ваших даних (energy),
+ * а поки позначених днів замало — за формулою; що їсте — з тих самих даних або з плану за тиждень.
+ */
+export function calories(state, rows, goal, kg) {
+  const en = energy(state, rows);
+  const f = M.formulaBurn(goal, kg, M.today());
+  if (!en && !f) return null;
+  const burn = en?.burn ?? f.burn;
+  const intake = en?.intake ?? intakeWeek(state);
+  return { burn, intake, balance: intake !== null ? intake - burn : null, source: en ? 'real' : 'formula', en, f };
+}
+
 // Мітки: до нотатки ваги — про тіло (TRX, недосип), до дня — про їжу й події (брынза, застілля).
 // Паузу й зрив застосунок знає сам — такі мітки не показуємо.
 const SELF_KNOWN = new Set(['пауза', 'срыв', 'зрив']);

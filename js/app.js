@@ -7,12 +7,12 @@ import {
   h, fmt, sheet, toast, form, btn, toolBtn, confirmSheet, fold, box, unfold, segmented,
   remember, recall, refreshSheets, saveFile, parseNum, wheelStrip,
 } from './ui.js';
-import { t, plural, lang, setLang, LANGS, applyStatic } from './i18n.js';
+import { t, plural, applyStatic } from './i18n.js';
 import { initLock, lockOn, lockDelay, lockAvailable, enableLock, disableLock, setLockDelay, LOCK_DELAYS } from './lock.js';
 import { lineChart } from './chart.js';
 import { icon, withIcon } from './icons.js';
 import { remindTime, setRemindTime, googleCalendarUrl, icsFile } from './remind.js';
-import { renderRation, homeLine, noteTags, tickWindow, planOf } from './nutrition.js';
+import { renderRation, homeLine, noteTags, tickWindow, planOf, energy, calories } from './nutrition.js';
 import { weightHint, afterSlip, yesterdayText, weekMarks, periodFood, streakMilestones, journalDay, dayDates, streak, dayOf } from './daylog.js';
 import * as party from './celebrate.js';
 
@@ -268,10 +268,10 @@ function hero(todayRow) {
   return h('section', { class: 'hero accent' },
     h('div', { class: 'hero-label' }, t('Среднее за 7 дней')),
     h('div', { class: 'hero-value' }, fmt.fix(s.current, 2), h('span', { class: 'hero-unit' }, t('кг'))),
-    h('div', { class: 'hero-sub' },
+    h('div', { class: 'hero-sub' }, s.hold ? holdText() : [
       s.lost !== null ? t('{d} кг с начала', { d: fmt.signed(-s.lost, 2) }) : null,
-      s.progress !== null ? ` · ${t('{p} % пути', { p: fmt.int(s.progress * 100) })}` : null),
-    span > 0 ? h('div', { class: 'goal-track', 'aria-hidden': 'true' },
+      s.progress !== null ? ` · ${t('{p} % пути', { p: fmt.int(s.progress * 100) })}` : null]),
+    !s.hold && span > 0 ? h('div', { class: 'goal-track', 'aria-hidden': 'true' },
       h('div', { class: 'goal-bar' },
         h('div', { class: 'goal-fill', style: `width:${pos(s.current)}` }),
         M.checkpoints(rows, goal, s).filter((c) => !c.isTarget).map((c) => h('span', { class: `goal-tick ${c.reached ? 'done' : ''}`, style: `left:${pos(c.kg)}` }))),
@@ -279,6 +279,14 @@ function hero(todayRow) {
         ? t('цель {kg} · ещё {d}', { kg: fmt.fix(s.target), d: fmt.fix(s.toGo, 1) })
         : t('цель {kg}', { kg: fmt.fix(s.target) })))) : null,
     todayRow ? todayLine(todayRow) : null);
+}
+
+/** «Утримання 95 ± 1 кг · у коридорі» — для картки середнього. */
+function holdText() {
+  const d = sum.toGo;
+  const where = Math.abs(d) <= sum.band ? t('в коридоре')
+    : d > 0 ? t('выше на {d}', { d: kg(d - sum.band, 1) }) : t('ниже на {d}', { d: kg(-d - sum.band, 1) });
+  return t('Удержание {kg} ± {b} кг · {where}', { kg: fmt.fix(sum.target), b: fmt.fix(sum.band), where });
 }
 
 function statsGrid() {
@@ -289,20 +297,34 @@ function statsGrid() {
   if (s.rate !== null) {
     // Крупно — темп за 4 тижні: ним рахується прогноз, і на плато він не хвалить загальним темпом
     const rate = s.recent ?? s.rate;
-    const planOk = Number.isFinite(g.planRate) && rate >= g.planRate;
+    const planOk = !s.hold && Number.isFinite(g.planRate) && rate >= g.planRate;
     tiles.push(stat('speed', s.recent !== null ? t('Темп за 4 нед.') : t('Темп'), `${fmt.fix(rate, 2)} ${t('кг/нед')}`,
       [s.recent !== null ? t('с начала {r}', { r: fmt.fix(s.rate, 2) }) : null,
-        Number.isFinite(g.planRate) ? t('план {r}', { r: fmt.fix(g.planRate, 2) }) : null].filter(Boolean).join(' · ') || null,
-      planOk ? 'good' : rate <= 0 ? 'bad' : ''));
+        !s.hold && Number.isFinite(g.planRate) ? t('план {r}', { r: fmt.fix(g.planRate, 2) }) : null].filter(Boolean).join(' · ') || null,
+      planOk ? 'good' : !s.hold && rate <= 0 ? 'bad' : ''));
   }
-  if (s.weekDelta !== null) tiles.push(stat('trend', t('За неделю'), kgd(s.weekDelta, 2), t('среднее к прошлой неделе'), trendClass(s.weekDelta)));
-  if (s.planDiff !== null) {
+  if (s.weekDelta !== null) {
+    tiles.push(stat('trend', t('За неделю'), kgd(s.weekDelta, 2), t('среднее к прошлой неделе'), s.hold ? '' : trendClass(s.weekDelta)));
+  }
+  if (s.hold) {
+    // На утриманні «від плану» — це від ваги цілі; добре — бути в коридорі, а не нижче
+    tiles.push(stat('target', t('От цели'), kgd(s.toGo, 2), t('коридор ± {b} кг', { b: fmt.fix(s.band) }),
+      Math.abs(s.toGo) <= s.band ? 'good' : 'bad'));
+  } else if (s.planDiff !== null) {
     tiles.push(stat('route', t('От плана'), kgd(s.planDiff, 2),
       s.planDiff < -0.005 ? t('опережаете') : s.planDiff > 0.005 ? t('отстаёте') : t('точно по плану'), trendClass(s.planDiff)));
   }
-  // Дата фінішу з прогнозом — у «Контрольних точках» рядком цілі; плитка лишається для «ціль досягнута» і «не знижується»
-  if (s.toGo !== null && s.toGo <= 0) tiles.push(stat('trophy', t('Цель'), t('достигнута'), null, 'good'));
-  else if (!s.finish && s.toGo !== null && s.rate !== null) {
+  // Скільки днів без нового мінімуму — щоб плато було видно заздалегідь, а не лише на 14-й день
+  const low = !s.hold && !M.plateau(rows, goal.pauses) ? M.lastLow(rows, goal.pauses) : null;
+  if (low) {
+    tiles.push(stat('flag', t('Минимум среднего'), kg(low.low, 2), low.days
+      ? t('{n} из {p} дн. без нового — потом плато', { n: low.days, p: M.PLATEAU_DAYS })
+      : t('новый — сегодня'), low.days ? '' : 'good'));
+  }
+  // Дата фінішу з прогнозом — у «Контрольних точках» рядком цілі; плитка лишається для «ціль досягнута» і «не знижується».
+  // На утриманні фінішу немає
+  if (!s.hold && s.toGo !== null && s.toGo <= 0) tiles.push(stat('trophy', t('Цель'), t('достигнута'), null, 'good'));
+  else if (!s.hold && !s.finish && s.toGo !== null && s.rate !== null) {
     tiles.push(stat('flag', t('Прогноз финиша'), '—', s.recent !== null ? t('за 4 нед. вес не снижается') : t('вес не снижается'), 'bad'));
   }
   // З планом харчування — тиждень за раціоном замість «Днів записано»
@@ -346,11 +368,108 @@ function plateauAdvice(p) {
   if (!planOf(state)) return general;
   const f = periodFood(state, p.since, M.today());
   if (f.marked < f.days / 2) return [t('Отмечено только {n} из {d} дней по рациону — причину по ним не видно.', { n: f.marked, d: f.days }), ' ', general];
+  // Вага стоїть — отже, з'їдене дорівнює витраті: це і є норма підтримки
+  const en = energy(state, rows);
+  const norm = en ? [' ', t('Сейчас вы едите ≈{k} ккал в день — на плато это и есть ваша норма удержания.', { k: fmt.int(round10(en.intake)) })] : [];
   if (f.slip || f.extra > 0) {
-    return t('За время плато: срывов {s}, вне плана {k} ккал (≈{kg} кг). Похоже, дело в них — вернитесь к плану.',
-      { s: f.slip, k: fmt.int(f.extra), kg: fmt.fix(f.extra / 7700, 2) });
+    return [t('За время плато: срывов {s}, вне плана {k} ккал (≈{kg} кг). Похоже, дело в них — вернитесь к плану.',
+      { s: f.slip, k: fmt.int(f.extra), kg: fmt.fix(f.extra / 7700, 2) }), ...norm];
   }
-  return t('За время плато всё по плану ({n} из {d} дней) — это вода, не жир. Ничего не урезайте, подождите ещё неделю.', { n: f.ok, d: f.days });
+  return [t('За время плато всё по плану ({n} из {d} дней) — это вода, не жир. Ничего не урезайте, подождите ещё неделю.', { n: f.ok, d: f.days }), ...norm];
+}
+
+const round10 = (v) => Math.round(v / 10) * 10;
+const round50 = (v) => Math.round(v / 50) * 50;
+const kcalText = (v) => t('{n} ккал', { n: fmt.int(round10(v)) });
+
+/** Ціль досягнута — запропонувати режим «Утримання» замість фінішу. */
+function holdOffer() {
+  if (sum.hold || sum.toGo === null || sum.toGo > 0) return null;
+  return h('section', { class: 'plateau hold good' },
+    h('div', { class: 'plateau-head' }, icon('trophy'), h('b', {}, t('Цель достигнута — теперь удержание?'))),
+    h('p', { class: 'small' }, t('Вес цели станет коридором ± {b} кг, а приложение будет подсказывать, когда добавить или убрать калории.', { b: fmt.fix(M.holdBand(goal)) })),
+    h('div', { class: 'btn-row' }, btn(t('Перейти на удержание'), () => saveGoal({ mode: 'hold', holdFrom: M.today() }), 'primary')));
+}
+
+/**
+ * Утримання: що з вагою за 14 днів і що робити з їжею. Скільки ккал додати чи прибрати — щоб зупинити
+ * дрейф середнього і за 4 тижні повернутися в коридор.
+ */
+function holdNote() {
+  if (!sum.hold || !sum.hasAvg) return null;
+  const d = M.drift(rows);
+  const over = sum.toGo - sum.band;
+  const under = -sum.toGo - sum.band;
+  const change = d?.change ?? 0;
+  let kind = 'ok';
+  if (over > 0) kind = change < -0.1 ? 'back' : 'up';
+  else if (under > 0) kind = change > 0.1 ? 'back' : 'down';
+  else if (change > M.DRIFT_KG) kind = 'up';
+  else if (change < -M.DRIFT_KG) kind = 'down';
+  const back = (gap) => (Math.max(0, gap) * M.KCAL_PER_KG) / 28;
+  const fix = Math.max(100, round50(kind === 'up' ? Math.max(0, d?.kcal ?? 0) + back(over) : Math.max(0, -(d?.kcal ?? 0)) + back(under)));
+  const moved = d ? t('За {n} дн. среднее {d} кг', { n: d.days, d: fmt.signed(d.change, 2) }) : t('Для тренда нужно 2 недели взвешиваний');
+  const head = {
+    ok: ['check', t('Вес держится')],
+    up: ['warning', t('Вес ползёт вверх')],
+    down: ['trend', t('Вес уходит вниз')],
+    back: ['trend', t('Возвращаетесь в коридор')],
+  }[kind];
+  const c = calories(state, rows, sum.goal, sum.current);
+  const extra = planOf(state) && d ? periodFood(state, M.addDays(M.today(), -(d.days - 1)), M.today()).extra : 0;
+  const advice = {
+    ok: c?.intake ? t('Ешьте как сейчас: ≈{k} в день — это ваша норма удержания.', { k: kcalText(c.intake) })
+      : t('Ешьте как сейчас — менять ничего не нужно.'),
+    up: [t('Уберите ≈{k} в день: сначала еду вне плана, сладкое и соусы, потом — меньше крупы или хлеба. Белок не урезайте.', { k: kcalText(fix) }),
+      extra ? [' ', t('Вне плана за {n} дн.: {k} (≈{d} в день).', { n: d.days, k: kcalText(extra), d: kcalText(extra / d.days) })] : null],
+    down: t('Можно добавить ≈{k} в день: фрукт, порцию крупы или белка — и посмотреть неделю.', { k: kcalText(fix) }),
+    back: t('Так держать — ничего не меняйте, пока среднее не вернётся в коридор.'),
+  }[kind];
+  return h('details', { class: `plateau hold ${kind === 'ok' ? 'good' : ''}` },
+    h('summary', {},
+      h('div', { class: 'plateau-head' }, icon(head[0]), h('b', {}, head[1])),
+      h('p', { class: 'small' }, moved)),
+    h('p', { class: 'small' }, advice));
+}
+
+/** Норма, скільки їсте, і дефіцит (на утриманні — баланс): з ваших даних, а поки їх мало — за формулою. */
+function caloriesBox() {
+  if (!sum.hasAvg) return null;
+  const c = calories(state, rows, sum.goal, sum.current);
+  if (!c) {
+    return h('button', { type: 'button', class: 'panel kcal-prompt', onclick: () => openSettings('body') },
+      icon('speed'),
+      h('span', { class: 'food-line-main' }, h('b', {}, t('Норма калорий')),
+        h('span', { class: 'muted small' }, t('Укажите пол, год рождения и активность — посчитаю расход и дефицит'))),
+      h('span', { class: 'chevron-right', 'aria-hidden': 'true' }, '›'));
+  }
+  const cell = (label, value, cls = '') => h('div', { class: `kcal-cell ${cls}` }, h('span', { class: 'muted small' }, label), h('b', {}, value));
+  const deficit = c.balance !== null ? -c.balance : null;
+  const perWeek = deficit !== null ? (deficit * 7) / M.KCAL_PER_KG : null;
+  const real = sum.recent ?? sum.rate;
+  const cells = [
+    cell(t('Норма'), fmt.int(round10(c.burn))),
+    cell(t('Едите'), c.intake !== null ? fmt.int(round10(c.intake)) : '—'),
+    sum.hold
+      ? cell(t('Баланс'), c.balance !== null ? fmt.signed(round10(c.balance), 0) : '—', c.balance !== null && Math.abs(c.balance) > 150 ? 'bad' : 'good')
+      : cell(t('Дефицит'), deficit !== null ? (deficit > 0 ? fmt.int(round10(deficit)) : fmt.signed(round10(deficit), 0)) : '—', deficit !== null ? (deficit > 0 ? 'good' : 'bad') : ''),
+  ];
+  const f = c.f;
+  // Зміна ваги зі знаком: «−0,63» — худнете, «+0,20» — набираєте
+  return box(withIcon('speed', t('Калории в день')), h('div', { class: 'kcal' },
+    h('div', { class: 'kcal-grid' }, cells),
+    perWeek !== null ? h('p', { class: 'small' }, sum.hold
+      ? t('Баланс {d} кг в неделю — на удержании цель около нуля', { d: fmt.signed(-perWeek, 2) })
+      : t('По расчёту {r} кг в неделю', { r: fmt.signed(-perWeek, 2) }),
+    real !== null ? t(', на весах {r} за {w}', { r: fmt.signed(-real, 2), w: sum.recent !== null ? t('последние 4 недели') : t('всё время') }) : null, '.') : null,
+    c.intake === null ? h('p', { class: 'muted small' }, t('Сколько едите — посчитаю по плану в «Рационе».')) : null,
+    h('p', { class: 'muted small' }, c.source === 'real'
+      ? [t('Норма — по вашим данным: {n} отмеченных дней за {d} дн. и тренд веса.', { n: c.en.marked, d: c.en.days }),
+        f ? ` ${t('По формуле было бы ≈{k}.', { k: kcalText(f.burn) })}` : null]
+      : [t('Норма — по формуле Миффлина–Сан Жеора: вес {kg}, рост {h} см, {a} лет, активность {k}.',
+        { kg: fmt.fix(f.kg, 1), h: fmt.int(sum.goal.height), a: f.age, k: numStr(f.activity) }),
+      ' ', t('Когда за 4 недели будет 14 отмеченных дней «Как день?», посчитаю по вашим данным.')])),
+  { tools: [toolBtn('edit', t('Изменить'), () => openSettings('body'))] });
 }
 
 /** Тижневі стовпчики з підписом «5/7» — днів за планом із позначених. */
@@ -415,7 +534,7 @@ function bmiBox() {
   if (!b) {
     return box(withIcon('person', t('ИМТ')), h('div', {},
       h('p', { class: 'muted small' }, t('Индекс массы тела = вес ÷ рост². Укажите рост — и он будет считаться по среднему весу.')),
-      btn(t('Указать рост'), () => openSettings('goal'))));
+      btn(t('Указать рост'), () => openSettings('body'))));
   }
   const at = (v) => `${((Math.min(BMI_MAX, Math.max(BMI_MIN, v)) - BMI_MIN) / (BMI_MAX - BMI_MIN)) * 100}%`;
   return box(withIcon('person', t('ИМТ')), h('div', { class: 'bmi' },
@@ -440,10 +559,11 @@ function renderHome() {
     todayRow ? null : quickEntry(),
     hero(todayRow),
     weightHint(state, todayRow),
-    plateauNote(),
+    sum.hold ? holdNote() : [plateauNote(), holdOffer()],
     homeLine(state),
     statsGrid(),
-    checkpointsBox());
+    caloriesBox(),
+    sum.hold ? null : checkpointsBox());
 }
 
 // ---------- графік ----------
@@ -470,6 +590,9 @@ let picked = null;
 /** Вікно, набране колесом миші; кнопка періоду його скидає. */
 let chartView = null;
 
+/** День уже на утриманні: лінія плану там — вага цілі. */
+const onHold = (date) => sum.hold && Boolean(sum.goal.holdFrom) && date >= sum.goal.holdFrom;
+
 function dayTip(date) {
   const r = rows.find((x) => x.date === date);
   if (!r) return [];
@@ -478,7 +601,7 @@ function dayTip(date) {
     `${fmt.date(date)}, ${fmt.weekday(date)}`,
     `${t('Вес')}: ${kg(r.kg)}`,
     r.avg !== null ? `${t('Среднее')}: ${kg(r.avg, 2)}` : null,
-    plan !== null ? `${t('План')}: ${kg(plan, 2)}` : null,
+    plan !== null ? `${onHold(date) ? t('Цель') : t('План')}: ${kg(plan, 2)}` : null,
     r.note || null,
     yesterdayText(state, date),
   ].filter(Boolean);
@@ -496,7 +619,8 @@ function dayLine(date) {
         r.day !== null ? [' ', h('span', { class: `small ${trendClass(r.day)}` }, t('за сутки {d}', { d: fmt.signed(r.day) }))] : null),
       h('div', { class: 'chart-chips' },
         r.avg !== null ? h('span', { class: 'stat-chip' }, t('сред. {v}', { v: fmt.fix(r.avg, 2) })) : null,
-        plan !== null && r.avg !== null ? h('span', { class: `stat-chip ${trendClass(r.avg - plan)}` }, t('план {d}', { d: fmt.signed(r.avg - plan, 2) })) : null),
+        plan !== null && r.avg !== null ? h('span', { class: `stat-chip ${trendClass(r.avg - plan)}` },
+          t(onHold(date) ? 'от цели {d}' : 'план {d}', { d: fmt.signed(r.avg - plan, 2) })) : null),
       r.note ? h('div', { class: 'row-note' }, icon('note'), h('span', {}, r.note)) : null),
     toolBtn('edit', t('Изменить'), () => weightForm(date)));
 }
@@ -516,11 +640,16 @@ function periodLine(a, b) {
 function chartChips() {
   const last = rows.at(-1);
   const plan = M.planAt(sum.goal, last.date);
-  const chips = [
+  // На утриманні план — вага цілі, «від плану» = від цілі, і добре — бути в коридорі
+  const chips = sum.hold ? [
+    h('span', { class: 'stat-chip' }, t('удержание {kg} ± {b}', { kg: fmt.fix(sum.target), b: fmt.fix(sum.band) })),
+    last.avg !== null ? h('span', { class: `stat-chip ${Math.abs(last.avg - sum.target) <= sum.band ? 'good' : 'bad'}` }, t('от цели {d}', { d: fmt.signed(last.avg - sum.target, 2) })) : null,
+  ] : [
     sum.target !== null ? h('span', { class: 'stat-chip' }, t('цель {kg} · ещё {d}', { kg: fmt.fix(sum.target), d: fmt.fix(Math.max(0, sum.toGo ?? 0), 1) })) : null,
     plan !== null && last.avg !== null ? h('span', { class: `stat-chip ${trendClass(last.avg - plan)}` }, t('от плана {d}', { d: fmt.signed(last.avg - plan, 2) })) : null,
-  ].filter(Boolean);
-  return chips.length ? h('div', { class: 'chart-chips' }, chips) : null;
+  ];
+  const list = chips.filter(Boolean);
+  return list.length ? h('div', { class: 'chart-chips' }, list) : null;
 }
 
 /** Зміна за кожен день — стовпчики під графіком на «Тиждень», де тижневих було б 1–2. */
@@ -548,7 +677,8 @@ function renderChart() {
   const view = chartView ?? home;
   showRange(...view);
   const g = sum.goal;
-  const plan = rows.map((r) => ({ date: r.date, v: M.planAt(g, r.date) })).filter((p) => p.v !== null);
+  // На утриманні лінія — лише вага цілі від дня переходу, без обриву зі старого плану
+  const plan = rows.filter((r) => !sum.hold || onHold(r.date)).map((r) => ({ date: r.date, v: M.planAt(g, r.date) })).filter((p) => p.v !== null);
   const marks = M.checkpoints(rows, goal, sum).map((c) => ({ v: c.kg, label: c.isTarget ? t('цель') : fmt.int(c.kg), cls: c.isTarget ? 'target' : 'cp' }));
   const day = picked && rows.some((r) => r.date === picked) ? picked : lastDate;
   const slipped = afterSlip(state);
@@ -580,7 +710,7 @@ function renderChart() {
     onView: (a, b) => { chartView = [a, b]; showRange(a, b); },
     resetLabel: t('Сбросить'),
     hlines: marks,
-    gap: { of: 'avg', to: 'plan', label: t('план') },
+    gap: { of: 'avg', to: 'plan', label: sum.hold ? t('от цели') : t('план') },
     summary,
     bars: period === '7' ? dayBars() : weekBars(),
     spans: (goal.pauses ?? []).map((p) => ({ from: p.from, to: p.to, label: t('пауза'), cls: 'pause' })),
@@ -589,7 +719,7 @@ function renderChart() {
       { label: t('Вес'), kind: 'dot', cls: 's-kg', keys: ['kg'] },
       { label: t('Среднее'), kind: 'line', cls: 's-avg', keys: ['avg'] },
       // Заливка без плану сенсу не має — вмикається й вимикається разом із ним; дата фінішу — в «Контрольних точках»
-      plan.length ? { label: t('План'), kind: 'line dash', cls: 's-plan', keys: ['plan', 'gap'] } : null,
+      plan.length ? { label: sum.hold ? t('Цель') : t('План'), kind: 'line dash', cls: 's-plan', keys: ['plan', 'gap'] } : null,
       finish ? { label: t('прогноз'), kind: 'line dash', cls: 's-forecast', keys: ['forecast'] } : null,
       vis.some((r) => r.note) ? { label: t('заметка'), kind: 'ring', cls: 's-kg' } : null,
       vis.some((r) => slipped.has(r.date)) ? { label: t('после срыва'), kind: 'dot', cls: 's-kg slip' } : null,
@@ -651,12 +781,69 @@ function textForm(id, { title, hint, placeholder, saved, rows = 12 }) {
   });
 }
 
-const sizesForm = () => textForm(M.SIZES_ID, {
-  title: t('Мои размеры'),
-  hint: t('Строка — один размер: название, потом значение. Можно вставить список целиком.'),
-  placeholder: t('Перчатки L\nОбувь 43/44, стелька 28,5 см\nГолова 59 см'),
-  saved: t('Размеры сохранены'),
-});
+/**
+ * Розміри на дату. Без snap — нові розміри: змінилися проти попереднього знімка — лягає знімок sizes:<дата>,
+ * а поточні (sizes) — завжди останній за датою. Зі snap — правка чи видалення знімка з історії.
+ */
+function sizesForm(snap = null) {
+  const snaps = M.sizeSnapshots(state.settings);
+  const f = form([{ name: 'date', label: t('На дату'), type: 'dmy', value: snap?.date ?? M.today(), required: true }]);
+  const input = h('textarea', { rows: 12, autocomplete: 'off', placeholder: t('Перчатки L\nОбувь 43/44, стелька 28,5 см\nГолова 59 см') });
+  input.value = snap ? snap.text : settingText(M.SIZES_ID);
+  const save = async () => {
+    const bad = f.invalid();
+    if (bad) { toast(t('Проверьте поле «{f}»', { f: bad.label })); return; }
+    const { date } = f.values();
+    const text = input.value.split('\n').map((s) => s.trimEnd()).join('\n').trim();
+    sync.renewOnGesture();
+    close();
+    const others = snaps.filter((s) => s.id !== null && s.id !== snap?.id && s.date !== date);
+    const put = [];
+    // Перший запис із датою: старий текст без знімка стає першим знімком історії
+    const legacy = snap ? null : snaps.find((s) => s.id === null);
+    if (legacy && legacy.date < date) { put.push({ id: M.SIZES_PREFIX + legacy.date, text: legacy.text }); others.push(legacy); }
+    const prev = others.filter((s) => s.date < date).at(-1);
+    const keep = !prev || !M.sameSizes(prev.text, text) || snaps.some((s) => s.id && s.date === date) || snap;
+    if (keep) put.push({ id: M.SIZES_PREFIX + date, text });
+    const del = snap?.id && snap.date !== date ? [snap.id] : [];
+    const latest = [...others, ...(keep ? [{ date, text }] : [])].sort((a, b) => (a.date < b.date ? -1 : 1)).at(-1);
+    if (latest) put.push({ id: M.SIZES_ID, text: latest.text });
+    await db.write({ settings: { put, del } });
+    toast(t('Размеры сохранены'));
+  };
+  const remove = async () => {
+    close();
+    const rest = snaps.filter((s) => s.id && s.id !== snap.id);
+    const before = snapshot('settings', [snap.id, M.SIZES_ID]);
+    await db.write({ settings: { put: rest.length ? [{ id: M.SIZES_ID, text: rest.at(-1).text }] : [], del: [snap.id] } });
+    undoToast(t('Размеры на {date} удалены', { date: fmt.date(snap.date) }), 'settings', before);
+  };
+  const close = sheet(snap ? t('Размеры на {date}', { date: fmt.date(snap.date) }) : t('Мои размеры'), h('div', { class: 'form' },
+    f.el,
+    h('label', { class: 'field' }, input, h('small', { class: 'muted' },
+      t('Строка — один размер: название, потом значение. Изменилось — сохраните с новой датой, прежнее останется в истории.')))), {
+    tools: snap?.id ? [toolBtn('delete', t('Удалить'), remove, 'danger')] : [],
+    actions: [btn(t('Отмена'), () => close()), btn(t('Сохранить'), save, 'primary')],
+  });
+}
+
+/** Історія одного розміру: коли яке значення. */
+function sizeSheet(s) {
+  sheet(s.label, h('div', { class: 'rows' }, s.history.map((x, i) => h('div', { class: 'row log-row' },
+    h('div', { class: 'row-main' }, h('span', { class: 'row-title' }, x.value)),
+    h('div', { class: 'row-side' }, h('span', { class: i ? 'muted' : '' }, i ? t('с {date}', { date: fmt.date(x.date) }) : t('сейчас, с {date}', { date: fmt.date(x.date) })))))), {
+    actions: [btn(t('Изменить размеры'), () => sizesForm(), 'primary')],
+  });
+}
+
+/** Усі знімки розмірів: тап — правка чи видалення. */
+function sizeSnapsSheet() {
+  const close = sheet(t('История размеров'), h('div', { class: 'rows' }, M.sizeSnapshots(state.settings).reverse().map((s) => h('button', {
+    type: 'button', class: 'row log-row', onclick: () => { close(); sizesForm(s); },
+  },
+    h('div', { class: 'row-main' }, h('span', { class: 'row-title' }, fmt.date(s.date))),
+    h('div', { class: 'row-side' }, h('span', { class: 'muted' }, t('размеров: {n}', { n: M.parseSizes(s.text).length })))))));
+}
 
 const healthForm = () => textForm(M.HEALTH_ID, {
   title: t('Здоровье'),
@@ -684,17 +871,28 @@ function renderHealth(seg) {
 }
 
 function renderSizes(seg) {
-  const list = M.parseSizes(settingText(M.SIZES_ID));
+  const snaps = M.sizeSnapshots(state.settings);
+  const list = M.sizeHistory(settingText(M.SIZES_ID), snaps);
   $('subtitle').textContent = t('размеров: {n}', { n: list.length });
   if (!list.length) {
     return h('div', {}, seg, empty('tape', t('Размеров нет'),
       t('Перчатки, обувь, одежда, кольцо — чтобы всегда были под рукой в магазине.'),
-      btn(withIcon('plus', t('Указать размеры')), sizesForm)));
+      btn(withIcon('plus', t('Указать размеры')), () => sizesForm())));
   }
+  // Змінився — під значенням попереднє і з якої дати нове; тап — уся історія розміру
+  const was = (s) => (s.history.length > 1 && s.history[0].value === s.value
+    ? t('было {v} · с {date}', { v: s.history[1].value, date: fmt.date(s.history[0].date) }) : null);
   // Довге значення — під назвою на всю ширину, а не притиснуте вправо в кілька рядків
-  return h('div', {}, seg, h('div', { class: 'rows sizes' }, list.map((s) => h('button', { type: 'button', class: `row log-row ${s.value?.length > 16 ? 'stacked' : ''}`, onclick: sizesForm },
-    h('div', { class: 'row-main' }, h('span', { class: 'row-title' }, s.label)),
-    s.value ? h('div', { class: 'row-side' }, h('span', { class: 'size-value' }, s.value)) : null))));
+  return h('div', {}, seg,
+    h('div', { class: 'rows sizes' }, list.map((s) => h('button', {
+      type: 'button', class: `row log-row ${s.value?.length > 16 ? 'stacked' : ''}`,
+      onclick: () => (s.history.length > 1 ? sizeSheet(s) : sizesForm()),
+    },
+      h('div', { class: 'row-main' }, h('span', { class: 'row-title' }, s.label), was(s) ? h('span', { class: 'muted small' }, was(s)) : null),
+      s.value ? h('div', { class: 'row-side' }, h('span', { class: 'size-value' }, s.value)) : null))),
+    snaps.length ? h('div', { class: 'btn-row' },
+      btn(withIcon('calendar', t('История · {n}', { n: snaps.length })), sizeSnapsSheet),
+      btn(withIcon('edit', t('Изменить размеры')), () => sizesForm())) : null);
 }
 
 /** Підсумок місяця за раціоном для заголовка: «✓ 18 · ✕ 2». */
@@ -782,21 +980,52 @@ async function saveGoal(patch) {
 function goalRow() {
   const g = M.effectiveGoal(goal, rows);
   const f = form([
+    { name: 'mode', label: t('Режим'), type: 'select', value: M.isHold(g) ? 'hold' : 'lose', options: [['lose', t('Похудение')], ['hold', t('Удержание')]] },
     { name: 'start', label: t('Стартовый вес, кг'), type: 'number', value: numStr(g.start), half: true, min: 20, max: 400 },
     { name: 'startDate', label: t('Дата старта'), type: 'dmy', value: g.startDate ?? '', half: true },
     { name: 'target', label: t('Цель, кг'), type: 'number', value: numStr(g.target), half: true, min: 20, max: 400 },
     { name: 'planRate', label: t('План, кг/нед'), type: 'number', value: numStr(g.planRate), half: true, min: 0, max: 3 },
-    { name: 'height', label: t('Рост, см (для ИМТ)'), type: 'number', value: numStr(g.height), min: 100, max: 250 },
+    { name: 'holdBand', label: t('Коридор удержания, ± кг'), type: 'number', value: numStr(M.holdBand(g)), min: 0.3, max: 5 },
   ]);
   const save = async () => {
     const bad = f.invalid();
     if (bad) { toast(t('Проверьте поле «{f}»', { f: bad.label })); return; }
     const v = f.values();
-    await saveGoal({ start: v.start ?? undefined, startDate: v.startDate || undefined, target: v.target ?? undefined, planRate: v.planRate ?? undefined, height: v.height ?? undefined });
+    if (v.mode === 'hold' && v.target === null) { toast(t('Для удержания укажите цель — вес, которого держаться')); return; }
+    // День переходу на утримання — з нього план стає рівною лінією на вазі цілі
+    const holdFrom = v.mode === 'hold' ? (M.isHold(g) && g.holdFrom ? g.holdFrom : M.today()) : undefined;
+    await saveGoal({
+      mode: v.mode, holdFrom, holdBand: v.holdBand ?? undefined,
+      start: v.start ?? undefined, startDate: v.startDate || undefined, target: v.target ?? undefined, planRate: v.planRate ?? undefined,
+    });
     toast(t('Цель сохранена'));
   };
-  return setRow('goal', 'target', t('Цель'), g.target ? kg(g.target) : t('Не задана'), [
+  return setRow('goal', 'target', t('Цель'), !g.target ? t('Не задана')
+    : M.isHold(g) ? t('удержание {kg} ± {b}', { kg: fmt.fix(g.target), b: fmt.fix(M.holdBand(g)) }) : kg(g.target), [
     h('p', { class: 'muted small' }, t('План — линия на графике: от стартового веса ровно по «кг/нед». Без стартового веса берётся первое взвешивание.')),
+    h('p', { class: 'muted small' }, t('Удержание — когда цель достигнута: план становится ровной линией на весе цели, а на главной — совет, добавить или убрать калории, чтобы остаться в коридоре.')),
+    f.el, h('div', { class: 'btn-row' }, btn(t('Сохранить'), save, 'primary'))]);
+}
+
+/** Зріст, стать, рік народження й активність — для ІМТ і норми калорій за формулою. */
+function bodyRow() {
+  const g = goal;
+  const f = form([
+    { name: 'height', label: t('Рост, см'), type: 'number', value: numStr(g.height), half: true, min: 100, max: 250 },
+    { name: 'birthYear', label: t('Год рождения'), type: 'number', value: numStr(g.birthYear), half: true, min: 1900, max: Number(M.today().slice(0, 4)) - 10 },
+    { name: 'sex', label: t('Пол'), type: 'select', value: g.sex ?? '', options: [['', '—'], ['m', t('Мужской')], ['f', t('Женский')]] },
+    { name: 'activity', label: t('Активность'), type: 'select', value: g.activity ?? M.ACTIVITY[0][0], options: M.ACTIVITY.map(([k, l]) => [k, `${numStr(k)} — ${t(l)}`]) },
+  ]);
+  const save = async () => {
+    const bad = f.invalid();
+    if (bad) { toast(t('Проверьте поле «{f}»', { f: bad.label })); return; }
+    const v = f.values();
+    await saveGoal({ height: v.height ?? undefined, birthYear: v.birthYear ?? undefined, sex: v.sex || undefined, activity: Number(v.activity) });
+    toast(t('Сохранено'));
+  };
+  const fb = M.formulaBurn(g, sum.current, M.today());
+  return setRow('body', 'person', t('Норма калорий'), fb ? t('≈{k} в день', { k: kcalText(fb.burn) }) : t('Не задана'), [
+    h('p', { class: 'muted small' }, t('Расход по формуле Миффлина–Сан Жеора от среднего веса за 7 дней. Когда за 4 недели будет 14 отмеченных дней «Как день?», норма считается по вашим данным: сколько съели и как изменился вес.')),
     f.el, h('div', { class: 'btn-row' }, btn(t('Сохранить'), save, 'primary'))]);
 }
 
@@ -1170,13 +1399,6 @@ function nightLevel() {
 
 lightScheme.addEventListener('change', applyTheme);
 
-function switchLang(code) {
-  setLang(code);
-  applyStatic();
-  renderSyncChip();
-  render();
-}
-
 // Аватар кліпає, як у Стрілецькому журналі — фото те саме, тож і контури очей ті самі (координати фото 233×233).
 // Повіки — шар SVG поверх фото, обрізаний контуром білка; верхня з опуклою кромкою опускається, нижня підіймається
 // назустріч. Праве око перше: ліве його перекриває.
@@ -1241,9 +1463,9 @@ function renderSettings() {
   $('subtitle').textContent = t('версия {v}', { v: self.APP_VERSION });
   return h('div', {},
     settingsGroup(t('О приложении'), [aboutPanel()]),
-    settingsGroup(withIcon('target', t('Цель и напоминание')), [goalRow(), checkpointsRow(), remindRow()]),
+    settingsGroup(withIcon('target', t('Цель и напоминание')), [goalRow(), bodyRow(), checkpointsRow(), remindRow()]),
     settingsGroup(withIcon('cloud', t('Данные')), [syncRow(), driveRow(), lockRow(), fileRow(), wipeRow()]),
-    settingsGroup(withIcon('theme', t('Внешний вид')), [langRow(), themeRow(), backdropRow()]));
+    settingsGroup(withIcon('theme', t('Внешний вид')), [themeRow(), backdropRow()]));
 }
 
 /** Група налаштувань, як у Стрілецькому журналі: рамка з назвою на лінії, всередині — рядки через лінію. */
@@ -1295,10 +1517,6 @@ function wipeRow() {
       await db.clearAll(); await refresh(); toast(t('Данные удалены'));
     }), 'danger')),
     { danger: true });
-}
-
-function langRow() {
-  return setRow('lang', 'globe', 'Язык · Мова', LANGS[lang()], segmented(Object.entries(LANGS), lang(), switchLang));
 }
 
 function themeRow() {
@@ -1402,7 +1620,7 @@ function render() {
   const view = VIEWS[tab];
   $('title').textContent = t(view.title);
   $('subtitle').textContent = '';
-  if (tab === 'home' || tab === 'ration') $('subtitle').textContent = new Date().toLocaleDateString(lang() === 'uk' ? 'uk-UA' : 'ru-RU', { weekday: 'long', day: 'numeric', month: 'long' });
+  if (tab === 'home' || tab === 'ration') $('subtitle').textContent = new Date().toLocaleDateString('uk-UA', { weekday: 'long', day: 'numeric', month: 'long' });
   $('view').replaceChildren(view.render());
   $('fab').hidden = !view.fab;
   document.querySelectorAll('.tabs a').forEach((a) => a.classList.toggle('active', a.dataset.tab === tab));
