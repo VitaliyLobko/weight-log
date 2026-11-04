@@ -23,6 +23,7 @@
   --radius: 16px;
   --tabs-h: 64px;
   --shadow: 0 1px 0 rgb(255 255 255 / .03) inset, 0 6px 16px rgb(0 0 0 / .22);
+  --pop-shadow: 0 14px 32px rgb(0 0 0 / .45), 0 2px 6px rgb(0 0 0 / .3);
   color-scheme: dark;
 }
 
@@ -71,6 +72,7 @@
   --c-ring: #b8790f;
   --c-waist: #7a4fb0;
   --shadow: 0 1px 2px rgb(20 30 50 / .06), 0 6px 16px rgb(20 30 50 / .06);
+  --pop-shadow: 0 14px 32px rgb(20 30 50 / .16), 0 2px 6px rgb(20 30 50 / .08);
   color-scheme: light;
 }
 
@@ -798,7 +800,7 @@ button.row { cursor: pointer; }
 .field.half { grid-column: span 1; justify-content: flex-end; }
 .field-label { font-size: 13px; color: var(--muted); }
 .field small { line-height: 1.3; }
-.field > input, .field > select, .field > textarea {
+.field > input, .field > textarea, .select-btn {
   width: 100%;
   min-height: 44px;
   padding: 10px 12px;
@@ -806,7 +808,64 @@ button.row { cursor: pointer; }
   border: 1px solid var(--line);
   background: var(--bg);
 }
-.field > input:focus, .field > select:focus, .cp-add input:focus, .time-input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.field > input:focus, .cp-add input:focus, .time-input:focus, .select-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+/* Випадний список замість системного select (selectBox у ui.js) */
+.select-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+@media (hover: hover) { .select-btn:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); } }
+.select-btn.open { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.select-text { flex: 1; min-width: 0; line-height: 1.3; overflow-wrap: anywhere; }
+.select-chev { flex: none; width: 18px; height: 18px; fill: none; stroke: var(--muted); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform .18s ease; }
+.select-btn.open .select-chev { transform: rotate(180deg); stroke: var(--accent-2); }
+.select-list {
+  position: fixed;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: var(--pop-shadow);
+  opacity: 0;
+  transform: translateY(-6px) scale(.98);
+  transform-origin: top center;
+  transition: opacity .14s ease, transform .14s ease;
+}
+.select-list.up { transform: translateY(6px) scale(.98); transform-origin: bottom center; }
+.select-list.open { opacity: 1; transform: none; }
+.select-opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 9px 10px 9px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+@media (hover: hover) { .select-opt:hover { background: var(--surface-2); } }
+.select-opt:active { background: var(--surface-2); }
+.select-opt:focus { outline: none; }
+.select-opt:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+.select-opt-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; line-height: 1.3; }
+.select-opt-text small { font-size: 13px; color: var(--muted); }
+.select-opt[aria-selected="true"] { background: var(--accent-soft); color: var(--accent-2); font-weight: 650; }
+.select-opt[aria-selected="true"] small { font-weight: 400; }
+.select-tick { flex: none; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; visibility: hidden; }
+.select-opt[aria-selected="true"] .select-tick { visibility: visible; }
 
 .kv { display: grid; grid-template-columns: auto 1fr; align-items: baseline; gap: 6px 14px; margin: 4px 0 12px; }
 .kv dt { color: var(--muted); }

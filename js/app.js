@@ -1078,7 +1078,10 @@ function bodyRow() {
     { name: 'height', label: t('Зріст, см'), type: 'number', value: numStr(g.height), half: true, min: 100, max: 250 },
     { name: 'birthYear', label: t('Рік народження'), type: 'number', value: numStr(g.birthYear), half: true, min: 1900, max: Number(M.today().slice(0, 4)) - 10 },
     { name: 'sex', label: t('Стать'), type: 'select', value: g.sex ?? '', options: [['', '—'], ['m', t('Чоловіча')], ['f', t('Жіноча')]] },
-    { name: 'activity', label: t('Активність'), type: 'select', value: g.activity ?? M.ACTIVITY[0][0], options: M.ACTIVITY.map(([k, l]) => [k, `${numStr(k)} — ${t(l)}`]) },
+    { name: 'activity', label: t('Активність'), type: 'select', value: g.activity ?? M.ACTIVITY[0][0], options: M.ACTIVITY.map(([k, l]) => {
+      const [title, hint] = t(l).split(/:\s*/);
+      return [k, `${numStr(k)} — ${title}`, hint];
+    }) },
   ]);
   const save = async () => {
     const bad = f.invalid();

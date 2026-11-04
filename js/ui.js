@@ -231,8 +231,7 @@ export function form(fields) {
   for (const f of fields) {
     let input;
     if (f.type === 'select') {
-      input = h('select', { name: f.name },
-        f.options.map(([value, label]) => h('option', { value, selected: String(value) === String(f.value ?? '') }, label)));
+      input = selectBox(f.options, f.value, { name: f.name, label: f.label });
     } else if (f.type === 'chips') {
       input = chips(f.options, f.value, f.onPick);
     } else if (f.type === 'dmy') {
@@ -310,6 +309,103 @@ function dmyInput(iso) {
   // Вийшли з поля — рік повністю: 14.10.23 → 14.10.2023
   input.addEventListener('blur', () => { const v = dmyToIso(input.value); if (v) input.value = isoToDmy(v); });
   return input;
+}
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const svgIcon = (cls, d) => {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('class', cls);
+  svg.innerHTML = d;
+  return svg;
+};
+
+/**
+ * Випадний список у стилі застосунку замість системного <select>: системний на телефоні не оформити.
+ * options: [[value, label, hint?]]; повертає кнопку з полем .value, як у select.
+ */
+export function selectBox(options, value, { name, label, onPick } = {}) {
+  const opts = options.map(([v, l, hint]) => ({ v: String(v), l, hint }));
+  let current = String(value ?? '');
+  if (!opts.some((o) => o.v === current)) current = opts[0]?.v ?? '';
+  const text = h('span', { class: 'select-text' });
+  const button = h('button', {
+    type: 'button', class: 'select-btn', name, 'aria-haspopup': 'listbox', 'aria-expanded': 'false',
+    onclick: () => (list ? close() : open()),
+    onkeydown: (e) => { if (!list && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); open(); } },
+  }, text, svgIcon('select-chev', '<path d="M6 9l6 6 6-6"/>'));
+  const paint = () => { text.textContent = opts.find((o) => o.v === current)?.l ?? ''; };
+  Object.defineProperty(button, 'value', {
+    get: () => current,
+    set: (v) => { current = String(v ?? ''); paint(); },
+  });
+  paint();
+
+  let list = null;
+  const field = () => button.closest('label') ?? button;
+  const outside = (e) => { if (list && !list.contains(e.target) && !field().contains(e.target)) close(false); };
+  const onScroll = (e) => { if (list && !list.contains(e.target)) close(false); };
+  const onResize = () => close(false);
+  function close(focus = true) {
+    if (!list) return;
+    const gone = list;
+    list = null;
+    gone.classList.remove('open');
+    setTimeout(() => gone.remove(), 140);
+    button.classList.remove('open');
+    button.setAttribute('aria-expanded', 'false');
+    document.removeEventListener('pointerdown', outside, true);
+    document.removeEventListener('scroll', onScroll, true);
+    window.removeEventListener('resize', onResize);
+    if (focus) button.focus();
+  }
+  const pick = (v) => {
+    const changed = v !== current;
+    current = v;
+    paint();
+    close();
+    if (changed) onPick?.(v);
+  };
+  const move = (e) => {
+    const items = [...list.querySelectorAll('.select-opt')];
+    const at = items.indexOf(document.activeElement);
+    const next = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: items.length - 1 }[e.key];
+    if (next !== undefined) { e.preventDefault(); items[Math.max(0, Math.min(items.length - 1, next))].focus(); }
+    else if (e.key === 'Escape') { e.preventDefault(); close(); }
+    else if (e.key === 'Tab') close(false);
+  };
+  function open() {
+    list = h('div', { class: 'select-list', role: 'listbox', 'aria-label': label, onkeydown: move },
+      opts.map((o) => h('button', {
+        type: 'button', role: 'option', class: 'select-opt', 'aria-selected': String(o.v === current),
+        onclick: () => pick(o.v),
+      }, h('span', { class: 'select-opt-text' }, h('span', {}, o.l), o.hint ? h('small', {}, o.hint) : null),
+      svgIcon('select-tick', '<path d="M5 12.5l4.5 4.5L19 7.5"/>'))));
+    document.body.append(list);
+    // Під полем, а коли внизу тісно — над ним; ширина як у поля
+    const r = button.getBoundingClientRect();
+    const gap = 6;
+    // Нижня панель вкладок — теж межа: список під нею не видно
+    const tabs = document.querySelector('.tabs')?.getBoundingClientRect();
+    const floor = tabs?.height ? Math.min(window.innerHeight, tabs.top) : window.innerHeight;
+    const below = floor - r.bottom - gap - 8;
+    const above = r.top - gap - 8;
+    const up = list.offsetHeight > below && above > below;
+    list.style.left = `${r.left}px`;
+    list.style.width = `${r.width}px`;
+    list.style.maxHeight = `${Math.max(120, up ? above : below)}px`;
+    if (up) { list.classList.add('up'); list.style.bottom = `${window.innerHeight - r.top + gap}px`; }
+    else list.style.top = `${r.bottom + gap}px`;
+    button.classList.add('open');
+    button.setAttribute('aria-expanded', 'true');
+    document.addEventListener('pointerdown', outside, true);
+    document.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onResize);
+    requestAnimationFrame(() => list?.classList.add('open'));
+    (list.querySelector('[aria-selected="true"]') ?? list.querySelector('.select-opt'))?.focus({ preventScroll: true });
+  }
+  return button;
 }
 
 /** Ряд кнопок-чипів; клік вставляє значення. Повертає контейнер з полем .value. */
