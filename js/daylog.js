@@ -7,7 +7,7 @@ import * as bot from './bot.js';
 import { h, fmt, sheet, toast, btn, toolBtn, box, parseNum } from './ui.js';
 import { t, plural } from './i18n.js';
 import { icon, withIcon, hop } from './icons.js';
-import { planOf, tagLists, slipRule, plannedKcal, cutOf, cutText, portionText } from './nutrition.js';
+import { planOf, tagLists, slipRule, plannedKcal, cutOf, cutText, portionText, dayKcal, balanceText, balanceGood } from './nutrition.js';
 import { resolveLocal, fromModel, fromPer100, per100Of, kcalMismatch, withoutStats } from './foods.js';
 import { scanSheet, lookupBarcode, pickLabelPhoto, labelItem } from './scan.js';
 import { oink } from './oink.js';
@@ -524,7 +524,7 @@ function calDay(state, date) {
 }
 
 /** Місяць сіткою пн–нд: колір — з'їдене відносно плану, тап — цей день. */
-function calendarBody(state) {
+function calendarBody(state, norm) {
   const today = M.today();
   const ym = calMonth ?? today.slice(0, 7);
   const first = `${ym}-01`;
@@ -541,7 +541,7 @@ function calendarBody(state) {
     }
     const c = calDay(state, d);
     if (c.eaten !== null) { stats.marked += 1; stats.eaten += c.eaten; stats.extra += extrasSum(state, d).kcal; }
-    const label = `${fmt.weekday(d)} ${fmt.short(d)}: ${c.eaten !== null ? kcal(c.eaten) : t('не позначено')}`;
+    const label = `${fmt.weekday(d)} ${fmt.short(d)}: ${c.eaten !== null ? kcal(c.eaten) : t('не позначено')}${c.eaten !== null && norm ? ` · ${balanceText(c.eaten, norm)}` : ''}`;
     cells.push(h('button', {
       type: 'button', class: `cal-cell ${c.cls} ${d === today ? 'today' : ''}`, 'aria-label': label, title: label,
       onclick: () => daySheet(d),
@@ -561,15 +561,19 @@ function calendarBody(state) {
       .map(([k, l]) => h('span', {}, h('i', { class: `cal-key ${k}`, 'aria-hidden': 'true' }), t(l)))),
     stats.marked ? h('p', { class: 'muted small' }, t('Позначено {n} дн. · у середньому {a} · поза планом {x}', {
       n: stats.marked, a: kcal(stats.eaten / stats.marked), x: kcal(stats.extra),
-    })) : null);
-  const rebuild = () => el.replaceWith(calendarBody(current ?? state));
+    })) : null,
+    // Дефіцит місяця — від тієї ж норми, що на головній: середнє з'їдене за позначені дні проти норми
+    stats.marked && norm ? h('p', { class: 'cal-balance' }, t('У середньому за день: норма {n} · {r}', {
+      n: fmt.int(Math.round(norm.kcal / 10) * 10), r: balanceText(stats.eaten / stats.marked, norm),
+    }), norm.hold ? null : h('span', { class: 'muted' }, ` · ${t('{d} кг/тиж', { d: fmt.signed(((stats.eaten / stats.marked - norm.kcal) * 7) / KCAL_PER_KG, 2) })}`)) : null);
+  const rebuild = () => el.replaceWith(calendarBody(current ?? state, norm));
   return el;
 }
 
 /** Календар калорій — окремий підрозділ «Раціону», тому без згортання. */
-export function calendarPanel(state) {
+export function calendarPanel(state, norm = null) {
   use(state);
-  return h('section', { class: 'panel cal-panel' }, h('h3', {}, t('Календар калорій')), calendarBody(state));
+  return h('section', { class: 'panel cal-panel' }, h('h3', {}, t('Календар калорій')), calendarBody(state, norm));
 }
 
 /** Картка «Як день?» на «Раціоні»: сьогоднішня позначка, поза планом, тиждень і серія. */
@@ -668,7 +672,7 @@ export function dayDates(state) {
  * Смужка дня під вагою в «Журналі»: позначка, поза планом і «не з'їв» з назвами, мітки дня.
  * Тап — шторка дня. Плану немає чи день ще не настав — нічого.
  */
-export function journalDay(state, date) {
+export function journalDay(state, date, norm = null) {
   use(state);
   if (!planOf(state) || date > M.today()) return null;
   const rec = dayOf(state, date);
@@ -677,6 +681,7 @@ export function journalDay(state, date) {
   const cut = cutOf(state, date);
   const missedKcal = cut.kcal;
   const empty = !rec?.status && !extras.length && !missedKcal;
+  const eaten = empty ? null : dayKcal(state, date);
   const names = [
     extras.length ? t('поза планом: {list}', { list: extras.map((x) => x.name).join(', ') }) : null,
     missedKcal ? cutText(cut) : null,
@@ -690,6 +695,9 @@ export function journalDay(state, date) {
       xs ? h('span', { class: 'log-chip plus' }, `+${fmt.int(xs)}`) : null,
       missedKcal ? h('span', { class: 'log-chip minus' }, `−${fmt.int(missedKcal)}`) : null,
       h('span', { class: 'log-food-go', 'aria-hidden': 'true' }, '›')),
+    eaten !== null ? h('span', { class: 'log-food-kcal' },
+      h('span', {}, t("з'їдено {k}", { k: kcal(eaten) })),
+      norm ? h('span', { class: `log-balance ${balanceGood(eaten, norm) ? 'good' : 'bad'}` }, balanceText(eaten, norm)) : null) : null,
     names.length ? h('span', { class: 'log-food-names' }, names.join(' · ')) : null);
 }
 

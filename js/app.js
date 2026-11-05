@@ -968,9 +968,9 @@ function monthFood(list) {
 }
 
 /** День у «Журналі»: зважування (чи «без зважування») і під ним — як минув день за раціоном. */
-function weightRow(r) {
+function weightRow(r, norm) {
   const weighed = r.kg !== null;
-  const food = journalDay(state, r.date);
+  const food = journalDay(state, r.date, norm);
   return h('div', { class: `log-day ${food ? 'has-food' : ''}` },
     h('button', { type: 'button', class: 'row log-row', onclick: () => weightForm(r.date) },
       h('div', { class: 'row-main' },
@@ -1019,10 +1019,16 @@ function renderLog() {
     unfold(`log:${latest}`);
     remember('weight-log:log-month', latest);
   }
-  return h('div', {}, seg, [...months].map(([ym, list]) => {
+  // Норма — та сама, що на головній; минулі дні міряються нинішньою нормою
+  const burn = calories(state, rows, sum.goal, sum.current)?.burn;
+  const norm = burn ? { kcal: burn, hold: sum.hold } : null;
+  const normHint = norm ? h('p', { class: 'muted small log-norm' }, t('Дефіцит дня — від норми {k} на день, як на головній.', { k: kcalText(norm.kcal) })) : null;
+  return h('div', {}, seg, normHint, [...months].map(([ym, list]) => {
     const ws = list.filter((r) => r.kg !== null);
     const avg = ws.length ? ws.reduce((s, r) => s + r.kg, 0) / ws.length : null;
-    const change = ws.length > 1 ? ws[0].kg - ws.at(-1).kg : null;
+    // Зміна за місяць — за середньою вагою: крайні зважування гуляють на ±1 кг через воду
+    const avgs = ws.filter((r) => r.avg !== null);
+    const change = avgs.length > 1 ? avgs[0].avg - avgs.at(-1).avg : null;
     return fold(`log:${ym}`, [
       h('span', { class: 'fold-stack' }, h('span', { class: 'fold-title' }, fmt.month(ym)),
         h('span', { class: 'fold-meta' }, [
@@ -1030,7 +1036,7 @@ function renderLog() {
           monthFood(list),
         ].filter(Boolean).join(' · '))),
       change !== null ? h('span', { class: `fold-sum ${trendClass(change)}` }, fmt.signed(change)) : null,
-    ], () => h('div', { class: 'rows' }, list.map(weightRow)));
+    ], () => h('div', { class: 'rows' }, list.map((r) => weightRow(r, norm))));
   }));
 }
 

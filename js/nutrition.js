@@ -841,16 +841,29 @@ export function renderRation(state, { noPlan, render, burn }) {
   return h('div', {}, seg, body(state, day, burn));
 }
 
-/** «Норма 2 490 · дефіцит 760» під підсумком дня; на утриманні — баланс зі знаком. */
+const r10 = (v) => Math.round(v / 10) * 10;
+
+/**
+ * «дефіцит 760» / «понад норму 120», на утриманні — «баланс +120»; norm — { kcal, hold }.
+ * Від округлених чисел, щоб «норма − з'їдене» сходилося в голові.
+ */
+export function balanceText(eaten, norm) {
+  const diff = balanceDiff(eaten, norm);
+  return norm.hold ? t('баланс {d}', { d: fmt.signed(diff, 0) })
+    : diff <= 0 ? t('дефіцит {d}', { d: fmt.int(-diff) }) : t('понад норму {d}', { d: fmt.int(diff) });
+}
+
+/** З'їдене мінус норма, обидва округлені до 10 ккал. */
+export const balanceDiff = (eaten, norm) => r10(eaten) - r10(norm.kcal);
+
+/** Колір балансу як на плитці головної: худнення — дефіцит добре; утримання — добре в межах ±150. */
+export const balanceGood = (eaten, norm) => (norm.hold ? Math.abs(balanceDiff(eaten, norm)) <= 150 : balanceDiff(eaten, norm) <= 0);
+
+/** «Норма 2 490 · дефіцит 760» під підсумком дня. */
 function burnLine(sum, burn) {
   const b = burn?.();
   if (!b?.kcal) return null;
-  const r10 = (v) => Math.round(v / 10) * 10;
-  // Дефіцит — від показаної (округленої) норми, щоб «норма − з'їдене» сходилося в голові
-  const n = r10(b.kcal); const diff = r10(sum.kcal - n);
-  const rest = b.hold ? t('баланс {d}', { d: fmt.signed(diff, 0) })
-    : diff <= 0 ? t('дефіцит {d}', { d: fmt.int(-diff) }) : t('понад норму {d}', { d: fmt.int(diff) });
-  return h('div', { class: 'hero-sub' }, t('Норма {n} · {r}', { n: fmt.int(n), r: rest }));
+  return h('div', { class: 'hero-sub' }, t('Норма {n} · {r}', { n: fmt.int(r10(b.kcal)), r: balanceText(sum.kcal, b) }));
 }
 
 /** БЖУ дня — окремими плитками під калоріями, як «Норма · Сьогодні · Дефіцит» на головній. */
@@ -880,9 +893,10 @@ function rationToday(state, day, burn) {
     norm ? h('p', { class: 'muted small food-norm' }, t('План у середньому за тиждень: {k} · {m}', { k: kcal(norm.kcal), m: macros(norm) })) : null);
 }
 
-function rationCalendar(state, { plan }) {
+function rationCalendar(state, { plan }, burn) {
+  const b = burn?.();
   return h('div', {},
-    calendarPanel(state),
+    calendarPanel(state, b?.kcal ? b : null),
     monthBox(state, energy(state, M.series(state.weights))),
     pausesBox(plan));
 }

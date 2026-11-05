@@ -1206,6 +1206,7 @@ button.food-pick .chevron-right { font-size: 22px; line-height: 1; color: var(--
 .cal-num { font-size: 12px; font-weight: 700; line-height: 1; }
 .cal-kcal { font-size: 9.5px; font-variant-numeric: tabular-nums; line-height: 1; opacity: .85; }
 .cal-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 10px 0 0; font-size: 12px; color: var(--muted); }
+.cal-balance { margin: 8px 0 0; font-size: 14px; font-weight: 650; font-variant-numeric: tabular-nums; }
 .cal-legend span { display: inline-flex; align-items: center; gap: 5px; }
 .cal-key { display: inline-block; width: 12px; height: 12px; border-radius: 3px; background: var(--surface-2); }
 .cal-key.ok { background: color-mix(in srgb, var(--good) 38%, var(--surface)); }
@@ -1266,6 +1267,11 @@ button.food-pick .chevron-right { font-size: 22px; line-height: 1; color: var(--
 .log-chip.plus { background: color-mix(in srgb, var(--warn) 18%, var(--surface)); color: color-mix(in srgb, var(--warn) 70%, var(--text)); }
 .log-chip.minus { background: var(--surface); color: var(--muted); }
 .log-food-go { margin-left: auto; font-size: 18px; line-height: 1; color: var(--muted); }
+.log-food-kcal { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.log-balance { padding: 1px 8px; border-radius: 8px; font-weight: 700; white-space: nowrap; }
+.log-balance.good { background: color-mix(in srgb, var(--good) 18%, var(--surface)); color: color-mix(in srgb, var(--good) 75%, var(--text)); }
+.log-balance.bad { background: color-mix(in srgb, var(--bad) 16%, var(--surface)); color: color-mix(in srgb, var(--bad) 75%, var(--text)); }
+.log-norm { margin: 0 4px 10px; }
 .log-food-names { font-size: 12.5px; line-height: 1.35; color: var(--muted); overflow-wrap: anywhere; }
 .log-food:active { background: var(--line-soft); }
 .ico.ico-pig { width: 24px; height: 24px; color: var(--pig); }
