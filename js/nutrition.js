@@ -194,22 +194,44 @@ const ENERGY_MIN = 14;
  * те, що показує тренд середньої ваги (кг × 7700). Позначених днів замало — null.
  */
 export function energy(state, rows) {
+  const w = energyWindow(state, rows);
+  if (!w || w.days < ENERGY_MIN || w.eaten.length < ENERGY_MIN) return null;
+  const { then, cur, days, eaten } = w;
+  const intake = eaten.reduce((a, v) => a + v, 0) / eaten.length;
+  const burn = intake + ((then.avg - cur.avg) * KCAL_PER_KG) / days;
+  return { burn, intake, deficit: burn - intake, marked: eaten.length, days };
+}
+
+/** Вікно реальної витрати: середні на краях 4 тижнів і з'їдене в позначені дні між ними. */
+function energyWindow(state, rows) {
   const withAvg = rows.filter((r) => r.avg !== null);
   const cur = withAvg.at(-1);
   if (!cur || !planOf(state)) return null;
-  const from = M.addDays(cur.date, -ENERGY_DAYS);
-  const then = withAvg.find((r) => r.date >= from);
-  const days = then ? M.daysBetween(then.date, cur.date) : 0;
-  if (days < ENERGY_MIN) return null;
+  const then = withAvg.find((r) => r.date >= M.addDays(cur.date, -ENERGY_DAYS));
   const eaten = [];
   for (let d = then.date; d <= cur.date; d = M.addDays(d, 1)) {
     if (!dayOf(state, d)?.status) continue;
     eaten.push((plannedKcal(state, d) ?? 0) + extrasSum(state, d).kcal);
   }
-  if (eaten.length < ENERGY_MIN) return null;
-  const intake = eaten.reduce((a, v) => a + v, 0) / eaten.length;
-  const burn = intake + ((then.avg - cur.avg) * KCAL_PER_KG) / days;
-  return { burn, intake, deficit: burn - intake, marked: eaten.length, days };
+  return { then, cur, days: M.daysBetween(then.date, cur.date), eaten };
+}
+
+/** Скільки ще позначених днів «Як день?» до норми за вашими даними; 0 — уже за ними, null — без плану. */
+export function energyLeft(state, rows) {
+  const w = energyWindow(state, rows);
+  return w ? Math.max(0, ENERGY_MIN - w.eaten.length) : null;
+}
+
+/** Хвилин прогулянки за день (з «Як день?»). */
+export const walkOf = (state, date) => Number(dayOf(state, date)?.walk) || 0;
+
+/**
+ * Норма дня: norm { kcal, hold, walk, kg } плюс прогулянка цього дня. walk — норма за формулою:
+ * у реальній витраті прогулянки вже є (вона з ваги й з'їденого), там не додаємо.
+ */
+export function dayNorm(state, norm, date) {
+  if (!norm?.walk) return norm;
+  return { ...norm, kcal: norm.kcal + M.walkKcal(walkOf(state, date), norm.kg) };
 }
 
 /** Калорії дня: план (без «не з'їв» і вимкнених) плюс поза планом. */
@@ -232,7 +254,23 @@ export function calories(state, rows, goal, kg) {
   if (!en && !f) return null;
   const burn = en?.burn ?? f.burn;
   const intake = en?.intake ?? intakeWeek(state);
-  return { burn, intake, balance: intake !== null ? intake - burn : null, source: en ? 'real' : 'formula', en, f, todayKcal: dayKcal(state, M.today()) };
+  // Прогулянки — до норми за формулою: сьогоднішня до норми дня, середня за тиждень — до середньої
+  const walks = !en ? Array.from({ length: 7 }, (_, i) => M.walkKcal(walkOf(state, M.addDays(M.today(), -i)), kg)) : [0];
+  const walkToday = walks[0];
+  const walkWeek = walks.reduce((a, v) => a + v, 0) / walks.length;
+  return {
+    burn,
+    burnToday: burn + walkToday,
+    burnWeek: burn + walkWeek,
+    walkToday,
+    walkWeek,
+    intake,
+    balance: intake !== null ? intake - (burn + walkWeek) : null,
+    source: en ? 'real' : 'formula',
+    en,
+    f,
+    todayKcal: dayKcal(state, M.today()),
+  };
 }
 
 // Мітки: до нотатки ваги — про тіло (TRX, недосип), до дня — про їжу й події (брынза, застілля).
@@ -860,10 +898,12 @@ export const balanceDiff = (eaten, norm) => r10(eaten) - r10(norm.kcal);
 export const balanceGood = (eaten, norm) => (norm.hold ? Math.abs(balanceDiff(eaten, norm)) <= 150 : balanceDiff(eaten, norm) <= 0);
 
 /** «Норма 2 490 · дефіцит 760» під підсумком дня. */
-function burnLine(sum, burn) {
+function burnLine(state, sum, burn) {
   const b = burn?.();
   if (!b?.kcal) return null;
-  return h('div', { class: 'hero-sub' }, t('Норма {n} · {r}', { n: fmt.int(r10(b.kcal)), r: balanceText(sum.kcal, b) }));
+  const n = dayNorm(state, b, M.today());
+  return h('div', { class: 'hero-sub' }, t('Норма {n} · {r}', { n: fmt.int(r10(n.kcal)), r: balanceText(sum.kcal, n) }),
+    n.kcal > b.kcal ? h('span', { class: 'muted' }, ` · ${t('з прогулянкою')}`) : null);
 }
 
 /** БЖУ дня — окремими плитками під калоріями, як «Норма · Сьогодні · Дефіцит» на головній. */
@@ -882,7 +922,7 @@ function rationToday(state, day, burn) {
       h('div', { class: 'hero-value' }, fmt.int(sum.kcal), h('span', { class: 'hero-unit' }, t('ккал'))),
       extra.kcal ? h('div', { class: 'hero-sub food-split' },
         t('за планом {a} + поза планом {b}', { a: fmt.int(planned.kcal), b: fmt.int(extra.kcal) })) : null,
-      burnLine(sum, burn),
+      burnLine(state, sum, burn),
       macroTiles(sum),
       dayPicker(state, day),
       windowEl(plan, Boolean(pause.now))),

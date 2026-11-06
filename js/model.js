@@ -153,6 +153,42 @@ export function recentRate(rows, pauses = []) {
   return days >= RECENT_MIN && active > 0 ? ((then.avg - cur.avg) / active) * 7 : null;
 }
 
+/** Темп від дати менше за стільки днів — ще шум, не показуємо. */
+const SINCE_MIN = 7;
+
+/** Темп, кг/тиж, від дати from (середнє того дня чи найближче перед ним) до поточного середнього; без днів пауз. */
+export function rateSince(rows, from, pauses = []) {
+  const withAvg = rows.filter((r) => r.avg !== null);
+  const cur = withAvg.at(-1);
+  if (!cur || !from) return null;
+  const then = withAvg.findLast((r) => r.date <= from) ?? withAvg.find((r) => r.date >= from);
+  if (!then) return null;
+  const active = activeDays(pauses, then.date, cur.date);
+  return daysBetween(then.date, cur.date) >= SINCE_MIN && active > 0 ? ((then.avg - cur.avg) / active) * 7 : null;
+}
+
+/**
+ * Чи встигаю до дати cp.by дійти середнім до cp.kg: { left, days, need, at(rate) } — need кг/тиж,
+ * at — середнє на ту дату заданим темпом. Без дати, пройдена точка чи нема середнього — null.
+ */
+export function deadline(sum, cp) {
+  if (!cp.by || cp.reached || !sum.hasAvg) return null;
+  const left = r2(sum.current - cp.kg);
+  if (left <= 0) return null;
+  const days = activeDays(sum.goal.pauses, sum.currentDate, cp.by);
+  return {
+    left,
+    days,
+    late: days <= 0,
+    need: days > 0 ? (left / days) * 7 : null,
+    at: (rate) => (Number.isFinite(rate) && days > 0 ? r2(sum.current - (rate * days) / 7) : null),
+  };
+}
+
+/** Швидкий крок ≈ 4,3 MET; понад спокій, що вже є в нормі, — (MET − 1) × кг × год. */
+const WALK_MET = 4.3;
+export const walkKcal = (min, kg) => (min > 0 && kg > 0 ? (WALK_MET - 1) * kg * (min / 60) : 0);
+
 /** Плато — середнє стільки днів не опускається нижче свого мінімуму більш ніж на PLATEAU_KG. */
 export const PLATEAU_DAYS = 14;
 const PLATEAU_KG = 0.1;
@@ -268,12 +304,12 @@ export function reachedOn(rows, kg) {
 
 /**
  * Контрольні точки з ціллю в кінці, від більшої ваги до меншої.
- * Кожна: { kg, note, isTarget, reached, eta }.
+ * Кожна: { kg, note, by, isTarget, reached, eta } — by: до якої дати хочеться дійти (необов'язково).
  */
 export function checkpoints(rows, goal, sum) {
   const list = (goal.checkpoints ?? []).filter((c) => Number.isFinite(c.kg) && c.kg !== sum.target)
     .map((c) => ({ ...c, isTarget: false }));
-  if (sum.target !== null) list.push({ id: 'target', kg: sum.target, note: '', isTarget: true });
+  if (sum.target !== null) list.push({ id: 'target', kg: sum.target, note: '', isTarget: true, by: goal.targetBy || null });
   return list.sort((a, b) => b.kg - a.kg).map((c) => {
     const reached = reachedOn(rows, c.kg);
     return { ...c, reached, eta: reached ? null : sum.eta(c.kg) };

@@ -12,8 +12,11 @@ import { initLock, lockOn, lockDelay, lockAvailable, enableLock, disableLock, se
 import { lineChart } from './chart.js';
 import { icon, withIcon } from './icons.js';
 import { remindTime, setRemindTime, googleCalendarUrl, icsFile } from './remind.js';
-import { renderRation, homeLine, noteTags, tickWindow, planOf, energy, calories } from './nutrition.js';
-import { weightHint, afterSlip, yesterdayText, weekMarks, periodFood, streakMilestones, journalDay, dayDates, streak, dayOf } from './daylog.js';
+import { renderRation, homeLine, noteTags, tickWindow, planOf, energy, calories, energyLeft, dayKcal, walkOf } from './nutrition.js';
+import {
+  weightHint, afterSlip, yesterdayText, weekMarks, periodFood, streakMilestones, journalDay, dayDates, streak, dayOf,
+  unrecorded, daySheet, rationStart, setWalkBase,
+} from './daylog.js';
 import * as party from './celebrate.js';
 
 const $ = (id) => document.getElementById(id);
@@ -25,12 +28,25 @@ let rows = [];
 let justSaved = '';
 let goal = { id: M.GOAL_ID };
 let sum = M.summary([], goal);
+// Перший позначений день «Як день?» і темп від нього: старий темп за 4 тижні тягне за собою дні до раціону
+let rationFrom = null;
+let rationRate = null;
 
 function derive() {
   rows = M.series(state.weights);
   // Паузи на підтриманні з раціону: у них лінія плану стоїть, прогноз відсувається, плато мовчить
   goal = { ...M.goalOf(state), pauses: planOf(state)?.pauses ?? [] };
   sum = M.summary(rows, goal);
+  rationFrom = planOf(state) ? rationStart(state) : null;
+  rationRate = rationFrom && sum.base && rationFrom > sum.base.date ? M.rateSince(rows, rationFrom, goal.pauses) : null;
+  // Прогулянки додаються до норми лише за формулою: у реальній витраті вони вже є
+  setWalkBase(sum.current, calories(state, rows, sum.goal, sum.current)?.source === 'formula');
+}
+
+/** Норма для днів журналу й «Раціону»: { kcal, hold, walk, kg } — walk: додавати прогулянку дня. */
+function normOf() {
+  const c = calories(state, rows, sum.goal, sum.current);
+  return c ? { kcal: c.burn, hold: sum.hold, walk: c.source === 'formula', kg: sum.current } : null;
 }
 
 async function refresh() {
@@ -307,7 +323,8 @@ function statsGrid() {
     const planOk = !s.hold && Number.isFinite(g.planRate) && rate >= g.planRate;
     // Зі знаком, як «За тиждень» і прогноз у калоріях: «−0,77» — худнете
     tiles.push(stat('speed', s.recent !== null ? t('Темп за 4 тиж.') : t('Темп'), `${fmt.signed(-rate, 2)} ${t('кг/тиж')}`,
-      [s.recent !== null ? t('від початку {r}', { r: fmt.signed(-s.rate, 2) }) : null,
+      [rationRate !== null ? t('з раціону {r}', { r: fmt.signed(-rationRate, 2) }) : null,
+        s.recent !== null ? t('від початку {r}', { r: fmt.signed(-s.rate, 2) }) : null,
         !s.hold && Number.isFinite(g.planRate) ? t('план {r}', { r: fmt.signed(-g.planRate, 2) }) : null].filter(Boolean).join(' · ') || null,
       planOk ? 'good' : !s.hold && rate <= 0 ? 'bad' : ''));
   }
@@ -455,6 +472,137 @@ function holdNote() {
 /** Дефіцит зі знаком, як на плитці: «760» — їсте менше норми, «+120» — більше. */
 const deficitText = (d) => (d > 0 ? fmt.int(round10(d)) : fmt.signed(round10(d), 0));
 
+const kcalFact = (label, value, sub, cls = '') => h('div', { class: `kcal-fact ${cls}` },
+  h('span', { class: 'muted small' }, label), h('b', {}, value), sub ? h('span', { class: 'muted small' }, sub) : null);
+const rateText = (r) => t('{d} кг/тиж', { d: fmt.signed(-r, 2) });
+
+/** «поки за формулою · ще 4 дні» — скільки позначених днів лишилось до норми за вашими даними. */
+function formulaSummary() {
+  const n = energyLeft(state, rows);
+  return n ? t('Як рахується норма · за формулою, ще {n} {d} «Як день?»', { n, d: plural(n, [t('день'), t('дні'), t('днів')]) })
+    : t('Як рахується норма · поки за формулою');
+}
+
+/** Контрольні точки з датою «до», ще не пройдені: [{ c, d }] — від найближчої дати. */
+function deadlines() {
+  if (sum.hold) return [];
+  return M.checkpoints(rows, goal, sum).map((c) => ({ c, d: M.deadline(sum, c) })).filter((x) => x.d)
+    .sort((a, b) => (a.c.by < b.c.by ? -1 : 1));
+}
+
+const nextDeadline = () => deadlines().find((x) => !x.d.late) ?? null;
+
+/** good — встигаєте темпом прогнозу; mid — лише темпом від початку раціону; bad — ні тим, ні тим. */
+function deadlineKind({ c, d }) {
+  const f = d.at(sum.forecastRate);
+  const r = d.at(rationRate);
+  if (f !== null && f <= c.kg) return 'good';
+  return r !== null && r <= c.kg ? 'mid' : 'bad';
+}
+
+/**
+ * «Встигаю до дати?» — найближча контрольна точка з датою: скільки треба на тиждень, де буде середнє
+ * поточним темпом і темпом раціону, і скільки їсти, щоб встигнути.
+ */
+function deadlineBox() {
+  const x = nextDeadline();
+  if (!x) return null;
+  const { c, d } = x;
+  const kind = deadlineKind(x);
+  const days = M.daysBetween(M.today(), c.by);
+  const at = (r) => d.at(r);
+  const head = {
+    good: ['check', t('Встигаєте')],
+    mid: ['trend', t('Встигаєте, якщо тримати темп раціону')],
+    bad: ['warning', t('Поки не встигаєте')],
+  }[kind];
+  const atText = (v) => (v !== null ? t('≈{kg} на {date}', { kg: fmt.fix(v, 1), date: fmt.short(c.by) }) : null);
+  const okCls = (v) => (v !== null && v <= c.kg ? 'good' : 'bad');
+  const facts = h('div', { class: 'kcal-facts' },
+    kcalFact(t('Потрібно'), rateText(d.need), t('{kg} кг за {n} {d}', { kg: fmt.fix(d.left, 1), n: days, d: plural(days, [t('день'), t('дні'), t('днів')]) })),
+    sum.forecastRate !== null ? kcalFact(sum.recent !== null ? t('Темп за 4 тиж.') : t('Темп'), rateText(sum.forecastRate), atText(at(sum.forecastRate)), okCls(at(sum.forecastRate))) : null,
+    rationRate !== null ? kcalFact(t('З раціону, з {date}', { date: fmt.short(rationFrom) }), rateText(rationRate), atText(at(rationRate)), okCls(at(rationRate))) : null);
+  const cal = calories(state, rows, sum.goal, sum.current);
+  const needKcal = (d.need * M.KCAL_PER_KG) / 7;
+  const eat = cal ? cal.burn - needKcal : null;
+  const walk = M.walkKcal(45, sum.current);
+  const advice = [];
+  if (eat !== null) {
+    advice.push(t('Щоб встигнути: дефіцит ≈{d} на день — їсти ≈{e} при нормі {n}.', { d: kcalText(needKcal), e: kcalText(eat), n: kcalText(cal.burn) }),
+      ' ', t('З прогулянкою 45 хв щодня (≈{w}) — ≈{e}.', { w: kcalText(walk), e: kcalText(eat + walk) }));
+  }
+  // Межі безпеки: понад 1 % ваги на тиждень чи їжа нижче 1500 (чоловіки) / 1200 (жінки) — краще відсунути дату чи ходити
+  const floor = sum.goal.sex === 'f' ? 1200 : 1500;
+  const warn = d.need > sum.current * 0.01 ? t('Це понад 1 % ваги на тиждень — швидше вже ризиковано. Краще відсунути дату.')
+    : eat !== null && eat < floor ? t('Це менше {k} на день — так худнуть лише під наглядом лікаря. Краще додати ходьби або відсунути дату.', { k: kcalText(floor) }) : null;
+  return box(withIcon('flag', c.isTarget ? t('Ціль {kg} до {date}', { kg: kg(c.kg), date: fmt.date(c.by) })
+    : t('{kg} до {date}', { kg: kg(c.kg), date: fmt.date(c.by) })), h('div', { class: 'deadline' },
+    h('div', { class: `deadline-head ${kind}` }, icon(head[0]), h('b', {}, head[1])),
+    facts,
+    advice.length ? h('p', { class: 'small deadline-advice' }, advice) : null,
+    warn ? h('p', { class: 'small deadline-warn' }, warn) : null),
+  { tools: [toolBtn('edit', t('Змінити'), () => openSettings(c.isTarget ? 'goal' : 'checkpoints'))] });
+}
+
+/**
+ * Запас тижня (пн–нд): скільки ккал ще можна поза планом, щоб іти потрібним темпом — до найближчої дати,
+ * а без неї — за планом. Дні тижня — з'їдене (минулі) чи план (решта); прогулянки — до норми свого дня.
+ */
+function weekBudget(c) {
+  if (sum.hold || !planOf(state)) return null;
+  const x = nextDeadline();
+  const need = x ? x.d.need : sum.goal.planRate;
+  if (!(need > 0)) return null;
+  const daily = (need * M.KCAL_PER_KG) / 7;
+  const from = M.weekStart(M.today());
+  let room = 0;
+  for (let i = 0; i < 7; i += 1) {
+    const d = M.addDays(from, i);
+    const walk = c.source === 'formula' ? M.walkKcal(walkOf(state, d), sum.current) : 0;
+    room += c.burn + walk - daily - (dayKcal(state, d) ?? 0);
+  }
+  const why = x ? t('{r} — щоб до {date} дійти до {kg}', { r: rateText(need), date: fmt.short(x.c.by), kg: kg(x.c.kg) })
+    : t('{r} — за планом', { r: rateText(need) });
+  // Понад 2 год ходьби до неділі — порада вже не до діла: тиждень не надолужити, з понеділка рахунок новий
+  const minutes = room < 0 ? Math.ceil(-room / M.walkKcal(1, sum.current) / 5) * 5 : 0;
+  const sunday = M.daysBetween(from, M.today()) === 6 || minutes > WALK_MAX;
+  return h('div', { class: `kcal-week ${room >= 0 ? 'good' : 'bad'}` },
+    h('div', { class: 'kcal-week-head' },
+      h('span', { class: 'muted small' }, t('Запас тижня, пн–нд')),
+      h('b', {}, room >= 0 ? t('+{k}', { k: kcalText(room) }) : t('перебір {k}', { k: kcalText(-room) }))),
+    h('p', { class: 'muted small' }, room >= 0
+      ? t('Стільки можна з\'їсти поза планом до неділі, і темп {why} збережеться.', { why })
+      : sunday ? t('Цього тижня вже не надолужити — з понеділка рахунок новий. Не голодуйте. Темп {why}.', { why })
+        : t('Надолужте прогулянками — ≈{m} хв до неділі, а не голодуванням. Темп {why}.', { m: minutes, why })));
+}
+
+const WALK_MAX = 120;
+
+/** «Не так» без записаної їжі за 2 тижні — нагадати: такі дні рахуються як за планом. */
+function missingNote() {
+  if (!planOf(state)) return null;
+  const list = unrecorded(state);
+  if (!list.length) return null;
+  return h('section', { class: 'plateau missing-note' },
+    h('div', { class: 'plateau-head' }, icon('note'), h('b', {}, t('Не записано, що з\'їли'))),
+    h('p', { class: 'small' }, t('Ці дні позначені «не так», але без продуктів — тому рахуються як за планом, і «Їсте» виходить менше, ніж насправді.')),
+    h('div', { class: 'chips missing-days' }, list.map((d) => h('button', { type: 'button', onclick: () => daySheet(d) }, `${fmt.weekday(d)} ${fmt.short(d)}`))));
+}
+
+/** Талію міряємо раз на тиждень: минуло більше — нагадати на головній. */
+const WAIST_EVERY = 7;
+function waistNudge() {
+  const last = M.waistSeries(state.waists).at(-1);
+  if (!last) return null;
+  const n = M.daysBetween(last.date, M.today());
+  if (n < WAIST_EVERY) return null;
+  return h('button', { type: 'button', class: 'panel kcal-prompt', onclick: () => waistForm() },
+    icon('tape'),
+    h('span', { class: 'food-line-main' }, h('b', {}, t('Пора виміряти талію')),
+      h('span', { class: 'muted small' }, t('Останній замір {date} — {n} дн. тому. Раз на тиждень, уранці, по пупку.', { date: fmt.short(last.date), n }))),
+    h('span', { class: 'chevron-right', 'aria-hidden': 'true' }, '›'));
+}
+
 /**
  * Плитки — за сьогодні: норма, скільки за планом сьогодні, дефіцит (на утриманні — баланс).
  * Під ними — середнє, з якого рахується прогноз: вага йде від того, що їсте в середньому, а не за один день.
@@ -471,20 +619,19 @@ function caloriesBox() {
   }
   const cell = (label, value, cls = '') => h('div', { class: `kcal-cell ${cls}` }, h('span', { class: 'muted small' }, label), h('b', {}, value));
   // Різниця — з показаних (округлених) чисел, щоб плитки сходилися: Сьогодні − Норма = Дефіцит
-  const day = c.todayKcal !== null ? round10(c.todayKcal) - round10(c.burn) : null;
+  const day = c.todayKcal !== null ? round10(c.todayKcal) - round10(c.burnToday) : null;
   const deficit = c.balance !== null ? -c.balance : null;
   const perWeek = deficit !== null ? (deficit * 7) / M.KCAL_PER_KG : null;
   const real = sum.recent ?? sum.rate;
   const cells = [
-    cell(t('Норма'), fmt.int(round10(c.burn))),
+    cell(c.walkToday ? t('Норма з прогулянкою') : t('Норма'), fmt.int(round10(c.burnToday))),
     cell(t('Сьогодні'), c.todayKcal !== null ? fmt.int(round10(c.todayKcal)) : '—'),
     sum.hold
       ? cell(t('Баланс'), day !== null ? fmt.signed(round10(day), 0) : '—', day !== null && Math.abs(day) > 150 ? 'bad' : 'good')
       : cell(t('Дефіцит'), day !== null ? deficitText(-day) : '—', day !== null ? (day < 0 ? 'good' : 'bad') : ''),
   ];
   const f = c.f;
-  const fact = (label, value, sub, cls = '') => h('div', { class: `kcal-fact ${cls}` },
-    h('span', { class: 'muted small' }, label), h('b', {}, value), sub ? h('span', { class: 'muted small' }, sub) : null);
+  const fact = kcalFact;
   // Зміна ваги зі знаком: «−0,63» — худнете, «+0,20» — набираєте
   const facts = perWeek === null ? null : h('div', { class: 'kcal-facts' },
     sum.hold
@@ -497,16 +644,18 @@ function caloriesBox() {
     h('div', { class: 'kcal-grid' }, cells),
     kcalBars(c),
     facts,
+    weekBudget(c),
     c.intake === null ? h('p', { class: 'muted small' }, t('Скільки їсте — порахую за планом у «Раціоні».')) : null,
     // Як рахується норма — довідка, щодня не потрібна: згорнута, у заголовку лише звідки норма
     h('details', { class: 'about-more kcal-how' },
-      h('summary', {}, c.source === 'real' ? t('Як рахується норма · за вашими даними') : t('Як рахується норма · поки за формулою')),
+      h('summary', {}, c.source === 'real' ? t('Як рахується норма · за вашими даними') : formulaSummary()),
       h('p', { class: 'muted small' }, c.source === 'real'
         ? [t('Норма — за вашими даними: {n} позначених днів за {d} дн. і тренд ваги.', { n: c.en.marked, d: c.en.days }),
           f ? ` ${t('За формулою було б ≈{k}.', { k: kcalText(f.burn) })}` : null]
         : [t('Норма — за формулою Міффліна–Сан Жеора: вага {kg}, зріст {h} см, {a} р., активність {k}.',
           { kg: fmt.fix(f.kg, 1), h: fmt.int(sum.goal.height), a: f.age, k: numStr(f.activity) }),
-        ' ', t('Коли за 4 тижні буде 14 позначених днів «Як день?», порахую за вашими даними.')]))),
+        ' ', t('Коли за 4 тижні буде 14 позначених днів «Як день?», порахую за вашими даними.'),
+        ' ', t('Прогулянки з «Як день?» додаються до норми свого дня; активність у налаштуваннях через них не міняйте — інакше порахуються двічі.')]))),
   { tools: [toolBtn('edit', t('Змінити'), () => openSettings('body'))] });
 }
 
@@ -515,25 +664,28 @@ function caloriesBox() {
  * понад норму — червоним. Числа поруч, тож колір не єдиний носій змісту.
  */
 function kcalBars(c) {
+  // Риска норми в кожної смужки своя: сьогодні — з сьогоднішньою прогулянкою, середнє — із середньою
   const list = [
-    [t('Сьогодні'), c.todayKcal],
-    [c.source === 'real' ? t('Сер. 4 тиж.') : t('Сер. 7 дн.'), c.intake],
+    [t('Сьогодні'), c.todayKcal, c.burnToday],
+    [c.source === 'real' ? t('Сер. 4 тиж.') : t('Сер. 7 дн.'), c.intake, c.burnWeek],
   ].filter(([, v]) => v !== null);
   if (!list.length) return null;
-  const max = Math.max(c.burn, ...list.map(([, v]) => v)) * 1.04;
+  const max = Math.max(...list.map(([, v, n]) => Math.max(v, n))) * 1.04;
   const pct = (v) => `${((v / max) * 100).toFixed(1)}%`;
-  const bar = ([label, v]) => h('div', { class: 'kcal-bar' },
+  const bar = ([label, v, n]) => h('div', { class: 'kcal-bar' },
     h('span', { class: 'kcal-bar-label muted small' }, label),
     h('span', { class: 'kcal-track' },
-      h('span', { class: `kcal-fill ${v > c.burn ? 'to-norm' : ''}`, style: `width: ${pct(Math.min(v, c.burn))}` }),
-      v > c.burn ? h('span', { class: 'kcal-over', style: `left: ${pct(c.burn)}; width: ${pct(v - c.burn)}` }) : null,
-      h('span', { class: 'kcal-norm', style: `left: ${pct(c.burn)}` })),
+      h('span', { class: `kcal-fill ${v > n ? 'to-norm' : ''}`, style: `width: ${pct(Math.min(v, n))}` }),
+      v > n ? h('span', { class: 'kcal-over', style: `left: ${pct(n)}; width: ${pct(v - n)}` }) : null,
+      h('span', { class: 'kcal-norm', style: `left: ${pct(n)}` })),
     h('b', { class: 'kcal-bar-value' }, fmt.int(round10(v))));
+  const walks = c.walkToday || c.walkWeek;
   return h('div', {
     class: 'kcal-bars', role: 'img',
-    'aria-label': [...list.map(([l, v]) => `${l}: ${kcalText(v)}`), `${t('Норма')}: ${kcalText(c.burn)}`].join(', '),
+    'aria-label': [...list.map(([l, v, n]) => `${l}: ${kcalText(v)}, ${t('норма')} ${kcalText(n)}`)].join(', '),
   }, list.map(bar),
-  h('div', { class: 'kcal-legend muted small', 'aria-hidden': 'true' }, h('span', { class: 'kcal-legend-norm' }), t('норма {k}', { k: kcalText(c.burn) })));
+  h('div', { class: 'kcal-legend muted small', 'aria-hidden': 'true' }, h('span', { class: 'kcal-legend-norm' }),
+    walks ? t('норма {k} + прогулянки', { k: kcalText(c.burn) }) : t('норма {k}', { k: kcalText(c.burn) })));
 }
 
 /** Тижневі стовпчики з підписом «5/7» — днів за планом із позначених. */
@@ -576,12 +728,27 @@ function checkpointsBox() {
   },
     h('div', { class: 'row-main' },
       h('span', { class: 'row-title' }, kg(c.kg), c.isTarget ? h('span', { class: 'cp-target' }, t('ціль')) : null),
-      c.note ? h('span', { class: 'muted small' }, c.note) : null),
+      c.note ? h('span', { class: 'muted small' }, c.note) : null,
+      byLine(c)),
     h('div', { class: 'row-side' },
       c.reached ? h('span', { class: 'good cp-done' }, icon('check'), fmt.date(c.reached))
         : c.eta ? [h('span', {}, `≈ ${fmt.date(c.eta)}`), h('span', { class: 'muted small' }, weeksText(M.daysBetween(sum.currentDate, c.eta)))]
           : h('span', { class: 'muted' }, '—'))))),
   { tools: [toolBtn('edit', t('Змінити'), () => openSettings('checkpoints'))] });
+}
+
+/** «до 10.12 · треба −0,78 кг/тиж» під точкою з датою: зелене — встигаєте прогнозом, червоне — ні. */
+function byLine(c) {
+  if (!c.by) return null;
+  if (c.reached) {
+    return h('span', { class: `small ${c.reached <= c.by ? 'good' : 'muted'}` }, c.reached <= c.by ? t('до {date} — вчасно', { date: fmt.short(c.by) }) : t('планували до {date}', { date: fmt.short(c.by) }));
+  }
+  const d = M.deadline(sum, c);
+  if (!d) return null;
+  if (d.late) return h('span', { class: 'small bad' }, t('не встигли до {date}', { date: fmt.short(c.by) }));
+  const kind = deadlineKind({ c, d });
+  return h('span', { class: `small ${kind === 'good' ? 'good' : kind === 'bad' ? 'bad' : ''}` },
+    t('до {date} · треба {r}', { date: fmt.short(c.by), r: rateText(d.need) }));
 }
 
 function weeksText(days) {
@@ -623,11 +790,14 @@ function renderHome() {
     todayRow ? null : quickEntry(),
     hero(todayRow),
     weightHint(state, todayRow),
+    missingNote(),
     sum.hold ? holdNote() : [plateauNote(), holdOffer()],
+    deadlineBox(),
     homeLine(state, rationBadge()),
     statsGrid(),
     caloriesBox(),
-    sum.hold ? null : checkpointsBox());
+    sum.hold ? null : checkpointsBox(),
+    waistNudge());
 }
 
 // ---------- графік ----------
@@ -778,6 +948,7 @@ function renderChart() {
     summary,
     bars: period === '7' ? dayBars() : weekBars(),
     spans: (goal.pauses ?? []).map((p) => ({ from: p.from, to: p.to, label: t('пауза'), cls: 'pause' })),
+    vlines: rationFrom ? [{ date: rationFrom, label: t('раціон'), cls: 'ration' }] : [],
     barsLabel: period === '7' ? t('доба') : t('тиж.'),
     legend: [
       { label: t('Вага'), kind: 'dot', cls: 's-kg', keys: ['kg'] },
@@ -1020,9 +1191,10 @@ function renderLog() {
     remember('weight-log:log-month', latest);
   }
   // Норма — та сама, що на головній; минулі дні міряються нинішньою нормою
-  const burn = calories(state, rows, sum.goal, sum.current)?.burn;
-  const norm = burn ? { kcal: burn, hold: sum.hold } : null;
-  const normHint = norm ? h('p', { class: 'muted small log-norm' }, t('Дефіцит дня — від норми {k} на день, як на головній.', { k: kcalText(norm.kcal) })) : null;
+  const norm = normOf();
+  const normHint = norm ? h('p', { class: 'muted small log-norm' }, norm.walk
+    ? t('Дефіцит дня — від норми {k} на день, як на головній, плюс прогулянка того дня.', { k: kcalText(norm.kcal) })
+    : t('Дефіцит дня — від норми {k} на день, як на головній.', { k: kcalText(norm.kcal) })) : null;
   return h('div', {}, seg, normHint, [...months].map(([ym, list]) => {
     const ws = list.filter((r) => r.kg !== null);
     const avg = ws.length ? ws.reduce((s, r) => s + r.kg, 0) / ws.length : null;
@@ -1055,6 +1227,7 @@ function goalRow() {
     { name: 'startDate', label: t('Дата старту'), type: 'dmy', value: g.startDate ?? '', half: true },
     { name: 'target', label: t('Ціль, кг'), type: 'number', value: numStr(g.target), half: true, min: 20, max: 400 },
     { name: 'planRate', label: t('План, кг/тиж'), type: 'number', value: numStr(g.planRate), half: true, min: 0, max: 3 },
+    { name: 'targetBy', label: t('Ціль до дати (необов’язково)'), type: 'dmy', value: g.targetBy ?? '' },
     { name: 'holdBand', label: t('Коридор утримання, ± кг'), type: 'number', value: numStr(M.holdBand(g)), min: 0.3, max: 5 },
   ]);
   const save = async () => {
@@ -1067,6 +1240,7 @@ function goalRow() {
     await saveGoal({
       mode: v.mode, holdFrom, holdBand: v.holdBand ?? undefined,
       start: v.start ?? undefined, startDate: v.startDate || undefined, target: v.target ?? undefined, planRate: v.planRate ?? undefined,
+      targetBy: v.targetBy || undefined,
     });
     toast(t('Ціль збережено'));
   };
@@ -1114,10 +1288,35 @@ function checkpointsRow() {
   const remove = (c) => saveGoal({ checkpoints: (goal.checkpoints ?? []).filter((x) => x.id !== c.id) });
   return setRow('checkpoints', 'flag', t('Контрольні точки'), list.length ? fmt.int(list.length) : '', [
     h('p', { class: 'muted small' }, t('Проміжні ваги на шляху до цілі: для кожної — прогнозна дата за фактичним темпом. Сама ціль додається до списку автоматично.')),
+    h('p', { class: 'muted small' }, t('Натисніть на точку, щоб задати дату «до» — на головній з’явиться, чи встигаєте і скільки для цього їсти.')),
     list.length ? h('div', { class: 'rows cp-list' }, list.map((c) => h('div', { class: 'row' },
-      h('div', { class: 'row-main' }, h('span', { class: 'row-title' }, kg(c.kg)), c.note ? h('span', { class: 'muted small' }, c.note) : null),
+      h('button', { type: 'button', class: 'row-main cp-edit', onclick: () => checkpointForm(c) },
+        h('span', { class: 'row-title' }, kg(c.kg)),
+        c.note ? h('span', { class: 'muted small' }, c.note) : null,
+        h('span', { class: 'muted small' }, c.by ? t('до {date}', { date: fmt.date(c.by) }) : t('без дати'))),
       toolBtn('delete', t('Видалити'), () => remove(c), 'danger')))) : null,
     h('div', { class: 'cp-add' }, kgInput, noteInput, btn(t('Додати'), add))]);
+}
+
+/** Контрольна точка: вага, що означає, і до якої дати хочеться дійти. */
+function checkpointForm(c) {
+  const f = form([
+    { name: 'kg', label: t('Вага, кг'), type: 'number', value: numStr(c.kg), required: true, min: 20, max: 400, half: true },
+    { name: 'by', label: t('До дати'), type: 'dmy', value: c.by ?? '', half: true },
+    { name: 'note', label: t('Що означає'), value: c.note ?? '', placeholder: t('необов’язково') },
+  ]);
+  const save = async () => {
+    const bad = f.invalid();
+    if (bad) { toast(t('Перевірте поле «{f}»', { f: bad.label })); return; }
+    const v = f.values();
+    close();
+    await saveGoal({ checkpoints: (goal.checkpoints ?? []).map((x) => (x.id === c.id ? { ...x, kg: v.kg, note: v.note.trim(), by: v.by || undefined } : x)) });
+    toast(t('Збережено'));
+  };
+  const close = sheet(t('Контрольна точка'), h('div', {},
+    f.el, h('p', { class: 'muted small' }, t('Дата — необов’язково: з нею на головній видно, чи встигаєте, який потрібен темп і скільки їсти.'))), {
+    actions: [btn(t('Скасувати'), () => close()), btn(t('Зберегти'), save, 'primary')],
+  });
 }
 
 function remindRow() {
@@ -1685,7 +1884,7 @@ const VIEWS = {
     render: () => renderRation(state, {
       render,
       // Норма — та сама, що на головній: з ваших даних або за формулою; без зросту й віку — нема
-      burn: () => ({ kcal: calories(state, rows, sum.goal, sum.current)?.burn ?? null, hold: sum.hold }),
+      burn: () => normOf() ?? { kcal: null, hold: sum.hold },
       noPlan: () => empty('leaf', t('Плану харчування ще немає'),
         t('Завантажте файл із планом: Дані → Копія у файл → Відновити з файлу → Об’єднати.'),
         btn(withIcon('upload', t('Відкрити «Дані»')), () => openSettings('file'))),

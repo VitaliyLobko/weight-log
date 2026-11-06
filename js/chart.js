@@ -86,6 +86,7 @@ let clipSeq = 0;
  *   legend[].keys — пункт вмикає/вимикає ці серії, hidden — вимкнені спочатку, onHidden(ключі) — після тапу,
  *   bars: [{ from, to, v, tag }] + barsLabel — стовпчики змін від нульової лінії (втрата — вниз), підписані всі,
  *   spans: [{ from, to, label, cls }] — смуги днів на всю висоту (паузи),
+ *   vlines: [{ date, label, cls }] — вертикальні позначки дат (старт раціону),
  * }
  */
 export function lineChart(spec) {
@@ -320,6 +321,15 @@ export function lineChart(spec) {
       svg.append(s('g', { class: `span ${sp.cls ?? ''}` },
         s('rect', { x: a.toFixed(1), y: pad.t, width: (b - a).toFixed(1), height: ih }),
         b - a >= 36 && sp.label ? s('text', { x: ((a + b) / 2).toFixed(1), y: pad.t + 12, 'text-anchor': 'middle', class: 'span-label' }, sp.label) : null));
+    }
+
+    // Вертикальні позначки дат (старт раціону): пунктир на всю висоту, підпис угорі праворуч від лінії
+    for (const vl of spec.vlines ?? []) {
+      const vx = x(vl.date);
+      if (!(vx >= pad.l && vx <= pad.l + iw)) continue;
+      svg.append(s('g', { class: `vline ${vl.cls ?? ''}` },
+        s('line', { x1: vx.toFixed(1), x2: vx.toFixed(1), y1: pad.t, y2: pad.t + ih }),
+        vl.label ? s('text', { x: (vx + 4).toFixed(1), y: pad.t + 12, class: 'vline-label' }, vl.label) : null));
     }
 
     // Праве поле: пігулки кінців і дужка різниці; зайняті висоти запам'ятовуємо, щоб підписи горизонталей на них не лягали

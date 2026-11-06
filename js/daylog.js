@@ -7,7 +7,7 @@ import * as bot from './bot.js';
 import { h, fmt, sheet, toast, btn, toolBtn, box, parseNum } from './ui.js';
 import { t, plural } from './i18n.js';
 import { icon, withIcon, hop } from './icons.js';
-import { planOf, tagLists, slipRule, plannedKcal, cutOf, cutText, portionText, dayKcal, balanceText, balanceGood } from './nutrition.js';
+import { planOf, tagLists, slipRule, plannedKcal, cutOf, cutText, portionText, dayKcal, balanceText, balanceGood, dayNorm, walkOf } from './nutrition.js';
 import { resolveLocal, fromModel, fromPer100, per100Of, kcalMismatch, withoutStats } from './foods.js';
 import { scanSheet, lookupBarcode, pickLabelPhoto, labelItem } from './scan.js';
 import { oink } from './oink.js';
@@ -125,6 +125,39 @@ export async function toggleMealSkipped(date, meal) {
   const before = await saveDay(date, { skipped: next });
   const k = items.reduce((a, x) => a + (Number(x.kcal) || 0), 0);
   undo(all ? t('«{name}» знову в підсумку дня', { name: meal.name }) : t('«{name}» не з\'їли: −{k}', { name: meal.name, k: kcal(k) }), date, before);
+}
+
+// ---------- прогулянка ----------
+
+export const WALKS = [30, 45, 60, 90];
+// Від чого рахувати ккал прогулянки й чи йдуть вони до норми: ставить app.js після кожного перерахунку
+let walkBase = { kg: null, adds: false };
+export const setWalkBase = (kg, adds) => { walkBase = { kg, adds }; };
+
+const setWalk = (state, date, min) => saveDay(date, { walk: walkOf(state, date) === min ? null : min });
+
+function walkRow(state, date) {
+  const cur = walkOf(state, date);
+  const k = M.walkKcal(cur, walkBase.kg);
+  return h('div', { class: 'chips day-walk', role: 'group', 'aria-label': t('Прогулянка') },
+    h('span', { class: 'muted small' }, withIcon('walk', t('Прогулянка, хв:'))),
+    WALKS.map((m) => h('button', {
+      type: 'button', class: cur === m ? 'on' : '', 'aria-pressed': String(cur === m), 'aria-label': t('{n} хв', { n: m }), onclick: () => setWalk(state, date, m),
+    }, String(m))),
+    k ? h('span', { class: 'muted small day-walk-kcal' }, walkBase.adds
+      ? t('≈{k} — додано до норми дня', { k: kcal(Math.round(k / 10) * 10) })
+      : t('≈{k} — уже в реальній витраті', { k: kcal(Math.round(k / 10) * 10) })) : null);
+}
+
+// ---------- «що з'їли?» ----------
+
+/** «Трохи не так» чи зрив, а поза планом нічого не записано — день рахується як за планом. */
+const unrecordedDay = (rec) => ['off', 'slip'].includes(rec?.status) && !rec.extras?.length && !rec.noExtras;
+
+/** Дні за останні days (без сьогодні — він ще триває), де «не так», а що з'їли — не записано. */
+export function unrecorded(state, days = 14) {
+  use(state);
+  return Array.from({ length: days }, (_, i) => M.addDays(M.today(), -(days - i))).filter((d) => unrecordedDay(dayOf(state, d)));
 }
 
 const toggleTag = (state, date, tag) => {
@@ -458,7 +491,11 @@ function dayBody(state, date) {
         const on = Boolean(rec?.tags?.includes(tag));
         return h('button', { type: 'button', class: on ? 'on' : '', 'aria-pressed': String(on), onclick: () => toggleTag(state, date, tag) }, tag);
       })) : null,
+    walkRow(state, date),
     cut.kcal > 0 ? h('p', { class: 'small day-skipped' }, t('{what} · −{k}', { what: cutText(cut, { first: true }), k: kcal(cut.kcal) })) : null,
+    unrecordedDay(rec) && !cut.kcal ? h('div', { class: 'day-missing' },
+      h('p', { class: 'small' }, t('Що саме з\'їли? Без запису день рахується як за планом — і «Їсте» на головній виходить менше, ніж насправді.')),
+      h('button', { type: 'button', class: 'link-btn small', onclick: () => saveDay(date, { noExtras: true }) }, t('Нічого зайвого не їв'))) : null,
     extras.length ? h('div', { class: 'rows day-extras' }, extras.map((x, i) => h('button', {
       type: 'button', class: 'row food-row', onclick: () => editor(date, [x], { index: i }),
     },
@@ -469,7 +506,7 @@ function dayBody(state, date) {
     h('div', { class: 'btn-row' }, btn(withIcon('pig', t('З\'їв поза планом'), 'ico-pig'), (e) => { oink(); hop(e.currentTarget.querySelector('.ico-pig')); foodSheet(date); })));
 }
 
-function daySheet(date) {
+export function daySheet(date) {
   sheet(`${fmt.weekday(date)} ${fmt.date(date)}`, dayBody(current, date), { live: () => dayBody(current, date) });
 }
 
@@ -532,7 +569,7 @@ function calendarBody(state, norm) {
   const nextMonth = M.addDays(first, 32).slice(0, 7);
   const prevMonth = M.addDays(first, -1).slice(0, 7);
   const cells = [];
-  const stats = { marked: 0, eaten: 0, extra: 0 };
+  const stats = { marked: 0, eaten: 0, extra: 0, norm: 0 };
   for (let d = start; d < `${nextMonth}-01` || cells.length % 7; d = M.addDays(d, 1)) {
     const inMonth = d.startsWith(ym);
     if (!inMonth || d > today) {
@@ -540,8 +577,9 @@ function calendarBody(state, norm) {
       continue;
     }
     const c = calDay(state, d);
-    if (c.eaten !== null) { stats.marked += 1; stats.eaten += c.eaten; stats.extra += extrasSum(state, d).kcal; }
-    const label = `${fmt.weekday(d)} ${fmt.short(d)}: ${c.eaten !== null ? kcal(c.eaten) : t('не позначено')}${c.eaten !== null && norm ? ` · ${balanceText(c.eaten, norm)}` : ''}`;
+    const dn = norm ? dayNorm(state, norm, d) : null;
+    if (c.eaten !== null) { stats.marked += 1; stats.eaten += c.eaten; stats.extra += extrasSum(state, d).kcal; stats.norm += dn?.kcal ?? 0; }
+    const label = `${fmt.weekday(d)} ${fmt.short(d)}: ${c.eaten !== null ? kcal(c.eaten) : t('не позначено')}${c.eaten !== null && dn ? ` · ${balanceText(c.eaten, dn)}` : ''}`;
     cells.push(h('button', {
       type: 'button', class: `cal-cell ${c.cls} ${d === today ? 'today' : ''}`, 'aria-label': label, title: label,
       onclick: () => daySheet(d),
@@ -563,9 +601,13 @@ function calendarBody(state, norm) {
       n: stats.marked, a: kcal(stats.eaten / stats.marked), x: kcal(stats.extra),
     })) : null,
     // Дефіцит місяця — від тієї ж норми, що на головній: середнє з'їдене за позначені дні проти норми
-    stats.marked && norm ? h('p', { class: 'cal-balance' }, t('У середньому за день: норма {n} · {r}', {
-      n: fmt.int(Math.round(norm.kcal / 10) * 10), r: balanceText(stats.eaten / stats.marked, norm),
-    }), norm.hold ? null : h('span', { class: 'muted' }, ` · ${t('{d} кг/тиж', { d: fmt.signed(((stats.eaten / stats.marked - norm.kcal) * 7) / KCAL_PER_KG, 2) })}`)) : null);
+    // Норма в середньому — з прогулянками позначених днів (якщо норма за формулою)
+    stats.marked && norm ? (() => {
+      const avgNorm = { ...norm, kcal: stats.norm / stats.marked };
+      return h('p', { class: 'cal-balance' }, t('У середньому за день: норма {n} · {r}', {
+        n: fmt.int(Math.round(avgNorm.kcal / 10) * 10), r: balanceText(stats.eaten / stats.marked, avgNorm),
+      }), norm.hold ? null : h('span', { class: 'muted' }, ` · ${t('{d} кг/тиж', { d: fmt.signed(((stats.eaten / stats.marked - avgNorm.kcal) * 7) / KCAL_PER_KG, 2) })}`));
+    })() : null);
   const rebuild = () => el.replaceWith(calendarBody(current ?? state, norm));
   return el;
 }
@@ -661,10 +703,19 @@ export function streakMilestones(state) {
   return out;
 }
 
+/** Перший день, позначений у «Як день?», — звідси рахується темп «з раціону». */
+export function rationStart(state) {
+  let first = null;
+  for (const s of state.settings) {
+    if (s.id.startsWith(DAY_PREFIX) && s.status && s.date && (!first || s.date < first)) first = s.date;
+  }
+  return first;
+}
+
 /** Дати з записом дня (позначка, поза планом чи «не з'їв») — щоб у «Журналі» були й дні без зважування. */
 export function dayDates(state) {
   return state.settings
-    .filter((s) => s.id.startsWith(DAY_PREFIX) && s.date && (s.status || s.extras?.length || s.skipped?.length))
+    .filter((s) => s.id.startsWith(DAY_PREFIX) && s.date && (s.status || s.extras?.length || s.skipped?.length || s.walk))
     .map((s) => s.date);
 }
 
@@ -682,6 +733,8 @@ export function journalDay(state, date, norm = null) {
   const missedKcal = cut.kcal;
   const empty = !rec?.status && !extras.length && !missedKcal;
   const eaten = empty ? null : dayKcal(state, date);
+  const dn = norm ? dayNorm(state, norm, date) : null;
+  const walk = walkOf(state, date);
   const names = [
     extras.length ? t('поза планом: {list}', { list: extras.map((x) => x.name).join(', ') }) : null,
     missedKcal ? cutText(cut) : null,
@@ -694,10 +747,12 @@ export function journalDay(state, date, norm = null) {
       rec?.status === 'slip' && REASONS[rec.reason] ? h('span', { class: 'muted' }, `· ${t(REASONS[rec.reason]).toLowerCase()}`) : null,
       xs ? h('span', { class: 'log-chip plus' }, `+${fmt.int(xs)}`) : null,
       missedKcal ? h('span', { class: 'log-chip minus' }, `−${fmt.int(missedKcal)}`) : null,
+      walk ? h('span', { class: 'log-chip walk', title: t('Прогулянка {n} хв', { n: walk }) }, icon('walk'), fmt.int(walk)) : null,
+      unrecordedDay(rec) && !missedKcal ? h('span', { class: 'log-chip plus', title: t('Не записано, що з\'їли') }, '?') : null,
       h('span', { class: 'log-food-go', 'aria-hidden': 'true' }, '›')),
     eaten !== null ? h('span', { class: 'log-food-kcal' },
       h('span', {}, t("з'їдено {k}", { k: kcal(eaten) })),
-      norm ? h('span', { class: `log-balance ${balanceGood(eaten, norm) ? 'good' : 'bad'}` }, balanceText(eaten, norm)) : null) : null,
+      dn ? h('span', { class: `log-balance ${balanceGood(eaten, dn) ? 'good' : 'bad'}` }, balanceText(eaten, dn)) : null) : null,
     names.length ? h('span', { class: 'log-food-names' }, names.join(' · ')) : null);
 }
 

@@ -241,6 +241,31 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .kcal-fact.bad b { color: var(--bad); }
 .kcal-how { margin-top: 12px; }
 .kcal-how p { margin: 0 0 4px; }
+/* Запас тижня: скільки ще можна поза планом, щоб іти потрібним темпом */
+.kcal-week { margin-top: 12px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line-soft); }
+.kcal-week.good { border-color: color-mix(in srgb, var(--good) 40%, var(--line-soft)); }
+.kcal-week.bad { border-color: color-mix(in srgb, var(--bad) 45%, var(--line-soft)); background: color-mix(in srgb, var(--bad) 7%, transparent); }
+.kcal-week-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.kcal-week-head b { font-size: 17px; font-variant-numeric: tabular-nums; }
+.kcal-week.good .kcal-week-head b { color: var(--good); }
+.kcal-week.bad .kcal-week-head b { color: var(--bad); }
+.kcal-week p { margin: 4px 0 0; }
+/* «Встигаю до дати?» */
+.deadline .kcal-facts { grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); margin-top: 10px; }
+.deadline-head { display: flex; align-items: center; gap: 8px; font-size: 16px; }
+.deadline-head .ico { flex: none; width: 20px; height: 20px; }
+.deadline-head.good { color: var(--good); }
+.deadline-head.mid { color: color-mix(in srgb, var(--warn) 75%, var(--text)); }
+.deadline-head.bad { color: var(--bad); }
+.deadline-advice { margin: 12px 0 0; }
+.deadline-warn { margin: 8px 0 0; color: color-mix(in srgb, var(--warn) 75%, var(--text)); }
+.missing-note p { margin: 6px 0 8px; }
+.missing-days { margin: 0; }
+.missing-days button { min-height: 40px; }
+.cp-edit { padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.link-btn { padding: 6px 0; border: 0; background: none; color: var(--accent-2); font: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.chart-svg .vline line { stroke: var(--accent-2); stroke-width: 1.2; stroke-dasharray: 3 3; opacity: .7; }
+.chart-svg .vline-label { font-size: 10px; fill: var(--accent-2); }
 .sizes .row-side { max-width: 60%; }
 .sizes .row.stacked { flex-direction: column; align-items: stretch; gap: 2px; }
 .sizes .row.stacked .row-side { max-width: none; align-items: flex-start; }
@@ -1157,6 +1182,13 @@ button:focus-visible, a:focus-visible, summary:focus-visible, [tabindex]:focus-v
 .day-skipped { margin: 10px 2px 0; color: var(--muted); }
 .day-tags { align-items: center; margin: 10px 0 0; }
 .day-tags button { min-height: 40px; }
+.day-walk { align-items: center; margin: 10px 0 0; }
+.day-walk button { min-height: 40px; }
+.day-walk > .muted { display: inline-flex; align-items: center; gap: 4px; }
+.day-walk .ico { width: 16px; height: 16px; }
+.day-walk-kcal { flex-basis: 100%; }
+.day-missing { margin: 10px 0 0; padding: 8px 12px; border-radius: 12px; background: color-mix(in srgb, var(--warn) 12%, var(--surface)); border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line)); }
+.day-missing p { margin: 0; }
 .day-rule { margin: 0 0 8px; font-size: 13px; }
 .day-energy p { margin: 4px 0 0; }
 .day-mark { display: inline-flex; align-items: center; gap: 5px; margin-top: 3px; font-size: 12px; color: var(--muted); }
@@ -1266,6 +1298,8 @@ button.food-pick .chevron-right { font-size: 22px; line-height: 1; color: var(--
 .log-chip { padding: 1px 7px; border-radius: 8px; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .log-chip.plus { background: color-mix(in srgb, var(--warn) 18%, var(--surface)); color: color-mix(in srgb, var(--warn) 70%, var(--text)); }
 .log-chip.minus { background: var(--surface); color: var(--muted); }
+.log-chip.walk { display: inline-flex; align-items: center; gap: 2px; background: color-mix(in srgb, var(--good) 14%, var(--surface)); color: color-mix(in srgb, var(--good) 70%, var(--text)); }
+.log-chip.walk .ico { width: 13px; height: 13px; }
 .log-food-go { margin-left: auto; font-size: 18px; line-height: 1; color: var(--muted); }
 .log-food-kcal { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .log-balance { padding: 1px 8px; border-radius: 8px; font-weight: 700; white-space: nowrap; }
