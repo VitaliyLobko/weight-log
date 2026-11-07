@@ -887,9 +887,24 @@ function chartChips() {
   ] : [
     sum.target !== null ? h('span', { class: 'stat-chip' }, t('ціль {kg} · ще {d}', { kg: fmt.fix(sum.target), d: fmt.fix(Math.max(0, sum.toGo ?? 0), 1) })) : null,
     plan !== null && last.avg !== null ? h('span', { class: `stat-chip ${trendClass(last.avg - plan)}` }, t('від плану {d}', { d: fmt.signed(last.avg - plan, 2) })) : null,
+    plan !== null && last.avg !== null ? catchUpChip(last.avg - plan, last.date) : null,
   ];
   const list = chips.filter(Boolean);
   return list.length ? h('div', { class: 'chart-chips' }, list) : null;
+}
+
+/**
+ * Відстаєте від плану — коли середнє його наздожене темпом прогнозу (перетин двох прямих),
+ * а якщо темп повільніший за план — який темп треба, щоб наздогнати за 4 тижні.
+ * ponytail: паузи попереду не враховано — дата перетину з ними буде пізніша.
+ */
+function catchUpChip(gap, date) {
+  const pr = sum.goal.planRate;
+  if (!(gap > 0.05) || !Number.isFinite(pr)) return null;
+  const closing = (sum.forecastRate ?? 0) - pr;
+  const days = closing > 0 ? Math.round((gap / closing) * 7) : Infinity;
+  if (days <= 180) return h('span', { class: 'stat-chip' }, t('у план ≈ {date}', { date: fmt.short(M.addDays(date, days)) }));
+  return h('span', { class: 'stat-chip' }, t('наздогнати за міс. — {r} кг/тиж', { r: fmt.fix(pr + gap / 4, 1) }));
 }
 
 /** Зміна за кожен день — стовпчики під графіком на «Тиждень», де тижневих було б 1–2. */
