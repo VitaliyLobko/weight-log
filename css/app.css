@@ -431,7 +431,8 @@ button.food-window.open .food-win-text::after { content: ''; }
 
 .bmi-head { display: flex; align-items: baseline; gap: 10px; margin: 4px 0 8px; }
 .bmi-value { font-size: 28px; font-weight: 800; }
-.bmi-scale { position: relative; height: 8px; margin: 6px 0 24px; border-radius: 4px; background: linear-gradient(90deg, var(--surface-2), color-mix(in srgb, var(--muted) 35%, var(--surface-2))); }
+/* зони на шкалі 15–45: <18,5 мало · 18,5–25 норма · 25–30 надмірна · 30+ ожиріння */
+.bmi-scale { position: relative; height: 8px; margin: 6px 0 24px; border-radius: 4px; background: linear-gradient(90deg, var(--warn) 11.667%, var(--good) 11.667% 33.333%, var(--warn) 33.333% 50%, var(--bad) 50%); }
 .bmi-tick { position: absolute; top: 0; width: 2px; height: 8px; margin-left: -1px; background: var(--surface); }
 .bmi-tick i { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); font-style: normal; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .bmi-mark { position: absolute; top: -4px; width: 16px; height: 16px; margin-left: -8px; border-radius: 50%; background: var(--accent-2); box-shadow: 0 0 0 3px var(--surface); }
@@ -477,14 +478,13 @@ button.food-window.open .food-win-text::after { content: ''; }
 .key { display: inline-block; flex: none; }
 .key.line { width: 16px; height: 3px; border-radius: 2px; }
 .key.dot { width: 8px; height: 8px; border-radius: 50%; }
-.key.ring { width: 11px; height: 11px; border-radius: 50%; border: 1.5px solid var(--c-ring); }
+.key.ring { width: 7px; height: 7px; border-radius: 50%; background: var(--c-ring); }
 .key.area { width: 12px; height: 10px; border-radius: 3px; }
 .key.s-avg { background: var(--c-avg); }
 .key.s-plan { background: var(--c-plan); }
 .key.line.dash { height: 2px; background: repeating-linear-gradient(90deg, var(--c-plan) 0 5px, transparent 5px 8px); }
-.key.line.dash.s-forecast { background: repeating-linear-gradient(90deg, var(--c-avg) 0 2px, transparent 2px 6px); }
+.key.line.dash.s-forecast { height: 3px; background: radial-gradient(circle, var(--c-avg) 1.5px, transparent 1.6px) 0 50% / 5px 3px repeat-x; }
 .key.s-kg { background: var(--c-kg); }
-.key.ring.s-kg { background: none; }
 .key.area.good { background: color-mix(in srgb, var(--good) 40%, transparent); }
 .key.area.bad { background: color-mix(in srgb, var(--bad) 40%, transparent); }
 .key.area.split { background: linear-gradient(90deg, color-mix(in srgb, var(--good) 45%, transparent) 50%, color-mix(in srgb, var(--bad) 45%, transparent) 50%); }
@@ -513,13 +513,14 @@ button.food-window.open .food-win-text::after { content: ''; }
 .chart-svg .series-dots.s-kg circle { fill: var(--c-kg); fill-opacity: .8; stroke: none; }
 .chart-svg .series-dots.s-kg circle.last { fill: var(--text); fill-opacity: 1; stroke-width: 2; }
 .chart-svg .series-dots.s-waist circle { fill: var(--c-waist); stroke-width: 2; }
-.chart-svg .series-dots circle.ring { fill: none; stroke: var(--c-ring); stroke-width: 1.3; opacity: .85; }
+.chart-svg .series-dots circle.ring { fill: var(--c-ring); stroke: none; opacity: .9; }
 .chart-svg .hline line { stroke: var(--muted); stroke-width: 1; opacity: .35; }
 .chart-svg .hline.target line { stroke: var(--accent-2); opacity: .8; }
 .chart-svg .bars line { stroke: var(--line); stroke-width: 1; }
 .chart-svg .bars rect { fill: var(--muted); opacity: .5; }
 .chart-svg .bars rect.good { fill: var(--good); opacity: .7; }
 .chart-svg .bars rect.bad { fill: var(--bad); opacity: .7; }
+.chart-svg .bars rect.partial { opacity: .35; }
 .chart-svg .bars rect.on { opacity: 1; }
 .chart-svg .bars .bar-label.on { font-weight: 800; }
 .chart-svg .bars .bar-label { fill: var(--text); font-size: 10.5px; font-weight: 700; font-variant-numeric: tabular-nums; }

@@ -388,7 +388,7 @@ export function lineChart(spec) {
       const pickedBar = selected ? spec.bars.find((b) => b.from <= selected && selected <= b.to) : null;
       for (const d of barPlan.items) {
         bars.append(s('rect', { x: d.x0.toFixed(1), y: (d.up ? zero - d.bh : zero + 1).toFixed(1), width: (d.x1 - d.x0).toFixed(1), height: d.bh.toFixed(1), rx: 2,
-          class: [d.b.v < 0 ? 'good' : d.up ? 'bad' : '', d.b === pickedBar ? 'on' : ''].join(' ').trim() || null }));
+          class: [d.b.v < 0 ? 'good' : d.up ? 'bad' : '', d.b.partial ? 'partial' : '', d.b === pickedBar ? 'on' : ''].filter(Boolean).join(' ') || null }));
       }
       // Підписи — поверх стовпчиків; ярус 0 — біля стовпчика, наступні — на TIER_PX далі від нуля
       for (const d of barPlan.items) {
@@ -420,7 +420,8 @@ export function lineChart(spec) {
         for (const p of pts) {
           const cx = x(p.date).toFixed(1);
           const cy = y(p.v).toFixed(1);
-          if (p.ring) g.append(s('circle', { cx, cy, r: r + 2.5, class: 'ring' }));
+          // Нотатка — крапка внизу під днем, а не кільце: кільця закривали точки
+          if (p.ring) g.append(s('circle', { cx, cy: (pad.t + ih - 4).toFixed(1), r: 2.5, class: 'ring' }));
           g.append(s('circle', { cx, cy, r: p.last ? r + 1.5 : r, class: [p.last ? 'last' : '', p.cls ?? ''].join(' ').trim() || null }));
         }
         marks.append(g);

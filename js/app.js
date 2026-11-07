@@ -694,7 +694,9 @@ function kcalBars(c) {
 
 /** Тижневі стовпчики з підписом «5/7» — днів за планом із позначених. */
 function weekBars() {
-  const list = M.weeklyChanges(rows);
+  // Тиждень, що ще триває, — напівпрозорий
+  const last = rows.at(-1)?.date;
+  const list = M.weeklyChanges(rows).map((b) => (b.to > last ? { ...b, partial: true } : b));
   if (!planOf(state)) return list;
   return list.map((b) => {
     const m = weekMarks(state, b.from, b.to);
@@ -814,7 +816,7 @@ function hiddenSeries() {
     const v = JSON.parse(recall(HIDDEN_KEY) ?? '[]');
     if (!Array.isArray(v)) return [];
     // До 0.1.12 заливка вимикалась окремо — тепер вона йде за планом
-    return [...v.filter((k) => k !== 'gap'), ...(v.includes('plan') ? ['gap'] : [])];
+    return [...v.filter((k) => k !== 'gap' && k !== 'planAhead'), ...(v.includes('plan') ? ['gap', 'planAhead'] : [])];
   } catch {
     return [];
   }
@@ -917,6 +919,8 @@ function renderChart() {
   const g = sum.goal;
   // На утриманні лінія — лише вага цілі від дня переходу, без обриву зі старого плану
   const plan = rows.filter((r) => !sum.hold || onHold(r.date)).map((r) => ({ date: r.date, v: M.planAt(g, r.date) })).filter((p) => p.v !== null);
+  // План далі за сьогодні — поруч із прогнозом, щоб видно, чи сходяться
+  const planAhead = Array.from({ length: peek + 1 }, (_, i) => M.addDays(lastDate, i)).map((date) => ({ date, v: M.planAt(g, date) })).filter((p) => p.v !== null);
   const marks = M.checkpoints(rows, goal, sum).map((c) => ({ v: c.kg, label: c.isTarget ? t('ціль') : fmt.int(c.kg), cls: c.isTarget ? 'target' : 'cp' }));
   const day = picked && rows.some((r) => r.date === picked) ? picked : lastDate;
   const slipped = afterSlip(state);
@@ -936,6 +940,7 @@ function renderChart() {
     series: [
       { key: 'gap', kind: 'band', cls: 's-gap', points: ahead },
       { key: 'plan', kind: 'line', cls: 's-plan', points: plan },
+      { key: 'planAhead', kind: 'line', cls: 's-plan', points: plan.length > 1 ? planAhead : [], aside: true },
       { key: 'kg', kind: 'dots', cls: 's-kg', points: rows.map((r, i) => ({ date: r.date, v: r.kg, ring: Boolean(r.note), last: i === rows.length - 1, cls: slipped.has(r.date) ? 'slip' : null })) },
       { key: 'avg', kind: 'line', cls: 's-avg', points: rows.filter((r) => r.avg !== null).map((r) => ({ date: r.date, v: r.avg })), endLabel: true },
       { key: 'forecast', kind: 'line', cls: 's-forecast', points: forecast, aside: true },
@@ -958,7 +963,7 @@ function renderChart() {
       { label: t('Вага'), kind: 'dot', cls: 's-kg', keys: ['kg'] },
       { label: t('Середнє'), kind: 'line', cls: 's-avg', keys: ['avg'] },
       // Заливка без плану сенсу не має — вмикається й вимикається разом із ним; дата фінішу — в «Контрольних точках»
-      plan.length ? { label: sum.hold ? t('Ціль') : t('План'), kind: 'line dash', cls: 's-plan', keys: ['plan', 'gap'] } : null,
+      plan.length ? { label: sum.hold ? t('Ціль') : t('План'), kind: 'line dash', cls: 's-plan', keys: ['plan', 'gap', 'planAhead'] } : null,
       finish ? { label: t('прогноз'), kind: 'line dash', cls: 's-forecast', keys: ['forecast'] } : null,
       vis.some((r) => r.note) ? { label: t('нотатка'), kind: 'ring', cls: 's-kg' } : null,
       vis.some((r) => slipped.has(r.date)) ? { label: t('після зриву'), kind: 'dot', cls: 's-kg slip' } : null,
