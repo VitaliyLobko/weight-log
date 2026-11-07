@@ -258,6 +258,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .deadline-head.mid { color: color-mix(in srgb, var(--warn) 75%, var(--text)); }
 .deadline-head.bad { color: var(--bad); }
 .deadline-advice { margin: 12px 0 0; }
+.deadline-badge { font-size: 13px; }
+.deadline-badge.good { color: var(--good); }
+.deadline-badge.mid { color: color-mix(in srgb, var(--warn) 75%, var(--text)); }
+.deadline-badge.bad { color: var(--bad); }
 .deadline-warn { margin: 8px 0 0; color: color-mix(in srgb, var(--warn) 75%, var(--text)); }
 .missing-note p { margin: 6px 0 8px; }
 .missing-days { margin: 0; }

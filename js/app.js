@@ -512,9 +512,9 @@ function deadlineBox() {
   const days = M.daysBetween(M.today(), c.by);
   const at = (r) => d.at(r);
   const head = {
-    good: ['check', t('Встигаєте')],
-    mid: ['trend', t('Встигаєте, якщо тримати темп раціону')],
-    bad: ['warning', t('Поки не встигаєте')],
+    good: ['check', t('Встигаєте'), t('встигаєте')],
+    mid: ['trend', t('Встигаєте, якщо тримати темп раціону'), t('з темпом раціону')],
+    bad: ['warning', t('Поки не встигаєте'), t('не встигаєте')],
   }[kind];
   const atText = (v) => (v !== null ? t('≈{kg} на {date}', { kg: fmt.fix(v, 1), date: fmt.short(c.by) }) : null);
   const okCls = (v) => (v !== null && v <= c.kg ? 'good' : 'bad');
@@ -541,7 +541,11 @@ function deadlineBox() {
     facts,
     advice.length ? h('p', { class: 'small deadline-advice' }, advice) : null,
     warn ? h('p', { class: 'small deadline-warn' }, warn) : null),
-  { tools: [toolBtn('edit', t('Змінити'), () => openSettings(c.isTarget ? 'goal' : 'checkpoints'))] });
+  {
+    fold: 'deadline',
+    count: h('span', { class: `deadline-badge ${kind}` }, head[2]),
+    tools: [toolBtn('edit', t('Змінити'), () => openSettings(c.isTarget ? 'goal' : 'checkpoints'))],
+  });
 }
 
 /**
