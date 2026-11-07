@@ -757,11 +757,11 @@ export function journalDay(state, date, norm = null) {
 }
 
 /** Дати зважувань наступного ранку після зриву — окремі точки на графіку. */
-export function afterSlip(state) {
+export function afterStatus(state) {
   use(state);
-  const out = new Set();
+  const out = new Map();
   for (const s of state.settings) {
-    if (s.id.startsWith(DAY_PREFIX) && s.status === 'slip' && s.date) out.add(M.addDays(s.date, 1));
+    if (s.id.startsWith(DAY_PREFIX) && s.status && s.date) out.set(M.addDays(s.date, 1), s.status);
   }
   return out;
 }

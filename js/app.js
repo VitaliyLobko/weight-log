@@ -14,7 +14,7 @@ import { icon, withIcon } from './icons.js';
 import { remindTime, setRemindTime, googleCalendarUrl, icsFile } from './remind.js';
 import { renderRation, homeLine, noteTags, tickWindow, planOf, energy, calories, energyLeft, dayKcal, walkOf } from './nutrition.js';
 import {
-  weightHint, afterSlip, yesterdayText, weekMarks, periodFood, streakMilestones, journalDay, dayDates, streak, dayOf,
+  weightHint, afterStatus, STATUS, yesterdayText, weekMarks, periodFood, streakMilestones, journalDay, dayDates, streak, dayOf,
   unrecorded, daySheet, rationStart, setWalkBase,
 } from './daylog.js';
 import * as party from './celebrate.js';
@@ -938,7 +938,8 @@ function renderChart() {
   const planAhead = Array.from({ length: peek + 1 }, (_, i) => M.addDays(lastDate, i)).map((date) => ({ date, v: M.planAt(g, date) })).filter((p) => p.v !== null);
   const marks = M.checkpoints(rows, goal, sum).map((c) => ({ v: c.kg, label: c.isTarget ? t('ціль') : fmt.int(c.kg), cls: c.isTarget ? 'target' : 'cp' }));
   const day = picked && rows.some((r) => r.date === picked) ? picked : lastDate;
-  const slipped = afterSlip(state);
+  // Точка зважування — кольором того, як минув учора раціон
+  const after = afterStatus(state);
   const details = h('div', {}, dayLine(day));
   // Заливка між середнім і планом: зелена — середнє нижче плану (випереджаєте), червона — вище
   const planOn = new Map(plan.map((p) => [p.date, p.v]));
@@ -956,7 +957,7 @@ function renderChart() {
       { key: 'gap', kind: 'band', cls: 's-gap', points: ahead },
       { key: 'plan', kind: 'line', cls: 's-plan', points: plan },
       { key: 'planAhead', kind: 'line', cls: 's-plan', points: plan.length > 1 ? planAhead : [], aside: true },
-      { key: 'kg', kind: 'dots', cls: 's-kg', points: rows.map((r, i) => ({ date: r.date, v: r.kg, ring: Boolean(r.note), last: i === rows.length - 1, cls: slipped.has(r.date) ? 'slip' : null })) },
+      { key: 'kg', kind: 'dots', cls: 's-kg', points: rows.map((r, i) => ({ date: r.date, v: r.kg, ring: Boolean(r.note), last: i === rows.length - 1, cls: after.get(r.date) ?? null })) },
       { key: 'avg', kind: 'line', cls: 's-avg', points: rows.filter((r) => r.avg !== null).map((r) => ({ date: r.date, v: r.avg })), endLabel: true },
       { key: 'forecast', kind: 'line', cls: 's-forecast', points: forecast, aside: true },
     ],
@@ -981,7 +982,7 @@ function renderChart() {
       plan.length ? { label: sum.hold ? t('Ціль') : t('План'), kind: 'line dash', cls: 's-plan', keys: ['plan', 'gap', 'planAhead'] } : null,
       finish ? { label: t('прогноз'), kind: 'line dash', cls: 's-forecast', keys: ['forecast'] } : null,
       vis.some((r) => r.note) ? { label: t('нотатка'), kind: 'ring', cls: 's-kg' } : null,
-      vis.some((r) => slipped.has(r.date)) ? { label: t('після зриву'), kind: 'dot', cls: 's-kg slip' } : null,
+      ...['ok', 'off', 'slip'].filter((k) => vis.some((r) => after.get(r.date) === k)).map((k) => ({ label: t(STATUS[k]), kind: 'dot', cls: `s-kg ${k}` })),
     ].filter(Boolean),
     hidden: hiddenSeries(),
     onHidden: (keys) => remember(HIDDEN_KEY, JSON.stringify(keys)),

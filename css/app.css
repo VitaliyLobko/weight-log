@@ -1172,7 +1172,11 @@ button:focus-visible, a:focus-visible, summary:focus-visible, [tabindex]:focus-v
 .day-month p { margin: 8px 0 0; }
 .day-counts { display: flex; flex-wrap: wrap; gap: 6px 16px; }
 .day-count { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; }
+.chart-svg .series-dots.s-kg circle.ok { fill: var(--good); fill-opacity: .9; }
+.chart-svg .series-dots.s-kg circle.off { fill: var(--warn); fill-opacity: .9; }
 .chart-svg .series-dots.s-kg circle.slip { fill: var(--bad); fill-opacity: .9; }
+.key.dot.s-kg.ok { background: var(--good); }
+.key.dot.s-kg.off { background: var(--warn); }
 .key.dot.s-kg.slip { background: var(--bad); }
 .day-hint .plateau-head .ico { color: var(--warn); }
 .food-card .field { grid-column: auto; }
