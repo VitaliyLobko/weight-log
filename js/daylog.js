@@ -8,7 +8,7 @@ import { h, fmt, sheet, toast, btn, toolBtn, box, parseNum } from './ui.js';
 import { t, plural } from './i18n.js';
 import { icon, withIcon, hop } from './icons.js';
 import { planOf, tagLists, slipRule, plannedKcal, cutOf, cutText, portionText, dayKcal, balanceText, balanceGood, dayNorm, walkOf } from './nutrition.js';
-import { resolveLocal, fromModel, fromPer100, per100Of, kcalMismatch, withoutStats, parsePiece } from './foods.js';
+import { resolveLocal, fromModel, fromPer100, per100Of, kcalMismatch, withoutStats, parsePiece, tableFoods } from './foods.js';
 import { scanSheet, lookupBarcode, pickLabelPhoto, labelItem } from './scan.js';
 import { oink, oinkOn, setOinkOn } from './oink.js';
 import { canListen, listen, VOICE_LANGS, voiceLang, setVoiceLang } from './voice.js';
@@ -341,16 +341,21 @@ export function foodSheet(date = M.today()) {
   const connected = Boolean(bot.botConfig().from);
   const mine = state ? foodsOf(state) : [];
   // Свої продукти — одразу списком; те, що пишеться в полі, їх і фільтрує
-  const pickCount = h('span', { class: 'muted small' });
-  const pickHead = h('div', { class: 'food-sub-head' }, h('h4', { class: 'food-sub' }, t('Мої продукти')), pickCount);
-  const pickList = h('div', { class: 'rows my-foods food-pick' });
+  // Довідник — за назвою; порцію й грами підставить «Порахувати»
+  const pickDict = (x) => { text.value = dictName(x); count(); };
+  const pickSec = h('div', { class: 'food-pick-sec' });
   const paintPick = () => {
     const keys = searchKeys(text.value);
-    const shown = mine.filter((f) => matchesSearch(f.name, keys)).sort(byUse);
-    pickCount.textContent = keys.length ? t('збігів: {n}', { n: shown.length }) : String(mine.length || '');
-    pickList.replaceChildren(...(shown.length ? shown.map((f) => foodRow(f, quick)) : [h('p', { class: 'muted small my-foods-empty' }, mine.length
-      ? t('Серед своїх немає — натисніть «Порахувати».')
-      : t('Тут з\'являться продукти, які ви вже записували: наступного разу — одним дотиком.'))]));
+    const own = mine.filter((f) => matchesSearch(f.name, keys)).sort(byUse);
+    const dict = keys.length ? dictMatches(keys).slice(0, 12) : [];
+    const head = (title, side) => h('div', { class: 'food-sub-head' }, h('h4', { class: 'food-sub' }, title), h('span', { class: 'muted small' }, side));
+    pickSec.replaceChildren(
+      own.length || !keys.length ? head(t('Мої продукти'), String(own.length || '')) : null,
+      own.length ? h('div', { class: 'rows my-foods' }, own.map((f) => foodRow(f, quick)))
+        : keys.length ? null : h('p', { class: 'muted small my-foods-empty' }, t('Тут з\'являться продукти, які ви вже записували: наступного разу — одним дотиком. Почніть писати — підкажу й з довідника.')),
+      dict.length ? head(t('З довідника'), t('ккал на 100 г')) : null,
+      dict.length ? h('div', { class: 'rows my-foods' }, dict.map((x) => dictRow(x, pickDict))) : null,
+      keys.length && !own.length && !dict.length ? h('p', { class: 'muted small my-foods-empty' }, t('Не знайшлося — натисніть «Порахувати».')) : null);
   };
   text.addEventListener('input', () => paintPick());
   const quick = async (f) => {
@@ -427,7 +432,7 @@ export function foodSheet(date = M.today()) {
     h('div', { class: 'food-src-btns' },
       btn(withIcon('barcode', t('Штрихкод')), scan),
       btn(withIcon('camera', t('Фото етикетки')), photo)),
-    h('div', { class: 'food-pick-sec' }, pickHead, pickList));
+    pickSec);
   paintPick();
   const close = sheet(dateTitle(t('Поза планом'), date), body, {
     tools: [oinkToggle()],
@@ -688,10 +693,10 @@ function asOne(items, name) {
 }
 
 /** Свій продукт: назва, порція, ккал і БЖВ, «Порахувати» з довідника чи ШІ. Лише в «Мої продукти», не в день. */
-function foodForm(food = null) {
+function foodForm(food = null, prefill = null) {
   const others = (current ? foodsOf(current) : []).filter((x) => !food || !sameFood(x, food));
   let close;
-  const card = itemCard(food ?? { name: '' }, {
+  const card = itemCard(food ?? prefill ?? { name: '' }, {
     onChange: () => {},
     onCalc: async (q, c) => {
       const r = await resolveText(q, others);
@@ -725,11 +730,57 @@ function foodForm(food = null) {
     close();
     await saveFoods((list) => list.filter((x) => !sameFood(x, food)), t('«{name}» видалено', { name: food.name }));
   };
+  // Друга думка: ШІ рахує ту саму порцію, різниця — таблицею; згодні — лишаємо, ні — можна взяти його цифри
+  const verdict = h('div', { class: 'food-recheck-out', hidden: true });
+  const recheck = btn(withIcon('spark', t('Перевірити цифри з ШІ')), async () => {
+    const v = card.read();
+    if (!v.name) { toast(t('Вкажіть назву')); return; }
+    if (!bot.botConfig().from) { toast(t(AI_ERRORS['no-bot'])); return; }
+    const portion = v.grams ? t('{g} г', { g: fmt.int(v.grams) }) : v.qty;
+    recheck.disabled = true;
+    recheck.replaceChildren(...withIcon('spark', t('Перевіряю…')));
+    try {
+      const r = await bot.askFood([v.name, portion].filter(Boolean).join(' '));
+      const found = (r.items ?? []).map(fromModel).filter(hasKcal);
+      if (!found.length) { toast(r.note || t('ШІ не зміг порахувати — спробуйте уточнити назву.')); return; }
+      showVerdict(v, asOne(found, v.name));
+    } catch (err) {
+      toast(errorText(err));
+    } finally {
+      recheck.disabled = false;
+      recheck.replaceChildren(...withIcon('spark', t('Перевірити цифри з ШІ')));
+    }
+  }, 'food-recheck');
+  const showVerdict = (v, ai) => {
+    const has = Number.isFinite(v.kcal) && v.kcal > 0;
+    const diff = has ? Math.abs(ai.kcal - v.kcal) / Math.max(ai.kcal, v.kcal) : 1;
+    const agree = diff <= 0.1;
+    const cell = (x, k) => h('span', {}, k === 'kcal' ? fmt.int(x[k]) : fmt.fix(Number(x[k]) || 0, 1));
+    verdict.hidden = false;
+    verdict.className = `food-recheck-out ${agree ? 'agree' : 'differ'}`;
+    verdict.replaceChildren(
+      h('p', { class: 'small food-recheck-say' }, icon(agree ? 'check' : 'warning'), agree
+        ? t('ШІ згоден: різниця {d}%. Збережіть — продукт позначиться перевіреним.', { d: Math.round(diff * 100) })
+        : has ? t('ШІ рахує інакше: різниця {d}%. Звірте з упаковкою або візьміть його цифри.', { d: Math.round(diff * 100) })
+          : t('ШІ порахував — візьміть його цифри.')),
+      h('div', { class: 'food-recheck-grid', role: 'table' },
+        ...[['', ['Ккал', 'Б', 'Ж', 'В']], [t('У вас'), v], [t('ШІ'), ai]].map(([label, x]) => h('div', { class: 'food-recheck-row', role: 'row' },
+          h('span', { class: 'muted' }, label),
+          ...(Array.isArray(x) ? x.map((c) => h('span', { class: 'muted' }, t(c))) : NUMS.map((k) => cell(x, k)))))),
+      agree ? null : h('div', { class: 'btn-row' }, btn(t('Взяти цифри ШІ'), () => {
+        const nums = Object.fromEntries(NUMS.map((k) => [k, ai[k]]));
+        card.fill({ name: v.name, qty: v.qty, ...(v.grams ? { grams: v.grams, per100: per100Of({ ...nums, grams: v.grams }) } : {}), ...nums, src: 'ai' });
+        verdict.hidden = true;
+        toast(t('Цифри ШІ підставлено — збережіть.'));
+      })));
+  };
   const body = h('div', { class: 'food-edit' },
-    food ? null : h('p', { class: 'small muted' },
+    food || prefill ? null : h('p', { class: 'small muted' },
       t('Напишіть страву з порцією («котлета домашня 150 г») і натисніть «Порахувати» — або введіть цифри з упаковки. Кілька продуктів («котлета і пюре») стануть однією стравою.')),
-    card.el);
-  close = sheet(food ? food.name : t('Свій продукт'), body, {
+    prefill?.src === 'table' ? h('p', { class: 'small muted' }, t('З довідника, на 100 г. Збережіть — стане вашим продуктом і рахуватиметься замість довідника.')) : null,
+    card.el,
+    h('div', { class: 'food-recheck' }, recheck, verdict));
+  close = sheet(food ? food.name : prefill ? prefill.name : t('Свій продукт'), body, {
     tools: food ? [toolBtn('delete', t('Видалити'), remove, 'danger')] : [],
     actions: [btn(t('Скасувати'), () => close()), btn(t('Зберегти'), save, 'primary')],
   });
@@ -781,6 +832,64 @@ function foodRow(f, onPick) {
       h('div', { class: 'row-side' }, h('span', { class: 'food-kcal' }, fmt.int(f.kcal)),
         onPick ? icon('plus', 'my-food-add') : null)),
     onPick ? toolBtn('edit', t('Змінити «{name}»', { name: f.name }), () => foodForm(f)) : null);
+}
+
+// ---------- Довідник: перегляд і перевірка ----------
+
+const UNIT_LABEL = { pc: 'шт', slice: 'скибка', tbsp: 'ст. л.', tsp: 'ч. л.', cup: 'склянка', plate: 'порція' };
+// Назва українською, якщо є серед синонімів («хліб білий», не «хлеб белый»)
+const dictName = (x) => {
+  const s = (x.aliases.find((a) => /[іїєґ]/.test(a.text)) ?? x.aliases[0]).text;
+  return s[0].toUpperCase() + s.slice(1);
+};
+const dictMatches = (keys) => tableFoods().filter((x) => x.aliases.some((a) => matchesSearch(a.text, keys)));
+const dictAsFood = (x) => ({ name: dictName(x), qty: '100 г', grams: 100, ...x.per100, per100: { ...x.per100 }, src: 'table' });
+const dictSub = (x) => [t('Б {p} · Ж {f} · В {c}', { p: fmt.fix(x.per100.p, 1), f: fmt.fix(x.per100.f, 1), c: fmt.fix(x.per100.c, 1) }),
+  ...Object.entries(x.u ?? {}).filter(([k]) => UNIT_LABEL[k]).map(([k, g]) => t('{u} ≈ {g} г', { u: t(UNIT_LABEL[k]), g: fmt.int(g) }))].join(' · ');
+
+/** Рядок довідника: значення на 100 г, порції, синоніми й ⚠, якщо ккал не сходяться з БЖВ. */
+function dictRow(x, onTap) {
+  const issue = foodIssue(dictAsFood(x));
+  const name = dictName(x);
+  const other = x.aliases.map((a) => a.text).filter((a) => a.toLowerCase() !== name.toLowerCase()).join(', ');
+  return h('button', { type: 'button', class: 'row food-row dict-row', onclick: () => onTap(x) },
+    h('div', { class: 'row-main' },
+      h('span', { class: 'row-title' }, name),
+      h('span', { class: 'muted small' }, dictSub(x)),
+      other ? h('span', { class: 'muted small dict-aliases' }, other) : null,
+      issue ? h('span', { class: 'small food-issue' }, icon('warning'), issue) : null),
+    h('div', { class: 'row-side' }, h('span', { class: 'food-kcal' }, fmt.int(x.per100.kcal))));
+}
+
+let dictQuery = '';
+let dictCheck = false;
+
+/** Блок «Довідник» у «Раціон → Довідка»: пошук, ⚠ перевірити; тап — виправити як свій продукт. */
+export function dictBox() {
+  const all = tableFoods();
+  const problems = all.filter((x) => foodIssue(dictAsFood(x)));
+  const list = h('div', { class: 'rows my-foods' });
+  const search = h('input', {
+    type: 'search', value: dictQuery, autocomplete: 'off', placeholder: t('Пошук: гречка, банан…'), 'aria-label': t('Пошук у довіднику'),
+    oninput: () => { dictQuery = search.value; paint(); },
+  });
+  const paint = () => {
+    const keys = searchKeys(dictQuery);
+    const shown = (dictCheck ? problems : all).filter((x) => !keys.length || x.aliases.some((a) => matchesSearch(a.text, keys)));
+    list.replaceChildren(...(shown.length ? shown.map((x) => dictRow(x, (y) => foodForm(null, dictAsFood(y))))
+      : [h('p', { class: 'muted small my-foods-empty' }, t('Нічого не знайшлося.'))]));
+  };
+  const chip = problems.length ? h('div', { class: 'chips my-foods-check' }, h('button', {
+    type: 'button', class: dictCheck ? 'on' : '', 'aria-pressed': String(dictCheck),
+    onclick: (e) => { dictCheck = !dictCheck; e.currentTarget.classList.toggle('on', dictCheck); e.currentTarget.setAttribute('aria-pressed', String(dictCheck)); paint(); },
+  }, icon('warning'), t('Перевірити · {n}', { n: problems.length }))) : null;
+  paint();
+  const title = [...withIcon('book', t('Довідник')),
+    problems.length ? h('span', { class: 'box-warn', title: t('Перевірити: {n}', { n: problems.length }) }, icon('warning'), String(problems.length)) : null];
+  return box(title, h('div', { class: 'my-foods-body' },
+    h('p', { class: 'small muted' }, t('Вбудовані значення на 100 г — за ними рахує «Порахувати» без ШІ. Сумнівні цифри: відкрийте рядок, перевірте з ШІ й збережіть — продукт стане вашим і рахуватиметься замість довідника.')),
+    h('div', { class: 'my-foods-tools' }, h('label', { class: 'field my-foods-search' }, search), chip),
+    list), { fold: 'food-dict', count: all.length });
 }
 
 /**
@@ -1032,15 +1141,35 @@ export function calendarPanel(state, norm = null) {
 }
 
 /** Картка «Як день?» на «Раціоні»: сьогоднішня позначка, поза планом, тиждень і серія. */
+const DAY_FOLD_KEY = 'weight-log:day-card-folded';
+const dayFolded = () => { try { return localStorage.getItem(DAY_FOLD_KEY) === '1'; } catch { return false; } };
+
 export function dayCard(state) {
   use(state);
   const n = streak(state);
-  return h('section', { class: 'panel day-card' },
-    h('div', { class: 'day-head' },
-      h('h3', {}, t('Як день?')),
+  const today = M.today();
+  const rec = dayOf(state, today);
+  const xs = extrasSum(state, today);
+  const summary = h('span', { class: 'day-fold-sum' },
+    rec?.status ? h('span', { class: `day-dot ${rec.status}`, 'aria-hidden': 'true' }) : null,
+    [rec?.status ? t(STATUS[rec.status]) : t('Не позначено'), xs.kcal ? t('поза планом {k}', { k: kcal(xs.kcal) }) : null].filter(Boolean).join(' · '));
+  const el = h('section', { class: `panel day-card ${dayFolded() ? 'folded' : ''}` });
+  const toggle = h('button', {
+    type: 'button', class: 'day-fold', 'aria-expanded': String(!dayFolded()),
+    onclick: () => {
+      const fold = !el.classList.contains('folded');
+      el.classList.toggle('folded', fold);
+      toggle.setAttribute('aria-expanded', String(!fold));
+      try { localStorage.setItem(DAY_FOLD_KEY, fold ? '1' : '0'); } catch { /* приватний режим */ }
+    },
+  }, h('h3', {}, t('Як день?')), summary, icon('down', 'day-fold-ico'));
+  el.append(
+    h('div', { class: 'day-head' }, toggle,
       n >= 2 ? h('span', { class: 'day-streak' }, icon('trophy'), t('{n} {d} без зриву', { n, d: plural(n, [t('день'), t('дні'), t('днів')]) })) : null),
-    dayBody(state, M.today()),
-    weekStrip(state));
+    h('div', { class: 'day-full' }, dayBody(state, today), weekStrip(state)),
+    // Згорнуто — лишається головна дія
+    h('div', { class: 'day-mini btn-row' }, btn(withIcon('pig', t('З\'їв поза планом'), 'ico-pig'), (e) => { oink(); hop(e.currentTarget.querySelector('.ico-pig')); foodSheet(today); })));
+  return el;
 }
 
 /** Підсумок за 30 днів: позначки, причини, день тижня зривів, поза планом ≈ кг, реальна витрата (en — energy()). */

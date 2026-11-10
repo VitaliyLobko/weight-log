@@ -1500,3 +1500,25 @@ a.donate-card:active .donate-cup .st { animation: cat-puff .35s ease-out; }
 .food-pick-sec .food-sub-head .food-sub { margin: 0; }
 .box-warn { display: inline-flex; align-items: center; gap: 3px; margin-left: 8px; font-size: 13px; font-weight: 600; color: var(--warn); }
 .box-warn .ico { width: 14px; height: 14px; }
+/* «Як день?» згортається до підсумку й кнопки */
+.day-fold { display: flex; align-items: baseline; gap: 4px 10px; flex-wrap: wrap; min-width: 0; min-height: 44px; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.day-fold-sum { display: none; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.day-fold-ico { width: 16px; height: 16px; align-self: center; color: var(--muted); transition: transform .2s; }
+.day-card.folded .day-fold-ico { transform: rotate(-90deg); }
+.day-card.folded .day-fold-sum { display: inline-flex; }
+.day-card.folded .day-full, .day-card:not(.folded) .day-mini { display: none; }
+.day-card.folded .day-head { margin-bottom: 4px; }
+.day-mini { margin: 0; }
+@media (prefers-reduced-motion: reduce) { .day-fold-ico { transition: none; } }
+/* Перевірка цифр з ШІ у формі продукту */
+.food-recheck { display: grid; gap: 8px; margin-top: 12px; }
+.food-recheck-out[hidden] { display: none; }
+.food-recheck-out { display: grid; gap: 8px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); }
+.food-recheck-say { display: flex; gap: 6px; align-items: flex-start; margin: 0; }
+.food-recheck-say .ico { flex: none; width: 15px; height: 15px; margin-top: 2px; }
+.food-recheck-out.agree .food-recheck-say .ico { color: var(--good); }
+.food-recheck-out.differ .food-recheck-say .ico { color: var(--warn); }
+.food-recheck-row { display: grid; grid-template-columns: 4.5em repeat(4, 1fr); gap: 6px; font-size: 14px; font-variant-numeric: tabular-nums; text-align: right; }
+.food-recheck-row > :first-child { text-align: left; }
+.food-recheck-out .btn-row { margin: 0; }
+.dict-aliases { overflow-wrap: anywhere; }

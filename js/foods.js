@@ -704,6 +704,9 @@ export function fromModel(x) {
   return { name: x.name, qty: x.qty ?? '', grams, per100, ...fromPer100(per100, grams), src: food ? 'table' : 'ai' };
 }
 
+/** Увесь довідник — для перегляду й перевірки в «Довідці» та пошуку в шторці «Поза планом». */
+export const tableFoods = () => FOODS;
+
 /** Самоперевірка довідника тим самим правилом, що й для продуктів: рядки, де ккал не сходяться з БЖВ. */
 export const tableProblems = () => FOODS
   .filter((x) => kcalMismatch({ name: x.name, ...x.per100 }))

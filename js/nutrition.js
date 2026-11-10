@@ -7,7 +7,7 @@ import { h, fmt, sheet, toast, form, btn, toolBtn, box, confirmSheet, remember, 
 import { t, plural } from './i18n.js';
 import { icon, withIcon } from './icons.js';
 import { dietMemo } from './diet.js';
-import { dayCard, monthBox, extrasSum, dayOf, STATUS, toggleSkipped, toggleMealSkipped, setPortion, setMealPortion, calendarPanel, myFoodsBox } from './daylog.js';
+import { dayCard, monthBox, extrasSum, dayOf, STATUS, toggleSkipped, toggleMealSkipped, setPortion, setMealPortion, calendarPanel, myFoodsBox, dictBox } from './daylog.js';
 
 export const PLAN_ID = 'nutrition';
 /** Вибір продукту дня — окремим записом: тап на телефоні не перетирає правку плану з іншого пристрою. */
@@ -920,7 +920,7 @@ function pausesBox(plan) {
 let current = null;
 
 // Підрозділи «Раціону»: день — щоденна робота, календар — історія, довідка — рідко
-const RATION_SEGS = [['today', 'Сьогодні'], ['calendar', 'Календар'], ['refs', 'Довідка']];
+const RATION_SEGS = [['today', 'Сьогодні'], ['calendar', 'Календар'], ['foods', 'Продукти'], ['refs', 'Довідка']];
 const SEG_KEY = 'weight-log:ration-seg';
 let rationSeg = RATION_SEGS.some(([k]) => k === recall(SEG_KEY)) ? recall(SEG_KEY) : 'today';
 
@@ -933,7 +933,7 @@ export function renderRation(state, { noPlan, render, burn }) {
     remember(SEG_KEY, v);
     render();
   });
-  const body = { today: rationToday, calendar: rationCalendar, refs: rationRefs }[rationSeg];
+  const body = { today: rationToday, calendar: rationCalendar, foods: rationFoods, refs: rationRefs }[rationSeg];
   return h('div', {}, seg, body(state, day, burn));
 }
 
@@ -985,10 +985,11 @@ function rationToday(state, day, burn) {
       dayPicker(state, day),
       windowEl(plan, Boolean(pause.now))),
     pauseNote(pause),
-    dayCard(state),
     meals.map(mealBox),
     h('div', { class: 'btn-row' }, btn(withIcon('plus', t('Прийом їжі')), () => mealForm(null))),
-    norm ? h('p', { class: 'muted small food-norm' }, t('План у середньому за тиждень: {k} · {m}', { k: kcal(norm.kcal), m: macros(norm) })) : null);
+    norm ? h('p', { class: 'muted small food-norm' }, t('План у середньому за тиждень: {k} · {m}', { k: kcal(norm.kcal), m: macros(norm) })) : null,
+    // «Як день?» — підсумок дня, після прийомів
+    dayCard(state));
 }
 
 function rationCalendar(state, { plan }, burn) {
@@ -999,9 +1000,13 @@ function rationCalendar(state, { plan }, burn) {
     pausesBox(plan));
 }
 
+/** «Продукти»: свої й довідник — переглянути, перевірити цифри, виправити. */
+function rationFoods(state) {
+  return h('div', {}, myFoodsBox(state), dictBox());
+}
+
 function rationRefs(state, { plan }) {
   return h('div', {},
-    myFoodsBox(state),
     (plan.refs ?? []).map((r) => box(withIcon('book', r.title), refText(r.text), {
       fold: `ref:${r.id}`, tools: [toolBtn('edit', t('Змінити'), () => refForm(r))],
     })),
