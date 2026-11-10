@@ -874,6 +874,7 @@ function dictRow(x, onTap) {
     h('div', { class: 'row-side' }, h('span', { class: 'food-kcal' }, fmt.int(x.per100.kcal))));
 }
 
+const DICT_SHOWN = 60;
 let dictQuery = '';
 let dictCheck = false;
 
@@ -894,7 +895,10 @@ export function dictBox() {
     const find = q ? h('button', { type: 'button', class: `row food-row dict-find ${shown.length ? '' : 'hot'}`, onclick: () => dictForm(null, q) },
       h('div', { class: 'row-main' }, h('span', { class: 'row-title' }, ...withIcon('spark', t('Знайти й порахувати «{q}»', { q }))),
         h('span', { class: 'muted small' }, t('Перевірите цифри й додасте в довідник')))) : null;
-    list.replaceChildren(...shown.map((x) => dictRow(x, (y) => dictForm(y))), ...(find ? [find] : []),
+    // Без пошуку — перші DICT_SHOWN, щоб не малювати сотні рядків
+    const cut = keys.length || dictCheck ? shown : shown.slice(0, DICT_SHOWN);
+    const more = cut.length < shown.length ? h('p', { class: 'muted small my-foods-empty' }, t('Показано {n} з {all} — напишіть у пошуку, що шукаєте.', { n: cut.length, all: shown.length })) : null;
+    list.replaceChildren(...cut.map((x) => dictRow(x, (y) => dictForm(y))), ...(more ? [more] : []), ...(find ? [find] : []),
       ...(shown.length || find ? [] : [h('p', { class: 'muted small my-foods-empty' }, t('Нічого не знайшлося.'))]));
   };
   const chip = problems.length ? h('div', { class: 'chips my-foods-check' }, h('button', {
