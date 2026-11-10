@@ -34,6 +34,7 @@ const ASSETS = [
   './js/nutrition.js',
   './js/daylog.js',
   './js/foods.js',
+  './data/foods.json',
   './js/scan.js',
   './js/oink.js',
   './js/voice.js',

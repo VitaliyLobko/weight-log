@@ -1522,3 +1522,7 @@ a.donate-card:active .donate-cup .st { animation: cat-puff .35s ease-out; }
 .food-recheck-row > :first-child { text-align: left; }
 .food-recheck-out .btn-row { margin: 0; }
 .dict-aliases { overflow-wrap: anywhere; }
+/* Сегменти не вилазять за край: 4 і більше — тісніше */
+.chips.segmented button { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.chips.segmented:has(> :nth-child(4)) button { padding-inline: 4px; font-size: 13px; }
+.dict-find.hot { background: var(--accent-soft); }

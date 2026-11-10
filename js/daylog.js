@@ -8,7 +8,7 @@ import { h, fmt, sheet, toast, btn, toolBtn, box, parseNum } from './ui.js';
 import { t, plural } from './i18n.js';
 import { icon, withIcon, hop } from './icons.js';
 import { planOf, tagLists, slipRule, plannedKcal, cutOf, cutText, portionText, dayKcal, balanceText, balanceGood, dayNorm, walkOf } from './nutrition.js';
-import { resolveLocal, fromModel, fromPer100, per100Of, kcalMismatch, withoutStats, parsePiece, tableFoods } from './foods.js';
+import { resolveLocal, fromModel, fromPer100, per100Of, kcalMismatch, withoutStats, parsePiece, tableFoods, setOwnFoods, dictKey } from './foods.js';
 import { scanSheet, lookupBarcode, pickLabelPhoto, labelItem } from './scan.js';
 import { oink, oinkOn, setOinkOn } from './oink.js';
 import { canListen, listen, VOICE_LANGS, voiceLang, setVoiceLang } from './voice.js';
@@ -16,6 +16,8 @@ import { canListen, listen, VOICE_LANGS, voiceLang, setVoiceLang } from './voice
 export const DAY_PREFIX = 'day:';
 /** «Мої продукти»: що вже рахували — кнопки швидкого додавання і кеш, щоб не питати модель вдруге. */
 export const FOODS_ID = 'nutrition-foods';
+/** Свій довідник: додані й виправлені рядки поверх data/foods.json. */
+export const DICT_ID = 'nutrition-dict';
 const FOODS_KEEP = 200;
 const KCAL_PER_KG = 7700;
 const MAX_TEXT = 300;
@@ -27,7 +29,14 @@ const REASONS = { hunger: 'Голод', stress: 'Стрес', boredom: 'Нудь
 
 // Останній стан — для живих шторок (день з полоси тижня), що перебудовуються після запису
 let current = null;
-const use = (state) => { current = state; return state; };
+let ownRows = null;
+const use = (state) => {
+  current = state;
+  // Свій довідник — у розбір тексту й пошук; перебудова лише коли змінився
+  const rows = state.settings.find((s) => s.id === DICT_ID)?.items ?? [];
+  if (rows !== ownRows) { ownRows = rows; setOwnFoods(rows); }
+  return state;
+};
 /** Свіжий стан після кожного перерахунку в app.js — для живих шторок, хоч би який екран під ними. */
 export const setDayState = (state) => { use(state); };
 
@@ -693,10 +702,10 @@ function asOne(items, name) {
 }
 
 /** Свій продукт: назва, порція, ккал і БЖВ, «Порахувати» з довідника чи ШІ. Лише в «Мої продукти», не в день. */
-function foodForm(food = null, prefill = null) {
+function foodForm(food = null) {
   const others = (current ? foodsOf(current) : []).filter((x) => !food || !sameFood(x, food));
   let close;
-  const card = itemCard(food ?? prefill ?? { name: '' }, {
+  const card = itemCard(food ?? { name: '' }, {
     onChange: () => {},
     onCalc: async (q, c) => {
       const r = await resolveText(q, others);
@@ -730,7 +739,20 @@ function foodForm(food = null, prefill = null) {
     close();
     await saveFoods((list) => list.filter((x) => !sameFood(x, food)), t('«{name}» видалено', { name: food.name }));
   };
-  // Друга думка: ШІ рахує ту саму порцію, різниця — таблицею; згодні — лишаємо, ні — можна взяти його цифри
+  const body = h('div', { class: 'food-edit' },
+    food ? null : h('p', { class: 'small muted' },
+      t('Напишіть страву з порцією («котлета домашня 150 г») і натисніть «Порахувати» — або введіть цифри з упаковки. Кілька продуктів («котлета і пюре») стануть однією стравою.')),
+    card.el,
+    recheckBlock(card));
+  close = sheet(food ? food.name : t('Свій продукт'), body, {
+    tools: food ? [toolBtn('delete', t('Видалити'), remove, 'danger')] : [],
+    actions: [btn(t('Скасувати'), () => close()), btn(t('Зберегти'), save, 'primary')],
+  });
+  if (!food) setTimeout(() => card.focus(), 250);
+}
+
+/** Друга думка: ШІ рахує ту саму порцію, різниця — таблицею; згодні — лишаємо, ні — можна взяти його цифри. */
+function recheckBlock(card) {
   const verdict = h('div', { class: 'food-recheck-out', hidden: true });
   const recheck = btn(withIcon('spark', t('Перевірити цифри з ШІ')), async () => {
     const v = card.read();
@@ -774,17 +796,7 @@ function foodForm(food = null, prefill = null) {
         toast(t('Цифри ШІ підставлено — збережіть.'));
       })));
   };
-  const body = h('div', { class: 'food-edit' },
-    food || prefill ? null : h('p', { class: 'small muted' },
-      t('Напишіть страву з порцією («котлета домашня 150 г») і натисніть «Порахувати» — або введіть цифри з упаковки. Кілька продуктів («котлета і пюре») стануть однією стравою.')),
-    prefill?.src === 'table' ? h('p', { class: 'small muted' }, t('З довідника, на 100 г. Збережіть — стане вашим продуктом і рахуватиметься замість довідника.')) : null,
-    card.el,
-    h('div', { class: 'food-recheck' }, recheck, verdict));
-  close = sheet(food ? food.name : prefill ? prefill.name : t('Свій продукт'), body, {
-    tools: food ? [toolBtn('delete', t('Видалити'), remove, 'danger')] : [],
-    actions: [btn(t('Скасувати'), () => close()), btn(t('Зберегти'), save, 'primary')],
-  });
-  if (!food) setTimeout(() => card.focus(), 250);
+  return h('div', { class: 'food-recheck' }, recheck, verdict);
 }
 
 // Грами — лише коли порція не в грамах («2 шт · 120 г», але не «150 г · 150 г»)
@@ -854,7 +866,8 @@ function dictRow(x, onTap) {
   const other = x.aliases.map((a) => a.text).filter((a) => a.toLowerCase() !== name.toLowerCase()).join(', ');
   return h('button', { type: 'button', class: 'row food-row dict-row', onclick: () => onTap(x) },
     h('div', { class: 'row-main' },
-      h('span', { class: 'row-title' }, name),
+      h('span', { class: 'row-title' }, name,
+        x.own ? h('span', { class: 'food-src' }, t('моє')) : x.fixed ? h('span', { class: 'food-src' }, t('виправлено')) : null),
       h('span', { class: 'muted small' }, dictSub(x)),
       other ? h('span', { class: 'muted small dict-aliases' }, other) : null,
       issue ? h('span', { class: 'small food-issue' }, icon('warning'), issue) : null),
@@ -876,8 +889,13 @@ export function dictBox() {
   const paint = () => {
     const keys = searchKeys(dictQuery);
     const shown = (dictCheck ? problems : all).filter((x) => !keys.length || x.aliases.some((a) => matchesSearch(a.text, keys)));
-    list.replaceChildren(...(shown.length ? shown.map((x) => dictRow(x, (y) => foodForm(null, dictAsFood(y))))
-      : [h('p', { class: 'muted small my-foods-empty' }, t('Нічого не знайшлося.'))]));
+    const q = dictQuery.trim();
+    // Немає потрібного — знайти й порахувати: довідник чи ШІ, перевірити, додати
+    const find = q ? h('button', { type: 'button', class: `row food-row dict-find ${shown.length ? '' : 'hot'}`, onclick: () => dictForm(null, q) },
+      h('div', { class: 'row-main' }, h('span', { class: 'row-title' }, ...withIcon('spark', t('Знайти й порахувати «{q}»', { q }))),
+        h('span', { class: 'muted small' }, t('Перевірите цифри й додасте в довідник')))) : null;
+    list.replaceChildren(...shown.map((x) => dictRow(x, (y) => dictForm(y))), ...(find ? [find] : []),
+      ...(shown.length || find ? [] : [h('p', { class: 'muted small my-foods-empty' }, t('Нічого не знайшлося.'))]));
   };
   const chip = problems.length ? h('div', { class: 'chips my-foods-check' }, h('button', {
     type: 'button', class: dictCheck ? 'on' : '', 'aria-pressed': String(dictCheck),
@@ -887,9 +905,79 @@ export function dictBox() {
   const title = [...withIcon('book', t('Довідник')),
     problems.length ? h('span', { class: 'box-warn', title: t('Перевірити: {n}', { n: problems.length }) }, icon('warning'), String(problems.length)) : null];
   return box(title, h('div', { class: 'my-foods-body' },
-    h('p', { class: 'small muted' }, t('Вбудовані значення на 100 г — за ними рахує «Порахувати» без ШІ. Сумнівні цифри: відкрийте рядок, перевірте з ШІ й збережіть — продукт стане вашим і рахуватиметься замість довідника.')),
+    h('p', { class: 'small muted' }, t('Значення на 100 г — за ними «Порахувати» рахує без ШІ. Немає продукту — напишіть у пошуку й натисніть «Знайти й порахувати». Сумнівні цифри — відкрийте рядок і перевірте з ШІ.')),
     h('div', { class: 'my-foods-tools' }, h('label', { class: 'field my-foods-search' }, search), chip),
-    list), { fold: 'food-dict', count: all.length });
+    list), { fold: 'food-dict', count: all.length, tools: [toolBtn('plus', t('Додати в довідник'), () => dictForm(null, dictQuery.trim()))] });
+}
+
+/** Змінити свій довідник зі скасуванням: mutate отримує свіжий список рядків і повертає новий. */
+async function saveDict(mutate, message) {
+  const before = (await db.loadAll()).settings.find((s) => s.id === DICT_ID)?.items ?? [];
+  sync.renewOnGesture();
+  await db.write({ settings: { put: [{ id: DICT_ID, items: mutate([...before]) }] } });
+  toast(message, { action: t('Скасувати'), onAction: () => db.write({ settings: { put: [{ id: DICT_ID, items: before }] } }) });
+}
+
+/**
+ * Рядок довідника: x — наявний (вбудований, виправлений чи свій), query — новий продукт з пошуку.
+ * Новий одразу рахується (довідник чи ШІ) — лишається перевірити й додати. Зберігається на 100 г.
+ */
+function dictForm(x = null, query = '') {
+  let close;
+  const start = x ? dictAsFood(x) : { name: query ? query[0].toUpperCase() + query.slice(1) : '', qty: '100 г', grams: 100 };
+  const note = h('p', { class: 'small muted food-ai-note', hidden: true });
+  const card = itemCard(start, {
+    onChange: () => {},
+    onCalc: async (q, c) => {
+      const r = await resolveText(q, []);
+      const found = r.items.filter(hasKcal);
+      note.hidden = !(r.note || found.length);
+      note.textContent = r.note || sourceNote(found) || '';
+      if (!found.length) { toast(r.note || t('Не вдалося порахувати — введіть цифри з упаковки.')); return; }
+      const v = c.read();
+      c.fill({ ...asOne(found, v.name), name: v.name || found[0].name });
+    },
+  });
+  const save = async () => {
+    const v = card.read();
+    if (!v.name) { toast(t('Вкажіть назву')); return; }
+    if (!Number.isFinite(v.kcal)) { toast(t('Вкажіть калорії: «{name}»', { name: v.name })); return; }
+    if (!(v.grams > 0)) { toast(t('Вкажіть грами — довідник рахує на 100 г')); return; }
+    const per = per100Of({ ...v, per100: null });
+    // Вбудований лишає свої назви (інакше не заміниться), свій — нова назва першою
+    const names = x && !x.own ? x.names
+      : [v.name, ...(x ? x.aliases.map((a) => a.text) : [])].filter((a, i, all) => all.findIndex((b) => norm(b) === norm(a)) === i).join('|');
+    const row = [names, per.kcal, per.p, per.f, per.c, x?.u ?? {}];
+    close();
+    await saveDict((list) => {
+      const rest = list.filter((r) => dictKey(r.row[0]) !== dictKey(x?.names ?? names));
+      return [...rest, { row, at: Date.now() }];
+    }, x ? t('«{name}» збережено', { name: v.name }) : t('«{name}» — у довіднику', { name: v.name }));
+  };
+  const drop = async () => {
+    close();
+    await saveDict((list) => list.filter((r) => dictKey(r.row[0]) !== dictKey(x.names)),
+      x.own ? t('«{name}» видалено', { name: dictName(x) }) : t('«{name}»: повернуто як було', { name: dictName(x) }));
+  };
+  const body = h('div', { class: 'food-edit' },
+    h('p', { class: 'small muted' }, x
+      ? (x.fixed ? t('Ви виправили цей рядок. Було: {k} ккал · Б {p} · Ж {f} · В {c} на 100 г.', {
+        k: fmt.int(x.base.per100.kcal), p: fmt.fix(x.base.per100.p, 1), f: fmt.fix(x.base.per100.f, 1), c: fmt.fix(x.base.per100.c, 1) })
+        : t('Значення на 100 г. Змініть цифри чи грами — перерахується на 100 г.'))
+      : t('Порахую за назвою — перевірте цифри (краще з упаковкою) і додайте. Далі «Порахувати» знаходитиме цей продукт без ШІ.')),
+    note,
+    card.el,
+    recheckBlock(card));
+  close = sheet(x ? dictName(x) : t('Новий продукт'), body, {
+    tools: x?.own ? [toolBtn('delete', t('Видалити'), drop, 'danger')] : [],
+    actions: [
+      x?.fixed ? btn(t('Повернути як було'), drop) : btn(t('Скасувати'), () => close()),
+      btn(x ? t('Зберегти') : t('Додати в довідник'), save, 'primary'),
+    ],
+  });
+  // Новий з пошуку — одразу порахувати
+  if (!x && query) setTimeout(() => card.el.querySelector('.food-calc')?.click(), 300);
+  else if (!x) setTimeout(() => card.focus(), 250);
 }
 
 /**

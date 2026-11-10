@@ -5,3 +5,6 @@
 *.csv
 .DS_Store
 Thumbs.db
+
+# Довідник продуктів — частина застосунку
+!data/foods.json
