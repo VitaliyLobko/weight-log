@@ -1479,3 +1479,12 @@ a.donate-card:active .donate-cup .st { animation: cat-puff .35s ease-out; }
 .my-foods-mic { flex: none; }
 .my-foods-mic.listening { color: #fff; background: var(--bad); animation: voice-pulse 1.2s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .my-foods-mic.listening { animation: none; } }
+.food-src { display: inline-flex; align-items: center; margin-left: 6px; padding: 0 6px; border-radius: 6px; font-size: 11px; font-weight: 500; color: var(--muted); background: var(--surface-2); vertical-align: 1px; }
+.food-src.ok { padding: 0; background: none; color: var(--good); }
+.food-src.ok .ico { width: 15px; height: 15px; }
+.food-issue { display: flex; gap: 4px; align-items: flex-start; color: color-mix(in srgb, var(--warn) 70%, var(--text)); }
+.food-issue .ico, .food-quick-warn { flex: none; width: 14px; height: 14px; margin-top: 2px; color: var(--warn); }
+.my-foods-check button { display: inline-flex; gap: 4px; align-items: center; }
+.my-foods-check .ico { width: 14px; height: 14px; color: var(--warn); }
+.food-per100 { margin: 0; }
+.food-per100[hidden] { display: none; }

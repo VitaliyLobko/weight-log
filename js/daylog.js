@@ -182,8 +182,13 @@ async function rememberFoods(items) {
   for (const it of items) {
     const i = list.findIndex((x) => sameFood(x, it));
     const { id, at, src, ...food } = it;
-    if (i >= 0) list[i] = { ...list[i], ...food, used: (list[i].used ?? 0) + 1, last: now };
-    else list.push({ ...food, used: 1, last: now });
+    // Звідки цифри — для «Перевірити»; 'my' — узято з цього ж списку, джерело лишається старе
+    if (src && src !== 'my') food.src = src;
+    if (i >= 0) {
+      const { ok, ...prev } = list[i];
+      const same = NUMS.every((k) => Number(prev[k]) === Number(food[k]));
+      list[i] = { ...prev, ...(same && ok ? { ok } : {}), ...food, used: (prev.used ?? 0) + 1, last: now };
+    } else list.push({ ...food, used: 1, last: now });
   }
   list.sort((a, b) => (b.last ?? 0) - (a.last ?? 0));
   await db.write({ settings: { put: [{ id: FOODS_ID, items: list.slice(0, FOODS_KEEP) }] } });
@@ -417,7 +422,7 @@ export function foodSheet(date = M.today()) {
       h('button', { type: 'button', class: 'link-btn small', onclick: () => myFoodsSheet({ onPick: quick }) },
         mine.length ? t('Усі · {n} ›', { n: mine.length }) : t('Додати свої ›'))),
     foods.length ? h('div', { class: 'chips food-quick' }, foods.map((f) => h('button', { type: 'button', onclick: () => quick(f) },
-      h('span', {}, f.name), h('span', { class: 'muted' }, fmt.int(f.kcal))))) : null);
+      foodIssue(f) ? icon('warning', 'food-quick-warn') : null, h('span', {}, f.name), h('span', { class: 'muted' }, fmt.int(f.kcal))))) : null);
   const close = sheet(dateTitle(t('Поза планом'), date), body, {
     tools: [oinkToggle()],
     onClose: () => voice?.cancel(),
@@ -467,6 +472,7 @@ function itemCard(item, { onChange, onRemove, onCalc }) {
     f: field('f', t('Ж'), num(item.f), '', onNum),
     c: field('c', t('В'), num(item.c), '', onNum),
   };
+  const per100El = h('p', { class: 'small muted food-per100' });
   const check = h('p', { class: 'small food-check', hidden: true }, icon('warning'),
     h('span', {}, t('Калорії не сходяться з БЖВ (4·Б + 9·Ж + 4·В) — перевірте цифри.')));
   // Що вже пораховано: назва й порція змінились після цього — кнопка підсвічується
@@ -494,6 +500,7 @@ function itemCard(item, { onChange, onRemove, onCalc }) {
     h('div', { class: 'food-card-head' }, f.name.el, calc, onRemove ? toolBtn('delete', t('Видалити'), onRemove, 'danger') : null),
     h('div', { class: 'food-card-row' }, f.qty.el, f.grams.el, f.kcal.el),
     h('div', { class: 'food-card-macros' }, f.p.el, f.f.el, f.c.el),
+    per100El,
     check);
   const read = () => {
     const g = parseNum(f.grams.input.value);
@@ -510,7 +517,12 @@ function itemCard(item, { onChange, onRemove, onCalc }) {
     }
     return out;
   };
-  const paintCheck = () => { check.hidden = !kcalMismatch(read()); };
+  const paintCheck = () => {
+    const v = read();
+    check.hidden = !kcalMismatch(v);
+    per100El.textContent = Number.isFinite(v.kcal) ? per100Text(per100Of(v)) : '';
+    per100El.hidden = !per100El.textContent;
+  };
   /** Замінити значення картки порахованим продуктом. */
   const fill = (x) => {
     cur = x;
@@ -690,7 +702,8 @@ function foodForm(food = null) {
     if (!v.name) { toast(t('Вкажіть назву')); return; }
     if (!Number.isFinite(v.kcal)) { toast(t('Вкажіть калорії: «{name}»', { name: v.name })); return; }
     close();
-    const { src, ...item } = v;
+    // Збережено з картки — людина бачила цифри: «Перевірено»
+    const item = { ...v, src: v.src && v.src !== 'my' ? v.src : (food?.src ?? 'hand'), ok: true };
     await saveFoods((list) => {
       const i = food ? list.findIndex((x) => sameFood(x, food)) : list.findIndex((x) => sameFood(x, item));
       // Порядок у списку — за останнім використанням: нова страва — нагору
@@ -720,6 +733,25 @@ function foodForm(food = null) {
 // Грами — лише коли порція не в грамах («2 шт · 120 г», але не «150 г · 150 г»)
 const foodSub = (f) => [f.qty, Number(f.grams) > 0 && !/\d\s*г$/.test(f.qty ?? '') ? t('{g} г', { g: fmt.int(f.grams) }) : null,
   t('Б {p} · Ж {f} · В {c}', { p: fmt.int(f.p || 0), f: fmt.int(f.f || 0), c: fmt.int(f.c || 0) })].filter(Boolean).join(' · ');
+
+// Звідки цифри — бейдж у списку
+const SRC_BADGE = { ai: 'ШІ', table: 'довідник', off: 'штрихкод', label: 'етикетка', hand: 'вручну' };
+
+/** Що не так з цифрами продукту; null — правдоподібно. */
+function foodIssue(f) {
+  if (!hasKcal(f)) return t('Немає калорій');
+  const byMacros = 4 * (Number(f.p) || 0) + 9 * (Number(f.f) || 0) + 4 * (Number(f.c) || 0);
+  if (kcalMismatch(f)) return t('За БЖВ виходить {calc} ккал, а записано {k}', { calc: fmt.int(byMacros), k: fmt.int(f.kcal) });
+  const x = per100Of(f);
+  if (x && (x.kcal > 900 || x.p + x.f + x.c > 100)) return t('На 100 г виходить {k} ккал — так не буває, перевірте грами', { k: fmt.int(x.kcal) });
+  return null;
+}
+// Перевірити: є помилка, або цифри від ШІ й ніхто їх не підтвердив
+const needsCheck = (f) => Boolean(foodIssue(f)) || (f.src === 'ai' && !f.ok);
+let checkOnly = false;
+
+/** Значення на 100 г — як на упаковці, щоб звірити з етикеткою. */
+const per100Text = (x) => (x ? t('На 100 г: {k} ккал · Б {p} · Ж {f} · В {c}', { k: fmt.int(x.kcal), p: fmt.fix(x.p, 1), f: fmt.fix(x.f, 1), c: fmt.fix(x.c, 1) }) : '');
 
 // Пошук за початками слів у будь-якому порядку й відмінку: «котлету дом» знайде «Котлета домашня»
 const searchWords = (s) => norm(s).match(/[a-zа-яіїєґ'0-9]+/g) ?? [];
@@ -759,18 +791,23 @@ function myFoodsBody(state, { onPick } = {}) {
   }, icon('mic')) : null;
   const row = (f) => h('div', { class: 'my-food' },
     h('button', { type: 'button', class: 'row food-row', onclick: () => (onPick ? onPick(f) : foodForm(f)) },
-      h('div', { class: 'row-main' }, h('span', { class: 'row-title' }, f.name), h('span', { class: 'muted small' }, foodSub(f))),
+      h('div', { class: 'row-main' },
+        h('span', { class: 'row-title' }, f.name,
+          f.ok ? h('span', { class: 'food-src ok', title: t('Цифри перевірено') }, icon('check')) : null,
+          SRC_BADGE[f.src] && !f.ok ? h('span', { class: 'food-src' }, t(SRC_BADGE[f.src])) : null),
+        h('span', { class: 'muted small' }, foodSub(f)),
+        foodIssue(f) ? h('span', { class: 'small food-issue' }, icon('warning'), foodIssue(f)) : null),
       h('div', { class: 'row-side' }, h('span', { class: 'food-kcal' }, fmt.int(f.kcal)),
         onPick ? icon('plus', 'my-food-add') : null)),
     onPick ? toolBtn('edit', t('Змінити «{name}»', { name: f.name }), () => foodForm(f)) : null);
   const paint = () => {
     const keys = searchKeys(foodsQuery);
     const byName = foodsSort() === 'name';
-    const shown = all.filter((f) => matchesSearch(f.name, keys))
+    const shown = all.filter((f) => matchesSearch(f.name, keys) && (!checkOnly || needsCheck(f)))
       .sort(byName ? (a, b) => a.name.localeCompare(b.name, 'uk')
         : (a, b) => ((b.used ?? 0) - (a.used ?? 0)) || ((b.last ?? 0) - (a.last ?? 0)));
     list.replaceChildren(...(shown.length ? shown.map(row) : [h('p', { class: 'muted small my-foods-empty' }, all.length
-      ? t('Нічого не знайшлося.')
+      ? (checkOnly ? t('Усе перевірено.') : t('Нічого не знайшлося.'))
       : t('Поки порожньо. Додайте свої страви кнопкою нижче — або просто зберігайте «поза планом»: усе збережене потрапляє сюди й наступного разу знаходиться саме.'))]));
   };
   const sorts = h('div', { class: 'chips my-foods-sort', role: 'group', 'aria-label': t('Порядок') },
@@ -782,9 +819,16 @@ function myFoodsBody(state, { onPick } = {}) {
         paint();
       },
     }, t(label))));
+  const toCheck = all.filter(needsCheck).length;
+  if (!toCheck) checkOnly = false;
+  const checkChip = toCheck ? h('div', { class: 'chips my-foods-check' }, h('button', {
+    type: 'button', class: checkOnly ? 'on' : '', 'aria-pressed': String(checkOnly),
+    title: t('Цифри не сходяться або пораховані ШІ й не перевірені. Відкрийте продукт, звірте й збережіть.'),
+    onclick: (e) => { checkOnly = !checkOnly; e.currentTarget.classList.toggle('on', checkOnly); e.currentTarget.setAttribute('aria-pressed', String(checkOnly)); paint(); },
+  }, icon('warning'), t('Перевірити · {n}', { n: toCheck }))) : null;
   paint();
   return h('div', { class: 'my-foods-body' },
-    all.length > 5 ? h('div', { class: 'my-foods-tools' }, h('label', { class: 'field my-foods-search' }, search), mic, sorts) : null,
+    all.length > 5 ? h('div', { class: 'my-foods-tools' }, h('label', { class: 'field my-foods-search' }, search), mic, sorts, checkChip) : checkChip,
     list,
     h('div', { class: 'btn-row' }, btn(withIcon('plus', t('Свій продукт')), () => foodForm())));
 }
