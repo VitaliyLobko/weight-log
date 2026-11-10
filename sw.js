@@ -36,6 +36,7 @@ const ASSETS = [
   './js/foods.js',
   './js/scan.js',
   './js/oink.js',
+  './js/voice.js',
   './sounds/oink.ogg',
   './js/celebrate.js',
   './icons/icon-192.png',

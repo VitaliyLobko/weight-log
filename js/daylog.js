@@ -8,14 +8,15 @@ import { h, fmt, sheet, toast, btn, toolBtn, box, parseNum } from './ui.js';
 import { t, plural } from './i18n.js';
 import { icon, withIcon, hop } from './icons.js';
 import { planOf, tagLists, slipRule, plannedKcal, cutOf, cutText, portionText, dayKcal, balanceText, balanceGood, dayNorm, walkOf } from './nutrition.js';
-import { resolveLocal, fromModel, fromPer100, per100Of, kcalMismatch, withoutStats } from './foods.js';
+import { resolveLocal, fromModel, fromPer100, per100Of, kcalMismatch, withoutStats, parsePiece } from './foods.js';
 import { scanSheet, lookupBarcode, pickLabelPhoto, labelItem } from './scan.js';
-import { oink } from './oink.js';
+import { oink, oinkOn, setOinkOn } from './oink.js';
+import { canListen, listen, VOICE_LANGS, voiceLang, setVoiceLang } from './voice.js';
 
 export const DAY_PREFIX = 'day:';
 /** «Мої продукти»: що вже рахували — кнопки швидкого додавання і кеш, щоб не питати модель вдруге. */
 export const FOODS_ID = 'nutrition-foods';
-const FOODS_KEEP = 40;
+const FOODS_KEEP = 200;
 const FOODS_SHOWN = 8;
 const KCAL_PER_KG = 7700;
 const MAX_TEXT = 300;
@@ -28,6 +29,8 @@ const REASONS = { hunger: 'Голод', stress: 'Стрес', boredom: 'Нудь
 // Останній стан — для живих шторок (день з полоси тижня), що перебудовуються після запису
 let current = null;
 const use = (state) => { current = state; return state; };
+/** Свіжий стан після кожного перерахунку в app.js — для живих шторок, хоч би який екран під ними. */
+export const setDayState = (state) => { use(state); };
 
 // Налаштування за id: state приходить з db.loadAll() новими масивами, тож індекс на масив не застаріває
 const byId = new WeakMap();
@@ -218,9 +221,113 @@ const sourceNote = (items) => {
 };
 const errorText = (err) => t(AI_ERRORS[err?.message] ?? 'Не вдалося порахувати — введіть вручну.');
 
+const hasKcal = (x) => x.kcal !== undefined && x.kcal !== null && Number.isFinite(Number(x.kcal));
+
 /**
- * «З'їв поза планом»: текст → спершу «Мої продукти» й довідник без мережі, решта — модель через бота;
- * штрихкод і фото етикетки — точні значення з упаковки. Усе потім перевірити в редакторі.
+ * Текст «що з'їв» → продукти: спершу «Мої продукти» й довідник без мережі, решта — модель через бота.
+ * Те саме для шторки й для кнопки «Порахувати» в картці редактора. → { items, note, source, error }
+ */
+async function resolveText(q, mine) {
+  const local = resolveLocal(q, mine);
+  if (local.items.length && !local.missing.length) return { items: local.items, note: sourceNote(local.items), source: 'local' };
+  // Що впізнали, плюс порожні рядки для решти
+  const partial = [...local.items, ...local.missing.map((name) => ({ name }))];
+  if (!bot.botConfig().from) {
+    return {
+      items: partial,
+      note: t(local.items.length
+        ? 'Не все знайшлося в довіднику — допишіть калорії. ШІ-підрахунок працює через Telegram-бот.'
+        : 'У довіднику не знайшлося — введіть калорії. ШІ-підрахунок працює через Telegram-бот.'),
+    };
+  }
+  try {
+    const r = await bot.askFood(q);
+    if (!r.items?.length) return { items: [{ name: q }], note: r.note || t('Не схоже на їжу — введіть вручну.') };
+    return { items: r.items.map(fromModel), note: r.note, source: r.source };
+  } catch (err) {
+    // Модель недоступна — хоча б те, що знайшлось у довіднику
+    return { items: partial, note: errorText(err), error: true };
+  }
+}
+
+const VOICE_ERRORS = {
+  'not-allowed': 'Немає дозволу на мікрофон — дозвольте його для сайту в налаштуваннях браузера.',
+  'service-not-allowed': 'Немає дозволу на мікрофон — дозвольте його для сайту в налаштуваннях браузера.',
+  'no-speech': 'Нічого не почув — спробуйте ще раз ближче до телефона.',
+  network: 'Розпізнавання голосу потребує мережі.',
+  'audio-capture': 'Мікрофон недоступний.',
+};
+
+/**
+ * Кнопка «Голосом» і (withLangs) перемикач мови: сказане йде в onText по ходу, onDone(текст) — коли замовкли.
+ * Без розпізнавання в браузері — null (лишається мікрофон клавіатури телефона).
+ * У елемента є cancel() — шторку закрили під час запису: сказане вже нікуди не йде.
+ */
+function voiceControl({ label, onStart = () => {}, onText = () => {}, onDone, withLangs = true }) {
+  if (!canListen()) return null;
+  let stop = null;
+  let cancelled = false;
+  const idle = () => withIcon('mic', label);
+  const b = h('button', {
+    type: 'button', class: 'btn food-voice-btn',
+    onclick: () => {
+      if (stop) { stop(); return; }
+      cancelled = false;
+      onStart();
+      b.classList.add('listening');
+      b.replaceChildren(...withIcon('mic', t('Слухаю… торкніться, щоб закінчити')));
+      stop = listen({
+        onText,
+        onEnd: (said, err) => {
+          stop = null;
+          b.classList.remove('listening');
+          b.replaceChildren(...idle());
+          if (cancelled) return;
+          if (said) onDone(said);
+          else if (err && err !== 'aborted') toast(t(VOICE_ERRORS[err] ?? 'Голос не розпізнано — спробуйте ще раз.'));
+        },
+      });
+    },
+  }, idle());
+  const langs = withLangs ? h('div', { class: 'chips food-voice-lang', role: 'group', 'aria-label': t('Мова голосу') },
+    Object.entries(VOICE_LANGS).map(([code, name]) => h('button', {
+      type: 'button', class: voiceLang() === code ? 'on' : '', 'aria-pressed': String(voiceLang() === code),
+      onclick: (e) => {
+        setVoiceLang(code);
+        for (const x of langs.children) { x.classList.toggle('on', x === e.currentTarget); x.setAttribute('aria-pressed', String(x === e.currentTarget)); }
+      },
+    }, name))) : null;
+  const el = h('div', { class: 'food-voice' }, b, langs);
+  el.cancel = () => { cancelled = true; stop?.(); };
+  return el;
+}
+
+/** Перемикач хрюку в шапці шторки — пам'ятається на цьому пристрої. */
+function oinkToggle() {
+  const paint = (b) => {
+    const on = oinkOn();
+    b.replaceChildren(icon(on ? 'sound' : 'mute'));
+    b.setAttribute('aria-pressed', String(on));
+    b.setAttribute('aria-label', on ? t('Вимкнути хрюк') : t('Увімкнути хрюк'));
+    b.title = b.getAttribute('aria-label');
+  };
+  const b = h('button', {
+    type: 'button', class: 'icon-btn tool',
+    onclick: () => {
+      const on = !oinkOn();
+      setOinkOn(on);
+      paint(b);
+      if (on) oink();
+      toast(on ? t('Хрюк увімкнено') : t('Хрюк вимкнено'));
+    },
+  });
+  paint(b);
+  return b;
+}
+
+/**
+ * «З'їв поза планом»: текст чи голос → resolveText; штрихкод і фото етикетки — точні значення з упаковки.
+ * Усе потім перевірити в редакторі.
  */
 export function foodSheet(date = M.today()) {
   const state = current;
@@ -240,35 +347,21 @@ export function foodSheet(date = M.today()) {
   const count = async () => {
     const q = text.value.trim();
     if (!q) { text.focus(); toast(t('Напишіть, що з\'їли')); return; }
-    const local = resolveLocal(q, mine);
-    if (local.items.length && !local.missing.length) {
-      close();
-      editor(date, local.items, { note: sourceNote(local.items), source: 'local' });
-      return;
-    }
-    // Без бота — що впізнали, плюс порожні рядки для решти
-    if (!connected) {
-      close();
-      editor(date, [...local.items, ...local.missing.map((name) => ({ name }))], {
-        note: t(local.items.length
-          ? 'Не все знайшлося в довіднику — допишіть калорії. ШІ-підрахунок працює через Telegram-бот.'
-          : 'У довіднику не знайшлося — введіть калорії. ШІ-підрахунок працює через Telegram-бот.'),
-      });
-      return;
-    }
     go.disabled = true;
     go.textContent = t('Рахую…');
-    try {
-      const r = await bot.askFood(q);
-      close();
-      if (!r.items?.length) editor(date, [{ name: q }], { note: r.note || t('Не схоже на їжу — введіть вручну.') });
-      else editor(date, r.items.map(fromModel), { note: r.note, source: r.source });
-    } catch (err) {
-      close();
-      // Модель недоступна — хоча б те, що знайшлось у довіднику
-      editor(date, [...local.items, ...local.missing.map((name) => ({ name }))], { note: errorText(err), error: true });
-    }
+    const r = await resolveText(q, mine);
+    close();
+    editor(date, r.items, r);
   };
+  // Голос дописує до вже набраного; замовкли — одразу рахуємо
+  let base = '';
+  const withSaid = (said) => [base, said].filter(Boolean).join(', ');
+  const voice = voiceControl({
+    label: t('Сказати голосом'),
+    onStart: () => { base = text.value.trim(); },
+    onText: (said) => { text.value = withSaid(said); },
+    onDone: (said) => { text.value = withSaid(said); count(); },
+  });
   const scan = () => {
     close();
     scanSheet(async (code) => {
@@ -315,24 +408,31 @@ export function foodSheet(date = M.today()) {
       h('small', { class: 'muted' }, connected
         ? t('Можна кілька продуктів із грамами чи штуками. Спершу — «Мої продукти» й довідник, решту порахує ШІ.')
         : t('Можна кілька продуктів із грамами чи штуками — порахую за довідником. Для решти підключіть Telegram-бот у «Даних».'))),
+    voice,
     h('div', { class: 'food-src-btns' },
       btn(withIcon('barcode', t('Штрихкод')), scan),
       btn(withIcon('camera', t('Фото етикетки')), photo)),
-    foods.length ? [h('h4', { class: 'food-sub' }, t('Мої продукти')),
-      h('div', { class: 'chips food-quick' }, foods.map((f) => h('button', { type: 'button', onclick: () => quick(f) },
-        h('span', {}, f.name), h('span', { class: 'muted' }, fmt.int(f.kcal)))))] : null);
+    h('div', { class: 'food-sub-head' },
+      h('h4', { class: 'food-sub' }, t('Мої продукти')),
+      h('button', { type: 'button', class: 'link-btn small', onclick: () => myFoodsSheet({ onPick: quick }) },
+        mine.length ? t('Усі · {n} ›', { n: mine.length }) : t('Додати свої ›'))),
+    foods.length ? h('div', { class: 'chips food-quick' }, foods.map((f) => h('button', { type: 'button', onclick: () => quick(f) },
+      h('span', {}, f.name), h('span', { class: 'muted' }, fmt.int(f.kcal))))) : null);
   const close = sheet(dateTitle(t('Поза планом'), date), body, {
+    tools: [oinkToggle()],
+    onClose: () => voice?.cancel(),
     actions: [btn(t('Вручну'), manual), go],
   });
   setTimeout(() => text.focus(), 250);
 }
 
 /**
- * Один продукт у редакторі: назва, порція, грами, ккал і БЖВ.
+ * Один продукт у редакторі: назва, порція, грами, ккал і БЖВ; «Порахувати» — за назвою й порцією.
  * Є значення на 100 г — зміна грамів перераховує решту; правка ккал чи БЖВ вручну від них відв'язує.
  */
-function itemCard(item, onChange, onRemove) {
+function itemCard(item, { onChange, onRemove, onCalc }) {
   const num = (v) => (Number.isFinite(Number(v)) && v !== '' && v != null ? fmt.fix(Number(v), Number(v) % 1 ? 1 : 0) : '');
+  let cur = item;
   let per100 = item.per100 ?? null;
   let lastGrams = Number(item.grams) || null;
   const field = (name, label, value, cls = '', onInput = onChange) => {
@@ -369,8 +469,29 @@ function itemCard(item, onChange, onRemove) {
   };
   const check = h('p', { class: 'small food-check', hidden: true }, icon('warning'),
     h('span', {}, t('Калорії не сходяться з БЖВ (4·Б + 9·Ж + 4·В) — перевірте цифри.')));
+  // Що вже пораховано: назва й порція змінились після цього — кнопка підсвічується
+  const query = () => [f.name.input.value.trim(), f.qty.input.value.trim()].filter(Boolean).join(' ');
+  let countedFor = hasKcal(item) ? query() : null;
+  const calcLabel = (text) => withIcon('spark', text);
+  const calc = btn(calcLabel(t('Порахувати')), async () => {
+    const q = query();
+    if (!q) { f.name.input.focus(); toast(t('Напишіть, що з\'їли')); return; }
+    calc.disabled = true;
+    calc.replaceChildren(...calcLabel(t('Рахую…')));
+    try { await onCalc(q, api); } finally {
+      calc.disabled = false;
+      calc.replaceChildren(...calcLabel(t('Порахувати')));
+      paintCalc();
+    }
+  }, 'food-calc');
+  const paintCalc = () => {
+    const q = query();
+    calc.classList.toggle('hot', Boolean(q) && (q !== countedFor || !Number.isFinite(parseNum(f.kcal.input.value))));
+  };
+  // Enter у назві чи порції — порахувати
+  for (const k of ['name', 'qty']) f[k].input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); calc.click(); } });
   const el = h('div', { class: 'food-card' },
-    h('div', { class: 'food-card-head' }, f.name.el, onRemove ? toolBtn('delete', t('Видалити'), onRemove, 'danger') : null),
+    h('div', { class: 'food-card-head' }, f.name.el, calc, onRemove ? toolBtn('delete', t('Видалити'), onRemove, 'danger') : null),
     h('div', { class: 'food-card-row' }, f.qty.el, f.grams.el, f.kcal.el),
     h('div', { class: 'food-card-macros' }, f.p.el, f.f.el, f.c.el),
     check);
@@ -380,8 +501,8 @@ function itemCard(item, onChange, onRemove) {
       name: f.name.input.value.trim(), qty: f.qty.input.value.trim(),
       ...(Number.isFinite(g) && g > 0 ? { grams: g } : {}),
       ...(per100 ? { per100 } : {}),
-      ...(item.barcode ? { barcode: item.barcode } : {}),
-      ...(item.src ? { src: item.src } : {}),
+      ...(cur.barcode ? { barcode: cur.barcode } : {}),
+      ...(cur.src ? { src: cur.src } : {}),
     };
     for (const k of NUMS) {
       const v = parseNum(f[k].input.value);
@@ -390,9 +511,25 @@ function itemCard(item, onChange, onRemove) {
     return out;
   };
   const paintCheck = () => { check.hidden = !kcalMismatch(read()); };
-  el.addEventListener('input', paintCheck);
+  /** Замінити значення картки порахованим продуктом. */
+  const fill = (x) => {
+    cur = x;
+    per100 = x.per100 ?? null;
+    lastGrams = Number(x.grams) || null;
+    f.name.input.value = x.name ?? '';
+    f.qty.input.value = x.qty ?? '';
+    f.grams.input.value = num(x.grams);
+    for (const k of NUMS) f[k].input.value = num(x[k]);
+    countedFor = hasKcal(x) ? query() : null;
+    paintCheck();
+    paintCalc();
+    onChange();
+  };
+  el.addEventListener('input', () => { paintCheck(); paintCalc(); });
   paintCheck();
-  return { el, read, focus: () => f.name.input.focus() };
+  paintCalc();
+  const api = { el, read, fill, focus: () => f.name.input.focus() };
+  return api;
 }
 
 /**
@@ -400,26 +537,65 @@ function itemCard(item, onChange, onRemove) {
  * index — правка вже записаного продукту (тоді один продукт і «Видалити»).
  */
 function editor(date, items, { note, source, error, index = null } = {}) {
+  const mine = current ? foodsOf(current) : [];
   const cards = [];
   const list = h('div', { class: 'food-cards' });
   const total = h('div', { class: 'food-sum' });
+  const noteEl = h('p', { class: 'small food-ai-note' });
+  const setNote = (r) => {
+    noteEl.hidden = !r.note;
+    noteEl.className = `small food-ai-note ${r.error ? 'error-text' : 'muted'}`;
+    noteEl.replaceChildren(...(r.source ? [icon('spark'), ' '] : []), r.note ?? '');
+  };
+  setNote({ note, source, error });
   const paint = () => {
     const vals = cards.map((c) => c.read());
     const s = vals.reduce((a, v) => a + (Number.isFinite(v.kcal) ? v.kcal : 0), 0);
     total.replaceChildren(h('b', {}, kcal(s)), h('span', { class: 'muted' }, t('{n} {w}', { n: vals.length, w: plural(vals.length, [t('продукт'), t('продукти'), t('продуктів')]) })));
   };
-  const add = (item) => {
-    const card = itemCard(item, paint, index === null ? () => {
-      cards.splice(cards.indexOf(card), 1);
-      card.el.remove();
-      paint();
-    } : null);
-    cards.push(card);
-    list.append(card.el);
+  // Картка рахує сама: один продукт — у неї ж, кілька («хліб і масло») — решта стають поруч
+  const calcCard = async (q, card) => {
+    const r = await resolveText(q, mine);
+    if (!r.items.some(hasKcal)) { toast(r.note || t('Не вдалося порахувати — введіть вручну.')); return; }
+    const [first, ...rest] = r.items;
+    card.fill(first);
+    rest.forEach((x, i) => add(x, cards.indexOf(card) + 1 + i));
+    setNote(r);
+    paint();
+  };
+  // У правці записаного продукту видаляти можна лише те, що додалось розбиттям; сам продукт — кнопкою в шапці
+  const add = (item, at = cards.length) => {
+    const card = itemCard(item, {
+      onChange: paint,
+      onCalc: calcCard,
+      onRemove: index === null || cards.length ? () => {
+        cards.splice(cards.indexOf(card), 1);
+        card.el.remove();
+        paint();
+      } : null,
+    });
+    list.insertBefore(card.el, cards[at]?.el ?? null);
+    cards.splice(at, 0, card);
     return card;
   };
-  items.forEach(add);
+  items.forEach((x) => add(x));
   paint();
+  // Голосом у редакторі — дописати ще продукти (порожню єдину картку замінюють)
+  const voice = index === null ? voiceControl({
+    label: t('Ще голосом'),
+    withLangs: false,
+    onDone: async (said) => {
+      toast(t('Рахую…'));
+      const r = await resolveText(said, mine);
+      document.querySelector('.toast')?.remove();
+      const only = cards.length === 1 && !cards[0].read().name && !Number.isFinite(cards[0].read().kcal) ? cards[0] : null;
+      const [first, ...rest] = r.items;
+      if (only) only.fill(first);
+      (only ? rest : r.items).forEach((x) => add(x));
+      setNote(r);
+      paint();
+    },
+  }) : null;
   const save = async () => {
     const vals = cards.map((c) => c.read()).filter((v) => v.name || Number.isFinite(v.kcal));
     if (!vals.length) { close(); return; }
@@ -427,8 +603,15 @@ function editor(date, items, { note, source, error, index = null } = {}) {
     if (bad) { toast(bad.name ? t('Вкажіть калорії: «{name}»', { name: bad.name }) : t('Вкажіть назву')); return; }
     close();
     if (index !== null) {
+      // Продукт міг розбитися на кілька — усі стають на його місце
+      const stamped = vals.slice(1).map((v) => ({ ...v, id: newId(), at: Date.now() }));
       const before = await saveDay(date, {
-        extras: extrasOf(await db.loadAll(), date).map((x, i) => (i === index ? { ...x, ...vals[0] } : x)),
+        // На 100 г, штрихкод і джерело — лише з картки: після «Порахувати» старі вже не про цей продукт
+        extras: extrasOf(await db.loadAll(), date).flatMap((x, i) => {
+          if (i !== index) return [x];
+          const { per100, barcode, src, ...keep } = x;
+          return [{ ...keep, ...vals[0] }, ...stamped];
+        }),
       });
       await rememberFoods(vals);
       undo(t('Збережено'), date, before);
@@ -443,12 +626,13 @@ function editor(date, items, { note, source, error, index = null } = {}) {
     undo(t('«{name}» видалено', { name: items[0].name }), date, before);
   };
   const body = h('div', { class: 'food-edit' },
-    note ? h('p', { class: `small food-ai-note ${error ? 'error-text' : 'muted'}` },
-      source ? [icon('spark'), ' '] : null, note) : null,
+    noteEl,
     list,
     index === null ? h('div', { class: 'btn-row' }, btn(withIcon('plus', t('Ще продукт')), () => { add({}).focus(); paint(); })) : null,
+    voice,
     total);
   const close = sheet(index === null ? t('Перевірте й збережіть') : items[0].name, body, {
+    onClose: () => voice?.cancel(),
     tools: index !== null ? [toolBtn('delete', t('Видалити'), remove, 'danger')] : [],
     actions: [btn(t('Скасувати'), () => close()), btn(t('Зберегти'), save, 'primary')],
   });
@@ -456,6 +640,144 @@ function editor(date, items, { note, source, error, index = null } = {}) {
 }
 
 const dateTitle = (title, date) => (date === M.today() ? title : `${title} · ${fmt.weekday(date)} ${fmt.short(date)}`);
+
+// ---------- «Мої продукти»: список, пошук, свої страви ----------
+
+const FOOD_SORTS = { used: 'Частіші', name: 'А–Я' };
+const SORT_KEY = 'weight-log:my-foods-sort';
+let foodsQuery = '';
+
+function foodsSort() {
+  try { return localStorage.getItem(SORT_KEY) === 'name' ? 'name' : 'used'; } catch { return 'used'; }
+}
+
+/** Змінити «Мої продукти» зі скасуванням: mutate отримує свіжий список і повертає новий. */
+async function saveFoods(mutate, message) {
+  const before = foodsOf(await db.loadAll());
+  sync.renewOnGesture();
+  await db.write({ settings: { put: [{ id: FOODS_ID, items: mutate([...before]) }] } });
+  toast(message, { action: t('Скасувати'), onAction: () => db.write({ settings: { put: [{ id: FOODS_ID, items: before }] } }) });
+}
+
+/** Кілька порахованих продуктів як одна своя страва: «котлета і пюре» → «Мій обід». */
+function asOne(items, name) {
+  if (items.length === 1) return { ...items[0], name: name || items[0].name };
+  const sum = { kcal: 0, p: 0, f: 0, c: 0 };
+  for (const x of items) for (const k of NUMS) sum[k] += Number(x[k]) || 0;
+  const grams = items.every((x) => Number(x.grams) > 0) ? items.reduce((a, x) => a + Number(x.grams), 0) : null;
+  const per100 = grams ? per100Of({ ...sum, grams }) : null;
+  return { name: name || items.map((x) => x.name).join(' + '), qty: '', ...(grams ? { grams, per100 } : {}), ...sum, src: 'table' };
+}
+
+/** Свій продукт: назва, порція, ккал і БЖВ, «Порахувати» з довідника чи ШІ. Лише в «Мої продукти», не в день. */
+function foodForm(food = null) {
+  const others = (current ? foodsOf(current) : []).filter((x) => !food || !sameFood(x, food));
+  let close;
+  const card = itemCard(food ?? { name: '' }, {
+    onChange: () => {},
+    onCalc: async (q, c) => {
+      const r = await resolveText(q, others);
+      const found = r.items.filter(hasKcal);
+      if (!found.length) { toast(r.note || t('Не вдалося порахувати — введіть вручну.')); return; }
+      // Своя назва лишається своєю («Котлета домашня», не «Котлета»), лише без порції з тексту
+      const own = parsePiece(c.read().name).name;
+      c.fill(asOne(found, own ? own[0].toUpperCase() + own.slice(1) : ''));
+      if (found.length > 1) toast(t('Порахував як одну страву: {list}', { list: found.map((x) => x.name).join(', ') }));
+    },
+  });
+  const save = async () => {
+    const v = card.read();
+    if (!v.name) { toast(t('Вкажіть назву')); return; }
+    if (!Number.isFinite(v.kcal)) { toast(t('Вкажіть калорії: «{name}»', { name: v.name })); return; }
+    close();
+    const { src, ...item } = v;
+    await saveFoods((list) => {
+      const i = food ? list.findIndex((x) => sameFood(x, food)) : list.findIndex((x) => sameFood(x, item));
+      // Порядок у списку — за останнім використанням: нова страва — нагору
+      if (i < 0) return [{ ...item, used: 0, last: Date.now() }, ...list].slice(0, FOODS_KEEP);
+      // «На 100 г» — лише з форми: після правки цифр руками старі вже не про цей продукт
+      const { per100: stale, ...keep } = list[i];
+      const next = [...list];
+      next[i] = { ...keep, ...item };
+      return next;
+    }, food ? t('«{name}» збережено', { name: item.name }) : t('«{name}» — у «Моїх продуктах»', { name: item.name }));
+  };
+  const remove = async () => {
+    close();
+    await saveFoods((list) => list.filter((x) => !sameFood(x, food)), t('«{name}» видалено', { name: food.name }));
+  };
+  const body = h('div', { class: 'food-edit' },
+    food ? null : h('p', { class: 'small muted' },
+      t('Напишіть страву з порцією («котлета домашня 150 г») і натисніть «Порахувати» — або введіть цифри з упаковки. Кілька продуктів («котлета і пюре») стануть однією стравою.')),
+    card.el);
+  close = sheet(food ? food.name : t('Свій продукт'), body, {
+    tools: food ? [toolBtn('delete', t('Видалити'), remove, 'danger')] : [],
+    actions: [btn(t('Скасувати'), () => close()), btn(t('Зберегти'), save, 'primary')],
+  });
+  if (!food) setTimeout(() => card.focus(), 250);
+}
+
+// Грами — лише коли порція не в грамах («2 шт · 120 г», але не «150 г · 150 г»)
+const foodSub = (f) => [f.qty, Number(f.grams) > 0 && !/\d\s*г$/.test(f.qty ?? '') ? t('{g} г', { g: fmt.int(f.grams) }) : null,
+  t('Б {p} · Ж {f} · В {c}', { p: fmt.int(f.p || 0), f: fmt.int(f.f || 0), c: fmt.int(f.c || 0) })].filter(Boolean).join(' · ');
+
+/**
+ * Список «Моїх продуктів» з пошуком. onPick — вибір у день (з шторки «Поза планом»): тап по рядку записує,
+ * олівець — правка; без onPick тап по рядку — правка.
+ */
+function myFoodsBody(state, { onPick } = {}) {
+  const all = foodsOf(state);
+  const list = h('div', { class: 'rows my-foods' });
+  const search = h('input', {
+    type: 'search', value: foodsQuery, autocomplete: 'off', placeholder: t('Пошук'), 'aria-label': t('Пошук у моїх продуктах'),
+    oninput: () => { foodsQuery = search.value; paint(); },
+  });
+  const row = (f) => h('div', { class: 'my-food' },
+    h('button', { type: 'button', class: 'row food-row', onclick: () => (onPick ? onPick(f) : foodForm(f)) },
+      h('div', { class: 'row-main' }, h('span', { class: 'row-title' }, f.name), h('span', { class: 'muted small' }, foodSub(f))),
+      h('div', { class: 'row-side' }, h('span', { class: 'food-kcal' }, fmt.int(f.kcal)),
+        onPick ? icon('plus', 'my-food-add') : null)),
+    onPick ? toolBtn('edit', t('Змінити «{name}»', { name: f.name }), () => foodForm(f)) : null);
+  const paint = () => {
+    const needle = norm(foodsQuery);
+    const byName = foodsSort() === 'name';
+    const shown = all.filter((f) => !needle || norm(f.name).includes(needle))
+      .sort(byName ? (a, b) => a.name.localeCompare(b.name, 'uk')
+        : (a, b) => ((b.used ?? 0) - (a.used ?? 0)) || ((b.last ?? 0) - (a.last ?? 0)));
+    list.replaceChildren(...(shown.length ? shown.map(row) : [h('p', { class: 'muted small my-foods-empty' }, all.length
+      ? t('Нічого не знайшлося.')
+      : t('Поки порожньо. Додайте свої страви кнопкою нижче — або просто зберігайте «поза планом»: усе збережене потрапляє сюди й наступного разу знаходиться саме.'))]));
+  };
+  const sorts = h('div', { class: 'chips my-foods-sort', role: 'group', 'aria-label': t('Порядок') },
+    Object.entries(FOOD_SORTS).map(([k, label]) => h('button', {
+      type: 'button', class: foodsSort() === k ? 'on' : '', 'aria-pressed': String(foodsSort() === k),
+      onclick: (e) => {
+        try { localStorage.setItem(SORT_KEY, k); } catch { /* приватний режим */ }
+        for (const b of sorts.children) { b.classList.toggle('on', b === e.currentTarget); b.setAttribute('aria-pressed', String(b === e.currentTarget)); }
+        paint();
+      },
+    }, t(label))));
+  paint();
+  return h('div', { class: 'my-foods-body' },
+    all.length > 5 ? h('div', { class: 'my-foods-tools' }, h('label', { class: 'field my-foods-search' }, search), sorts) : null,
+    list,
+    h('div', { class: 'btn-row' }, btn(withIcon('plus', t('Свій продукт')), () => foodForm())));
+}
+
+/** Шторка «Мої продукти» — з «Поза планом»: onPick записує вибране в день і закриває обидві шторки. */
+export function myFoodsSheet({ onPick } = {}) {
+  let close;
+  const pick = onPick ? (f) => { close(); onPick(f); } : undefined;
+  const body = () => myFoodsBody(current ?? { settings: [] }, { onPick: pick });
+  close = sheet(t('Мої продукти'), body(), { live: body });
+}
+
+/** Блок «Мої продукти» в «Раціон → Довідка»: правка й додавання своїх страв. */
+export function myFoodsBox(state) {
+  use(state);
+  const n = foodsOf(state).length;
+  return box(withIcon('apple', t('Мої продукти')), myFoodsBody(state), { fold: 'my-foods', count: n || null });
+}
 
 // ---------- блоки екрана ----------
 

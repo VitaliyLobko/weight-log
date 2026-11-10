@@ -15,7 +15,7 @@ import { remindTime, setRemindTime, googleCalendarUrl, icsFile } from './remind.
 import { renderRation, homeLine, noteTags, tickWindow, planOf, energy, calories, energyLeft, dayKcal, walkOf } from './nutrition.js';
 import {
   weightHint, afterStatus, STATUS, yesterdayText, weekMarks, periodFood, streakMilestones, journalDay, dayDates, streak, dayOf,
-  unrecorded, daySheet, rationStart, setWalkBase,
+  unrecorded, daySheet, rationStart, setWalkBase, setDayState,
 } from './daylog.js';
 import * as party from './celebrate.js';
 
@@ -37,6 +37,8 @@ function derive() {
   // Паузи на підтриманні з раціону: у них лінія плану стоїть, прогноз відсувається, плато мовчить
   goal = { ...M.goalOf(state), pauses: planOf(state)?.pauses ?? [] };
   sum = M.summary(rows, goal);
+  // Живі шторки дня й «Моїх продуктів» будуються з цього стану, хоч би який екран був під ними
+  setDayState(state);
   rationFrom = planOf(state) ? rationStart(state) : null;
   rationRate = rationFrom && sum.base && rationFrom > sum.base.date ? M.rateSince(rows, rationFrom, goal.pauses) : null;
   // Прогулянки додаються до норми лише за формулою: у реальній витраті вони вже є

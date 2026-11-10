@@ -7,7 +7,7 @@ import { h, fmt, sheet, toast, form, btn, toolBtn, box, confirmSheet, remember, 
 import { t, plural } from './i18n.js';
 import { icon, withIcon } from './icons.js';
 import { dietMemo } from './diet.js';
-import { dayCard, monthBox, extrasSum, dayOf, STATUS, toggleSkipped, toggleMealSkipped, setPortion, setMealPortion, calendarPanel } from './daylog.js';
+import { dayCard, monthBox, extrasSum, dayOf, STATUS, toggleSkipped, toggleMealSkipped, setPortion, setMealPortion, calendarPanel, myFoodsBox } from './daylog.js';
 
 export const PLAN_ID = 'nutrition';
 /** Вибір продукту дня — окремим записом: тап на телефоні не перетирає правку плану з іншого пристрою. */
@@ -1001,6 +1001,7 @@ function rationCalendar(state, { plan }, burn) {
 
 function rationRefs(state, { plan }) {
   return h('div', {},
+    myFoodsBox(state),
     (plan.refs ?? []).map((r) => box(withIcon('book', r.title), refText(r.text), {
       fold: `ref:${r.id}`, tools: [toolBtn('edit', t('Змінити'), () => refForm(r))],
     })),

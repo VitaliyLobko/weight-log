@@ -1447,3 +1447,32 @@ a.donate-card:active .donate-cup .st { animation: cat-puff .35s ease-out; }
 @keyframes cat-go { 0%, 84%, 92%, 100% { transform: none; } 87% { transform: translateX(4px); } 89% { transform: translateX(-1px); } 90.5% { transform: translateX(2px); } }
 @keyframes cat-hop { 0%, 100% { transform: none; } 45% { transform: translateY(-4px) scale(1.12); } }
 @media (prefers-reduced-motion: reduce) { :is(.donate-cat img, .donate-cat::before, .donate-cup .st, .donate-go) { animation: none !important; } .donate-cup .st { opacity: .7; } a.donate-card { transition: none; } }
+
+/* Поза планом: голос, «Порахувати» в картці */
+.food-voice { display: flex; gap: 8px; align-items: stretch; margin-top: 10px; }
+.food-voice-btn { flex: 1; min-height: 48px; }
+.food-voice-btn .ico { width: 20px; height: 20px; }
+.food-voice-btn.listening { color: #fff; background: var(--bad); border-color: var(--bad); animation: voice-pulse 1.2s ease-in-out infinite; }
+@keyframes voice-pulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--bad) 25%, transparent); } }
+.food-voice-lang { flex: none; align-items: center; flex-wrap: nowrap; }
+.food-voice-lang button { min-height: 48px; padding: 0 10px; font-size: 13px; }
+.food-edit .food-voice { margin-top: 0; }
+.food-card-head .food-calc { flex: none; min-height: 40px; padding: 6px 10px; font-size: 14px; gap: 6px; }
+.food-card-head .food-calc .ico { width: 16px; height: 16px; color: var(--accent-2); }
+.food-card-head .food-calc.hot { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-2); }
+.food-card-head .food-calc:disabled { opacity: .7; }
+@media (prefers-reduced-motion: reduce) { .food-voice-btn.listening { animation: none; } }
+
+/* «Мої продукти» */
+.food-sub-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.food-sub-head .link-btn { flex: none; }
+.my-foods-tools { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+.my-foods-search { flex: 1; margin: 0; }
+.my-foods-search input { width: 100%; }
+.my-foods-sort { flex: none; flex-wrap: nowrap; }
+.my-foods-sort button { min-height: 40px; }
+.my-food { display: flex; align-items: center; gap: 4px; }
+.my-food .food-row { flex: 1; min-width: 0; }
+.my-food-add { width: 18px; height: 18px; margin-left: 6px; color: var(--accent-2); }
+.my-foods-empty { margin: 4px 2px; }
+.my-foods-body .btn-row { margin-bottom: 0; }
