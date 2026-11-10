@@ -17,6 +17,7 @@ import {
   weightHint, afterStatus, STATUS, yesterdayText, weekMarks, periodFood, streakMilestones, journalDay, dayDates, streak, dayOf,
   unrecorded, daySheet, rationStart, setWalkBase, setDayState,
 } from './daylog.js';
+import { oink, oinkOn, setOinkOn } from './oink.js';
 import * as party from './celebrate.js';
 
 const $ = (id) => document.getElementById(id);
@@ -1782,7 +1783,7 @@ function renderSettings() {
     settingsGroup(t('Про застосунок'), [aboutPanel()]),
     settingsGroup(withIcon('target', t('Ціль і нагадування')), [goalRow(), bodyRow(), checkpointsRow(), remindRow()]),
     settingsGroup(withIcon('cloud', t('Дані')), [syncRow(), driveRow(), lockRow(), fileRow(), wipeRow()]),
-    settingsGroup(withIcon('theme', t('Зовнішній вигляд')), [themeRow(), backdropRow()]));
+    settingsGroup(withIcon('theme', t('Зовнішній вигляд')), [themeRow(), backdropRow(), oinkRow()]));
 }
 
 /** Група налаштувань, як у Стрілецькому журналі: рамка з назвою на лінії, всередині — рядки через лінію. */
@@ -1834,6 +1835,17 @@ function wipeRow() {
       await db.clearAll(); await refresh(); toast(t('Дані видалено'));
     }), 'danger')),
     { danger: true });
+}
+
+/** Хрюк на кнопці «З'їв поза планом» — той самий перемикач, що й у шапці шторки «Поза планом». */
+function oinkRow() {
+  return setRow('oink', 'pig', t('Звук хрюку'), oinkOn() ? t('Увімкнено') : t('Вимкнено'), [
+    segmented([['on', t('Увімкнено')], ['off', t('Вимкнено')]], oinkOn() ? 'on' : 'off', (v) => {
+      setOinkOn(v === 'on');
+      if (v === 'on') oink();
+      render();
+    }),
+    h('p', { class: 'muted small' }, t('Хрюкає кнопка «З\'їв поза планом». Те саме перемикає динамік у шапці шторки «Поза планом». Діє на цьому пристрої.'))]);
 }
 
 function themeRow() {

@@ -721,6 +721,14 @@ function foodForm(food = null) {
 const foodSub = (f) => [f.qty, Number(f.grams) > 0 && !/\d\s*г$/.test(f.qty ?? '') ? t('{g} г', { g: fmt.int(f.grams) }) : null,
   t('Б {p} · Ж {f} · В {c}', { p: fmt.int(f.p || 0), f: fmt.int(f.f || 0), c: fmt.int(f.c || 0) })].filter(Boolean).join(' · ');
 
+// Пошук за початками слів у будь-якому порядку й відмінку: «котлету дом» знайде «Котлета домашня»
+const searchWords = (s) => norm(s).match(/[a-zа-яіїєґ'0-9]+/g) ?? [];
+const searchKeys = (q) => searchWords(q).map((w) => (w.length > 4 ? w.slice(0, -2) : w));
+const matchesSearch = (name, keys) => {
+  const ws = searchWords(name);
+  return keys.every((k) => ws.some((w) => w.startsWith(k)));
+};
+
 /**
  * Список «Моїх продуктів» з пошуком. onPick — вибір у день (з шторки «Поза планом»): тап по рядку записує,
  * олівець — правка; без onPick тап по рядку — правка.
@@ -732,6 +740,23 @@ function myFoodsBody(state, { onPick } = {}) {
     type: 'search', value: foodsQuery, autocomplete: 'off', placeholder: t('Пошук'), 'aria-label': t('Пошук у моїх продуктах'),
     oninput: () => { foodsQuery = search.value; paint(); },
   });
+  // Пошук голосом: сказане одразу стає запитом
+  let stopListening = null;
+  const mic = canListen() ? h('button', {
+    type: 'button', class: 'icon-btn tool my-foods-mic', 'aria-label': t('Пошук голосом'), title: t('Пошук голосом'),
+    onclick: () => {
+      if (stopListening) { stopListening(); return; }
+      mic.classList.add('listening');
+      stopListening = listen({
+        onText: (said) => { search.value = said.replace(/[.,!?]+$/, ''); foodsQuery = search.value; paint(); },
+        onEnd: (said, err) => {
+          stopListening = null;
+          mic.classList.remove('listening');
+          if (!said && err && err !== 'aborted') toast(t(VOICE_ERRORS[err] ?? 'Голос не розпізнано — спробуйте ще раз.'));
+        },
+      });
+    },
+  }, icon('mic')) : null;
   const row = (f) => h('div', { class: 'my-food' },
     h('button', { type: 'button', class: 'row food-row', onclick: () => (onPick ? onPick(f) : foodForm(f)) },
       h('div', { class: 'row-main' }, h('span', { class: 'row-title' }, f.name), h('span', { class: 'muted small' }, foodSub(f))),
@@ -739,9 +764,9 @@ function myFoodsBody(state, { onPick } = {}) {
         onPick ? icon('plus', 'my-food-add') : null)),
     onPick ? toolBtn('edit', t('Змінити «{name}»', { name: f.name }), () => foodForm(f)) : null);
   const paint = () => {
-    const needle = norm(foodsQuery);
+    const keys = searchKeys(foodsQuery);
     const byName = foodsSort() === 'name';
-    const shown = all.filter((f) => !needle || norm(f.name).includes(needle))
+    const shown = all.filter((f) => matchesSearch(f.name, keys))
       .sort(byName ? (a, b) => a.name.localeCompare(b.name, 'uk')
         : (a, b) => ((b.used ?? 0) - (a.used ?? 0)) || ((b.last ?? 0) - (a.last ?? 0)));
     list.replaceChildren(...(shown.length ? shown.map(row) : [h('p', { class: 'muted small my-foods-empty' }, all.length
@@ -759,7 +784,7 @@ function myFoodsBody(state, { onPick } = {}) {
     }, t(label))));
   paint();
   return h('div', { class: 'my-foods-body' },
-    all.length > 5 ? h('div', { class: 'my-foods-tools' }, h('label', { class: 'field my-foods-search' }, search), sorts) : null,
+    all.length > 5 ? h('div', { class: 'my-foods-tools' }, h('label', { class: 'field my-foods-search' }, search), mic, sorts) : null,
     list,
     h('div', { class: 'btn-row' }, btn(withIcon('plus', t('Свій продукт')), () => foodForm())));
 }

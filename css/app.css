@@ -1476,3 +1476,6 @@ a.donate-card:active .donate-cup .st { animation: cat-puff .35s ease-out; }
 .my-food-add { width: 18px; height: 18px; margin-left: 6px; color: var(--accent-2); }
 .my-foods-empty { margin: 4px 2px; }
 .my-foods-body .btn-row { margin-bottom: 0; }
+.my-foods-mic { flex: none; }
+.my-foods-mic.listening { color: #fff; background: var(--bad); animation: voice-pulse 1.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .my-foods-mic.listening { animation: none; } }
