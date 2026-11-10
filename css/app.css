@@ -1483,8 +1483,20 @@ a.donate-card:active .donate-cup .st { animation: cat-puff .35s ease-out; }
 .food-src.ok { padding: 0; background: none; color: var(--good); }
 .food-src.ok .ico { width: 15px; height: 15px; }
 .food-issue { display: flex; gap: 4px; align-items: flex-start; color: color-mix(in srgb, var(--warn) 70%, var(--text)); }
-.food-issue .ico, .food-quick-warn { flex: none; width: 14px; height: 14px; margin-top: 2px; color: var(--warn); }
+.food-issue .ico { flex: none; width: 14px; height: 14px; margin-top: 2px; color: var(--warn); }
 .my-foods-check button { display: inline-flex; gap: 4px; align-items: center; }
 .my-foods-check .ico { width: 14px; height: 14px; color: var(--warn); }
 .food-per100 { margin: 0; }
 .food-per100[hidden] { display: none; }
+/* Картка дня: «Поза планом» — секція під позначкою */
+.day-food { display: grid; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line-soft); }
+.day-food-head { display: flex; align-items: baseline; justify-content: space-between; gap: 4px 12px; flex-wrap: wrap; }
+.day-food-head .food-sub { margin: 0; }
+.day-food-total { display: flex; align-items: baseline; gap: 8px; font-variant-numeric: tabular-nums; }
+.day-food .day-extras { margin-top: 0; }
+.day-food .btn-row { margin: 0; }
+/* Шторка «Поза планом»: свої продукти списком під полем */
+.food-pick-sec { display: grid; gap: 6px; margin-top: 16px; }
+.food-pick-sec .food-sub-head .food-sub { margin: 0; }
+.box-warn { display: inline-flex; align-items: center; gap: 3px; margin-left: 8px; font-size: 13px; font-weight: 600; color: var(--warn); }
+.box-warn .ico { width: 14px; height: 14px; }

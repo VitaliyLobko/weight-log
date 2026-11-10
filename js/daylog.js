@@ -17,7 +17,6 @@ export const DAY_PREFIX = 'day:';
 /** «Мої продукти»: що вже рахували — кнопки швидкого додавання і кеш, щоб не питати модель вдруге. */
 export const FOODS_ID = 'nutrition-foods';
 const FOODS_KEEP = 200;
-const FOODS_SHOWN = 8;
 const KCAL_PER_KG = 7700;
 const MAX_TEXT = 300;
 const NUMS = ['kcal', 'p', 'f', 'c'];
@@ -194,8 +193,7 @@ async function rememberFoods(items) {
   await db.write({ settings: { put: [{ id: FOODS_ID, items: list.slice(0, FOODS_KEEP) }] } });
 }
 
-const topFoods = (state) => [...foodsOf(state)]
-  .sort((a, b) => ((b.used ?? 0) - (a.used ?? 0)) || ((b.last ?? 0) - (a.last ?? 0))).slice(0, FOODS_SHOWN);
+const byUse = (a, b) => ((b.used ?? 0) - (a.used ?? 0)) || ((b.last ?? 0) - (a.last ?? 0));
 
 async function addExtras(date, items) {
   const stamped = items.map((x) => ({ ...x, id: newId(), at: Date.now() }));
@@ -341,8 +339,20 @@ export function foodSheet(date = M.today()) {
     placeholder: t('Наприклад: 2 шматки піци й кола 0,5'),
   });
   const connected = Boolean(bot.botConfig().from);
-  const foods = state ? topFoods(state) : [];
   const mine = state ? foodsOf(state) : [];
+  // Свої продукти — одразу списком; те, що пишеться в полі, їх і фільтрує
+  const pickCount = h('span', { class: 'muted small' });
+  const pickHead = h('div', { class: 'food-sub-head' }, h('h4', { class: 'food-sub' }, t('Мої продукти')), pickCount);
+  const pickList = h('div', { class: 'rows my-foods food-pick' });
+  const paintPick = () => {
+    const keys = searchKeys(text.value);
+    const shown = mine.filter((f) => matchesSearch(f.name, keys)).sort(byUse);
+    pickCount.textContent = keys.length ? t('збігів: {n}', { n: shown.length }) : String(mine.length || '');
+    pickList.replaceChildren(...(shown.length ? shown.map((f) => foodRow(f, quick)) : [h('p', { class: 'muted small my-foods-empty' }, mine.length
+      ? t('Серед своїх немає — натисніть «Порахувати».')
+      : t('Тут з\'являться продукти, які ви вже записували: наступного разу — одним дотиком.'))]));
+  };
+  text.addEventListener('input', () => paintPick());
   const quick = async (f) => {
     close();
     const item = withoutStats(f);
@@ -364,7 +374,7 @@ export function foodSheet(date = M.today()) {
   const voice = voiceControl({
     label: t('Сказати голосом'),
     onStart: () => { base = text.value.trim(); },
-    onText: (said) => { text.value = withSaid(said); },
+    onText: (said) => { text.value = withSaid(said); paintPick(); },
     onDone: (said) => { text.value = withSaid(said); count(); },
   });
   const scan = () => {
@@ -417,12 +427,8 @@ export function foodSheet(date = M.today()) {
     h('div', { class: 'food-src-btns' },
       btn(withIcon('barcode', t('Штрихкод')), scan),
       btn(withIcon('camera', t('Фото етикетки')), photo)),
-    h('div', { class: 'food-sub-head' },
-      h('h4', { class: 'food-sub' }, t('Мої продукти')),
-      h('button', { type: 'button', class: 'link-btn small', onclick: () => myFoodsSheet({ onPick: quick }) },
-        mine.length ? t('Усі · {n} ›', { n: mine.length }) : t('Додати свої ›'))),
-    foods.length ? h('div', { class: 'chips food-quick' }, foods.map((f) => h('button', { type: 'button', onclick: () => quick(f) },
-      foodIssue(f) ? icon('warning', 'food-quick-warn') : null, h('span', {}, f.name), h('span', { class: 'muted' }, fmt.int(f.kcal))))) : null);
+    h('div', { class: 'food-pick-sec' }, pickHead, pickList));
+  paintPick();
   const close = sheet(dateTitle(t('Поза планом'), date), body, {
     tools: [oinkToggle()],
     onClose: () => voice?.cancel(),
@@ -761,6 +767,22 @@ const matchesSearch = (name, keys) => {
   return keys.every((k) => ws.some((w) => w.startsWith(k)));
 };
 
+/** Рядок свого продукту: onPick — тап записує в день, олівець — правка; без onPick тап — правка. */
+function foodRow(f, onPick) {
+  const issue = foodIssue(f);
+  return h('div', { class: 'my-food' },
+    h('button', { type: 'button', class: 'row food-row', onclick: () => (onPick ? onPick(f) : foodForm(f)) },
+      h('div', { class: 'row-main' },
+        h('span', { class: 'row-title' }, f.name,
+          f.ok ? h('span', { class: 'food-src ok', title: t('Цифри перевірено') }, icon('check')) : null,
+          SRC_BADGE[f.src] && !f.ok ? h('span', { class: 'food-src' }, t(SRC_BADGE[f.src])) : null),
+        h('span', { class: 'muted small' }, foodSub(f)),
+        issue ? h('span', { class: 'small food-issue' }, icon('warning'), issue) : null),
+      h('div', { class: 'row-side' }, h('span', { class: 'food-kcal' }, fmt.int(f.kcal)),
+        onPick ? icon('plus', 'my-food-add') : null)),
+    onPick ? toolBtn('edit', t('Змінити «{name}»', { name: f.name }), () => foodForm(f)) : null);
+}
+
 /**
  * Список «Моїх продуктів» з пошуком. onPick — вибір у день (з шторки «Поза планом»): тап по рядку записує,
  * олівець — правка; без onPick тап по рядку — правка.
@@ -789,23 +811,12 @@ function myFoodsBody(state, { onPick } = {}) {
       });
     },
   }, icon('mic')) : null;
-  const row = (f) => h('div', { class: 'my-food' },
-    h('button', { type: 'button', class: 'row food-row', onclick: () => (onPick ? onPick(f) : foodForm(f)) },
-      h('div', { class: 'row-main' },
-        h('span', { class: 'row-title' }, f.name,
-          f.ok ? h('span', { class: 'food-src ok', title: t('Цифри перевірено') }, icon('check')) : null,
-          SRC_BADGE[f.src] && !f.ok ? h('span', { class: 'food-src' }, t(SRC_BADGE[f.src])) : null),
-        h('span', { class: 'muted small' }, foodSub(f)),
-        foodIssue(f) ? h('span', { class: 'small food-issue' }, icon('warning'), foodIssue(f)) : null),
-      h('div', { class: 'row-side' }, h('span', { class: 'food-kcal' }, fmt.int(f.kcal)),
-        onPick ? icon('plus', 'my-food-add') : null)),
-    onPick ? toolBtn('edit', t('Змінити «{name}»', { name: f.name }), () => foodForm(f)) : null);
+  const row = (f) => foodRow(f, onPick);
   const paint = () => {
     const keys = searchKeys(foodsQuery);
     const byName = foodsSort() === 'name';
     const shown = all.filter((f) => matchesSearch(f.name, keys) && (!checkOnly || needsCheck(f)))
-      .sort(byName ? (a, b) => a.name.localeCompare(b.name, 'uk')
-        : (a, b) => ((b.used ?? 0) - (a.used ?? 0)) || ((b.last ?? 0) - (a.last ?? 0)));
+      .sort(byName ? (a, b) => a.name.localeCompare(b.name, 'uk') : byUse);
     list.replaceChildren(...(shown.length ? shown.map(row) : [h('p', { class: 'muted small my-foods-empty' }, all.length
       ? (checkOnly ? t('Усе перевірено.') : t('Нічого не знайшлося.'))
       : t('Поки порожньо. Додайте свої страви кнопкою нижче — або просто зберігайте «поза планом»: усе збережене потрапляє сюди й наступного разу знаходиться саме.'))]));
@@ -833,19 +844,14 @@ function myFoodsBody(state, { onPick } = {}) {
     h('div', { class: 'btn-row' }, btn(withIcon('plus', t('Свій продукт')), () => foodForm())));
 }
 
-/** Шторка «Мої продукти» — з «Поза планом»: onPick записує вибране в день і закриває обидві шторки. */
-export function myFoodsSheet({ onPick } = {}) {
-  let close;
-  const pick = onPick ? (f) => { close(); onPick(f); } : undefined;
-  const body = () => myFoodsBody(current ?? { settings: [] }, { onPick: pick });
-  close = sheet(t('Мої продукти'), body(), { live: body });
-}
-
 /** Блок «Мої продукти» в «Раціон → Довідка»: правка й додавання своїх страв. */
 export function myFoodsBox(state) {
   use(state);
   const n = foodsOf(state).length;
-  return box(withIcon('apple', t('Мої продукти')), myFoodsBody(state), { fold: 'my-foods', count: n || null });
+  const toCheck = foodsOf(state).filter(needsCheck).length;
+  const title = [...withIcon('apple', t('Мої продукти')),
+    toCheck ? h('span', { class: 'box-warn', title: t('Перевірити: {n}', { n: toCheck }) }, icon('warning'), String(toCheck)) : null];
+  return box(title, myFoodsBody(state), { fold: 'my-foods', count: n || null });
 }
 
 // ---------- блоки екрана ----------
@@ -865,6 +871,26 @@ function dayBody(state, date) {
         type: 'button', class: `day-btn ${k} ${status === k ? 'on' : ''}`, 'aria-pressed': String(status === k),
         onclick: () => setStatus(state, date, k),
       }, h('span', { class: `day-dot ${k}`, 'aria-hidden': 'true' }), t(label)))),
+    // Їжа поза планом — одразу під позначкою: заголовок з підсумком, список, кнопка
+    h('section', { class: 'day-food', 'aria-label': t('Поза планом') },
+      h('div', { class: 'day-food-head' },
+        h('h4', { class: 'food-sub' }, t('Поза планом')),
+        extras.length ? h('span', { class: 'day-food-total' }, h('b', {}, kcal(xs.kcal)),
+          h('span', { class: 'muted small' }, t('Б {p} · Ж {f} · В {c}', { p: fmt.int(xs.p), f: fmt.int(xs.f), c: fmt.int(xs.c) }))) : null),
+      extras.length ? h('div', { class: 'rows day-extras' }, extras.map((x, i) => {
+        const issue = foodIssue(x);
+        return h('div', { class: 'my-food' },
+          h('button', { type: 'button', class: 'row food-row', onclick: () => editor(date, [x], { index: i }) },
+            h('div', { class: 'row-main' }, h('span', { class: 'row-title' }, x.name),
+              h('span', { class: 'muted small' }, [x.qty, t('Б {p} · Ж {f} · В {c}', { p: fmt.int(x.p || 0), f: fmt.int(x.f || 0), c: fmt.int(x.c || 0) })].filter(Boolean).join(' · ')),
+              issue ? h('span', { class: 'small food-issue' }, icon('warning'), issue) : null),
+            h('div', { class: 'row-side' }, h('span', { class: 'food-kcal' }, fmt.int(x.kcal)))),
+          toolBtn('delete', t('Видалити «{name}»', { name: x.name }), () => removeExtra(date, x, i), 'danger'));
+      })) : null,
+      unrecordedDay(rec) && !cut.kcal ? h('div', { class: 'day-missing' },
+        h('p', { class: 'small' }, t('Що саме з\'їли? Без запису день рахується як за планом — і «Їсте» на головній виходить менше, ніж насправді.')),
+        h('button', { type: 'button', class: 'link-btn small', onclick: () => saveDay(date, { noExtras: true }) }, t('Нічого зайвого не їв'))) : null,
+      h('div', { class: 'btn-row' }, btn(withIcon('pig', t('З\'їв поза планом'), 'ico-pig'), (e) => { oink(); hop(e.currentTarget.querySelector('.ico-pig')); foodSheet(date); }))),
     status === 'slip' ? h('div', { class: 'day-slip' },
       // Правило — з довідки плану («Правило зриву»), щоб правилось в одному місці
       rule.length ? h('ul', { class: 'food-alts day-rule' }, rule.map((line) => h('li', {},
@@ -883,18 +909,14 @@ function dayBody(state, date) {
         return h('button', { type: 'button', class: on ? 'on' : '', 'aria-pressed': String(on), onclick: () => toggleTag(state, date, tag) }, tag);
       })) : null,
     walkRow(state, date),
-    cut.kcal > 0 ? h('p', { class: 'small day-skipped' }, t('{what} · −{k}', { what: cutText(cut, { first: true }), k: kcal(cut.kcal) })) : null,
-    unrecordedDay(rec) && !cut.kcal ? h('div', { class: 'day-missing' },
-      h('p', { class: 'small' }, t('Що саме з\'їли? Без запису день рахується як за планом — і «Їсте» на головній виходить менше, ніж насправді.')),
-      h('button', { type: 'button', class: 'link-btn small', onclick: () => saveDay(date, { noExtras: true }) }, t('Нічого зайвого не їв'))) : null,
-    extras.length ? h('div', { class: 'rows day-extras' }, extras.map((x, i) => h('button', {
-      type: 'button', class: 'row food-row', onclick: () => editor(date, [x], { index: i }),
-    },
-      h('div', { class: 'row-main' }, h('span', { class: 'row-title' }, x.name), x.qty ? h('span', { class: 'muted small' }, x.qty) : null),
-      h('div', { class: 'row-side' }, h('span', { class: 'food-kcal' }, fmt.int(x.kcal)))))) : null,
-    extras.length > 1 ? h('div', { class: 'food-sum' }, h('b', {}, t('Поза планом: {k}', { k: kcal(xs.kcal) })),
-      h('span', { class: 'muted' }, t('Б {p} · Ж {f} · В {c}', { p: fmt.int(xs.p), f: fmt.int(xs.f), c: fmt.int(xs.c) }))) : null,
-    h('div', { class: 'btn-row' }, btn(withIcon('pig', t('З\'їв поза планом'), 'ico-pig'), (e) => { oink(); hop(e.currentTarget.querySelector('.ico-pig')); foodSheet(date); })));
+    cut.kcal > 0 ? h('p', { class: 'small day-skipped' }, t('{what} · −{k}', { what: cutText(cut, { first: true }), k: kcal(cut.kcal) })) : null);
+}
+
+/** Прибрати з'їдене зі списку дня — зі скасуванням. */
+async function removeExtra(date, x, i) {
+  const list = dayOf(await db.loadAll(), date)?.extras ?? [];
+  const before = await saveDay(date, { extras: list.filter((e, j) => (x.id ? e.id !== x.id : j !== i)) });
+  undo(t('Видалено: {name}', { name: x.name }), date, before);
 }
 
 export function daySheet(date) {
