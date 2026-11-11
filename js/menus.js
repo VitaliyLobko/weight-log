@@ -200,7 +200,8 @@ export function menuEditor(menu) {
     const day = totals(meals.flatMap((m) => m.items));
     const tg = target();
     const short = proteinShort(tg, meals, fixed);
-    list.replaceChildren(
+    // replaceChildren, на відміну від h(), null не пропускає — пише «null» текстом
+    list.replaceChildren(...[
       h('p', { class: 'ai-total' }, h('b', {}, kcal(day.kcal)), h('span', { class: 'muted' }, ` · ${macroLine(day)}`)),
       short >= 5 ? h('p', { class: 'small food-check menu-protein-short' }, icon('warning'), h('span', {},
         t('Білка {p} г разом з продуктом дня — до мінімуму {min} г бракує {d} г. «🔄» на страві підбере білковішу заміну.', {
@@ -210,7 +211,8 @@ export function menuEditor(menu) {
         h('div', { class: 'food-sub-head' }, h('h4', { class: 'food-sub' }, m.name), h('span', { class: 'muted small' }, kcal(totals(m.items).kcal))),
         m.items.length ? h('div', { class: 'rows' }, m.items.map((x) => dishRow(m, x)))
           : h('p', { class: 'small muted ai-empty' }, t('Порожньо: цього дня в прийомі не буде страв.')),
-        h('button', { type: 'button', class: 'link-btn small menu-add', onclick: () => addDish(m) }, t('+ Додати страву')))));
+        h('button', { type: 'button', class: 'link-btn small menu-add', onclick: () => addDish(m) }, t('+ Додати страву')))),
+    ].filter(Boolean));
   };
   // Нова страва: що й скільки — текстом чи голосом, рахує «Порахувати» (свої продукти → довідник → ШІ)
   const addDish = (m) => {
