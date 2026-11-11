@@ -244,6 +244,103 @@ export function formulaBurn(goal, kg, date) {
   return { bmr, burn: bmr * activity, age, activity, kg };
 }
 
+/** Дефіцит на день не більше за стільки ккал; ккал на день не нижче підлоги (чоловіки / жінки). */
+export const MAX_DEFICIT = 1000;
+export const kcalFloor = (sex) => (sex === 'f' ? 1200 : 1500);
+
+/** План калорій на схуднення темпом rate кг/тиж від витрати burn: { kcal, capped, floored } — до округлення. */
+export function lossKcal(burn, rate, sex) {
+  const want = (rate * KCAL_PER_KG) / 7;
+  const kcal = burn - Math.min(want, MAX_DEFICIT);
+  const floor = kcalFloor(sex);
+  return { kcal: Math.max(kcal, floor), capped: want > MAX_DEFICIT, floored: kcal < floor };
+}
+
+// ---------- мінімум білка ----------
+
+/** Пороги % жиру: «сухий» і «не ожиріння»; стать невідома — чоловічі. */
+const LEAN_BF = { m: 15, f: 23 };
+const OBESE_BF = { m: 25, f: 32 };
+/** Плавна опорна вага: понад вагу при ІМТ 25 рахується лише ця частка надлишку. */
+export const REF_EXCESS = 0.4;
+/** Дефіцит менше за стільки % — як утримання: похибка оцінки витрати не перекидає норму. */
+export const DEFICIT_NOISE = 5;
+/** Витрата невідома (нема статі), а мета — схуднення: беремо помірний дефіцит. */
+export const GUESS_DEFICIT = 15;
+
+const ceil5 = (v) => Math.ceil(Number(v.toFixed(6)) / 5) * 5;
+const round5 = (v) => Math.round(v / 5) * 5;
+const floor5 = (v) => Math.floor(Number(v.toFixed(6)) / 5) * 5;
+
+/**
+ * Мінімум білка на день: { g, mult, ref, scenario, warnings, perMeal }; вік < 18 чи обмеження від лікаря — { g: null, warnings: ['NO_CALC'] }.
+ * deficit — % від витрати (≤ 0 — утримання чи профіцит). refMode 'spec' — від ІМТ 30 вага при ІМТ 25;
+ * 'smooth' — від ІМТ 25 рахується REF_EXCESS надлишку, без стрибка норми на межі.
+ */
+export function proteinMin({ kg, height, age, deficit, strength, medical = false, sex = null, bodyFat = null, refMode = 'smooth' }) {
+  if (!(kg > 0) || !(height > 0) || !Number.isFinite(age)) return null;
+  if (age < 18 || medical) return { g: null, warnings: ['NO_CALC'] };
+  if (!Number.isFinite(deficit)) return null;
+  const h2 = (height / 100) ** 2;
+  const s = sex === 'f' ? 'f' : 'm';
+  const fat = Number.isFinite(bodyFat) ? bodyFat : null;
+  // Низький % жиру при високому ІМТ — вага від м'язів, рахуємо від фактичної
+  const muscular = fat !== null && fat < OBESE_BF[s];
+  const w25 = 25 * h2;
+  let ref = kg;
+  if (!muscular) {
+    if (refMode === 'spec') { if (kg / h2 >= 30) ref = w25; } else if (kg > w25) ref = w25 + REF_EXCESS * (kg - w25);
+  }
+  const warnings = ref < kg ? ['BMI_ADJUSTED'] : [];
+  let scenario;
+  let mult;
+  if (deficit <= 0) { scenario = 'maintenance'; mult = strength ? 1.6 : 0.8; } else if (deficit < 25) { scenario = 'moderate'; mult = strength ? 1.6 : 1.3; } else {
+    scenario = 'large';
+    mult = strength && fat !== null && fat < LEAN_BF[s] ? 1.9 : 1.6;
+  }
+  if (age >= 65) mult = Math.max(mult, 1.2);
+  if (deficit > 40) warnings.push('EXTREME_DEFICIT');
+  else if (deficit >= 25) warnings.push('BIG_DEFICIT');
+  if (!strength) warnings.push('NO_TRAINING');
+  const g = ceil5(mult * ref);
+  // На прийом — щонайменше 0,3 г/кг опорної ваги (65+ — 0,4), але три прийоми не більше за норму
+  const perMeal = Math.max(5, Math.min(round5(Math.max(g / 4, (age >= 65 ? 0.4 : 0.3) * ref)), floor5(g / 3)));
+  return { g, mult, ref: Math.round(ref * 10) / 10, scenario, warnings, perMeal };
+}
+
+/** Дефіцит, цілі % від стабільної витрати burn для плану kcal; менше DEFICIT_NOISE — 0; витрата невідома — null. */
+export function deficitPct(burn, kcal) {
+  if (!(burn > 0) || !Number.isFinite(kcal)) return null;
+  const d = Math.round(((burn - kcal) / burn) * 100);
+  return d < DEFICIT_NOISE ? Math.min(d, 0) : d;
+}
+
+/** Вхід для proteinMin з цілі: null — мінімум не налаштовано чи вимкнено; { missing: true } — бракує зросту чи року народження. */
+export function proteinInput(goal, kg, date) {
+  const p = goal?.protein;
+  if (!p || p.off || !['yes', 'no'].includes(p.strength)) return null;
+  const age = Number(date.slice(0, 4)) - goal.birthYear;
+  if (!(goal.height > 0) || !(age > 0) || !(kg > 0)) return { missing: true };
+  return {
+    kg, height: goal.height, age, sex: goal.sex ?? null,
+    strength: p.strength === 'yes', medical: Boolean(p.medical),
+    bodyFat: Number.isFinite(p.bodyFat) ? p.bodyFat : null, refMode: p.ref === 'spec' ? 'spec' : 'smooth', mealTip: Boolean(p.mealTip),
+  };
+}
+
+/**
+ * Мінімум білка для плану калорій: hold — утримання (дефіцит 0); burn — стабільна витрата; kcal — план.
+ * Без витрати на схудненні — GUESS_DEFICIT і guessed. Повертає результат proteinMin з deficit і guessed або вхід як є (null, missing).
+ */
+export function proteinFor(input, { hold = false, burn = null, kcal = null } = {}) {
+  if (!input || input.missing) return input;
+  let deficit = hold ? 0 : deficitPct(burn, kcal);
+  const guessed = deficit === null;
+  if (guessed) deficit = GUESS_DEFICIT;
+  const r = proteinMin({ ...input, deficit });
+  return r && { ...r, deficit, guessed, hold, mealTip: input.mealTip };
+}
+
 /**
  * Зведення як у блоці «СВОДКА» таблиці.
  * База втрати й темпу — перше середнє за 7 днів (а не перше зважування): так у таблиці.

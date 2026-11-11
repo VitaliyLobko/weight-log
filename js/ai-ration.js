@@ -6,16 +6,14 @@ import { h, fmt, sheet, toast, btn, segmented, confirmSheet, parseNum } from './
 import { t } from './i18n.js';
 import { icon, withIcon } from './icons.js';
 import { fromModel, fromPer100 } from './foods.js';
-import { planOf, mealsToday, fixedToday, totals, replaceRation, revertRation, lastReplace, undoToast } from './nutrition.js';
+import { planOf, mealsToday, fixedToday, totals, replaceRation, revertRation, lastReplace, undoToast, proteinWarnings, NO_CALC_TEXT } from './nutrition.js';
 import { foodsOf, voiceControl } from './daylog.js';
 
-const KCAL_PER_KG = 7700;
 const DRAFT_KEY = 'weight-log:ai-ration';
 const MODES = [['loss', 'Схуднення'], ['hold', 'Утримання'], ['custom', 'Свої ккал']];
 const RATE_KEY = 'weight-log:ai-rate';
 // Темп схуднення, кг на тиждень
 export const RATES = [[0.25, 'Легко'], [0.5, 'Помірно'], [0.75, 'Активно'], [1, 'Інтенсивно']];
-const MAX_DEFICIT = 1000;
 const r10 = (v) => Math.round(v / 10) * 10;
 
 /** Темп за замовчуванням: останній вибраний, інакше найближчий до плану з «Цілі», інакше «Помірно». */
@@ -29,33 +27,41 @@ function defaultRate(planRate) {
 }
 
 /**
- * Ціль дня: a — { burn, bmr, sex, planRate, kg, target } з app.js (null — даних для норми нема); mode — loss | hold | custom;
+ * Ціль дня: a — { burn, base, bmr, sex, planRate, kg, target, protein } з app.js (null — даних для норми нема); mode — loss | hold | custom;
  * rate — темп схуднення, кг/тиж. Дефіцит = темп × 7700 / 7, не більше 1000 ккал і не нижче 1500 ккал чоловікам (1200 — жінкам).
  * Понад чверть витрати чи нижче базового обміну — лише попередження (limits 'hard', 'bmr'), рішення за людиною.
- * Білок — на кг цільової ваги: 1,8 г при схудненні, 1,4 — на утриманні (не більше 35 % ккал); жири — 28 %; решта — вуглеводи.
+ * Білок: налаштовано «Мінімум білка» — саме мінімум (prot), стеля 35 % його не зрізає; лікар обмежив — звичайні 15 % ккал;
+ * не налаштовано — як раніше: на кг цільової ваги 1,8 г при схудненні, 1,4 — на утриманні (не більше 35 % ккал).
+ * Жири — 28 %; решта — вуглеводи.
  */
 export function rationTarget(a, mode, custom, rate = 0.5) {
   const burn = Math.round(a?.burn ?? 0);
-  const floor = a?.sex === 'f' ? 1200 : 1500;
+  const floor = M.kcalFloor(a?.sex);
   const limits = [];
   let kcal;
   if (mode === 'custom' || !burn) kcal = custom;
   else if (mode === 'hold') kcal = burn;
   else {
-    const want = (rate * KCAL_PER_KG) / 7;
-    if (want > MAX_DEFICIT) limits.push('cap');
-    kcal = burn - Math.min(want, MAX_DEFICIT);
-    if (kcal < floor) { kcal = floor; limits.push('floor'); }
+    const l = M.lossKcal(burn, rate, a.sex);
+    kcal = l.kcal;
+    if (l.capped) limits.push('cap');
+    if (l.floored) limits.push('floor');
     if (burn - kcal > burn * 0.25) limits.push('hard');
     if (a.bmr && kcal < a.bmr) limits.push('bmr');
   }
   kcal = r10(Number(kcal) || 0);
+  const deficit = burn ? burn - kcal : null;
+  // Сценарій білка — від стабільної витрати: прогулянка дня не перекидає норму через межу 25 %
+  const base = a?.base > 0 ? a.base : burn;
+  const prot = a?.protein ? M.proteinFor(a.protein, { hold: mode === 'hold', burn: base, kcal: deficit !== null ? base - deficit : null }) : null;
   const ref = mode !== 'hold' && a?.target > 0 && a.target < a.kg ? a.target : (a?.kg || 70);
-  const p = Math.min(Math.round((mode === 'hold' ? 1.4 : 1.8) * ref), Math.round((kcal * 0.35) / 4));
+  let p;
+  if (prot?.g) p = prot.g;
+  else if (prot?.g === null) p = Math.round((kcal * 0.15) / 4);
+  else p = Math.min(Math.round((mode === 'hold' ? 1.4 : 1.8) * ref), Math.round((kcal * 0.35) / 4));
   const f = Math.round((kcal * 0.28) / 9);
   const c = Math.max(0, Math.round((kcal - p * 4 - f * 9) / 4));
-  const deficit = burn ? burn - kcal : null;
-  return { kcal, p, f, c, burn, floor, bmr: Math.round(a?.bmr ?? 0), deficit, weekKg: deficit !== null ? (deficit * 7) / KCAL_PER_KG : null, limits, ref };
+  return { kcal, p, f, c, burn, floor, bmr: Math.round(a?.bmr ?? 0), deficit, weekKg: deficit !== null ? (deficit * 7) / M.KCAL_PER_KG : null, limits, ref, prot };
 }
 
 // Частки дня, коли в плані прийоми без калорій
@@ -153,29 +159,54 @@ export function aiRationSheet(state, aim) {
     const tg = target();
     const src = a?.source === 'real' ? t('за вашими даними') : t('за формулою');
     const lines = [];
+    // З мінімумом білка попередження про дефіцит — його (25 % / 40 % від стабільної витрати), а не загальне «понад чверть»
+    const protWarn = tg.prot?.g ? proteinWarnings(tg.prot).filter((w) => w.code.endsWith('DEFICIT')).map((w) => w.text) : null;
     if (!a) lines.push(t('Для норми бракує зросту, статі чи року народження — їх вказують у «Цілі». Поки — свої ккал.'));
     else if (form.mode === 'hold') lines.push(t('Витрата {b} ({s}) — без дефіциту.', { b: fmt.int(tg.burn), s: src }));
     else if (form.mode === 'loss') {
       lines.push(t('Витрата {b} ({s}) − дефіцит {d} ≈ {w} кг на тиждень.', { b: fmt.int(tg.burn), s: src, d: fmt.int(tg.deficit), w: fmt.fix(tg.weekKg, 2) }));
-      if (tg.limits.includes('cap')) lines.push(t('Дефіцит обмежено {m} ккал на день.', { m: fmt.int(MAX_DEFICIT) }));
+      if (tg.limits.includes('cap')) lines.push(t('Дефіцит обмежено {m} ккал на день.', { m: fmt.int(M.MAX_DEFICIT) }));
       if (tg.limits.includes('floor')) lines.push(t('Не нижче {f} ккал на день — менше не варто навіть для швидкого схуднення.', { f: fmt.int(tg.floor) }));
-      if (tg.limits.includes('hard')) lines.push(t('Дефіцит понад чверть витрати: важче втримати, частина втрати — м\'язи. Білок — обов\'язково.'));
+      // Лікар обмежив білок — без «білок обов'язково»
+      const hardText = tg.prot?.g === null ? t('Дефіцит понад чверть витрати: важче втримати, частина втрати — м\'язи.')
+        : t('Дефіцит понад чверть витрати: важче втримати, частина втрати — м\'язи. Білок — обов\'язково.');
+      if (protWarn ? protWarn.length : tg.limits.includes('hard')) lines.push(...(protWarn ?? [hardText]));
       else if (tg.limits.includes('bmr')) lines.push(t('Нижче базового обміну ({b}) — при дефіциті це нормально.', { b: fmt.int(tg.bmr) }));
     } else if (tg.burn && tg.kcal) {
       lines.push(tg.deficit >= 0 ? t('Витрата {b}: дефіцит {d} ≈ {w} кг на тиждень.', { b: fmt.int(tg.burn), d: fmt.int(tg.deficit), w: fmt.fix(tg.weekKg, 2) })
         : t('Витрата {b}: профіцит {d}.', { b: fmt.int(tg.burn), d: fmt.int(-tg.deficit) }));
       if (tg.kcal < tg.floor) lines.push(t('Менше {f} ккал на день — так довго не варто.', { f: fmt.int(tg.floor) }));
       else if (tg.bmr && tg.kcal < tg.bmr) lines.push(t('Нижче базового обміну ({b}) — при дефіциті це нормально.', { b: fmt.int(tg.bmr) }));
+      if (protWarn) lines.push(...protWarn);
     }
     // Продукт дня й добавка в паузу лишаються — ШІ добирає решту
     if (fixed.day) lines.push(t('Продукт дня «{n}» ({k} ккал) лишається — ШІ добере решту.', { n: fixed.day.name, k: fmt.int(fixed.day.kcal) }));
     if (fixed.pause) lines.push(t('Добавка в паузу ({k} ккал) лишається — ШІ добере решту.', { k: fmt.int(fixed.pause) }));
-    targetEl.replaceChildren(
+    const rest = { f: fmt.int(tg.f), c: fmt.int(tg.c) };
+    const pr = tg.prot;
+    let macro;
+    if (pr?.g) {
+      macro = pr.warnings.includes('BMI_ADJUSTED')
+        ? t('Білки {p} г — мінімум для м\'язів, {k} г на кг опорної ваги {w} кг · жири {f} г · вуглеводи {c} г', { p: fmt.int(tg.p), k: fmt.fix(pr.mult, 1), w: fmt.fix(pr.ref, 1), ...rest })
+        : t('Білки {p} г — мінімум для м\'язів, {k} г на кг ваги · жири {f} г · вуглеводи {c} г', { p: fmt.int(tg.p), k: fmt.fix(pr.mult, 1), ...rest });
+    } else if (pr?.g === null) {
+      macro = t('Білки {p} г — звичайна частка, без акценту на білок · жири {f} г · вуглеводи {c} г', { p: fmt.int(tg.p), ...rest });
+    } else {
+      macro = t('Білки {p} г ({k} г на кг ваги {w}) · жири {f} г · вуглеводи {c} г', {
+        p: fmt.int(tg.p), k: form.mode === 'hold' ? '1,4' : '1,8', w: fmt.fix(tg.ref, 0), ...rest,
+      });
+    }
+    // Мінімум білка не налаштовано — підказка, де це зробити
+    const setup = a?.setupProtein && !pr ? h('button', {
+      type: 'button', class: 'link-btn small ai-protein-setup', onclick: () => { close(); a.setupProtein(); },
+    }, t('Точніше — «Мінімум білка» в налаштуваннях: силові, обмеження від лікаря')) : null;
+    targetEl.replaceChildren(...[
       h('div', { class: 'ai-target-kcal' }, h('b', {}, fmt.int(tg.kcal)), ` ${t('ккал на день')}`),
       ...lines.map((l) => h('p', { class: 'small muted' }, l)),
-      h('p', { class: 'small' }, t('Білки {p} г ({k} г на кг ваги {w}) · жири {f} г · вуглеводи {c} г', {
-        p: fmt.int(tg.p), k: form.mode === 'hold' ? '1,4' : '1,8', w: fmt.fix(tg.ref, 0), f: fmt.int(tg.f), c: fmt.int(tg.c),
-      })));
+      pr?.g === null ? h('p', { class: 'small food-check' }, icon('warning'), h('span', {}, t(NO_CALC_TEXT))) : null,
+      h('p', { class: 'small' }, macro),
+      setup,
+    ].filter(Boolean));
   };
 
   const customInput = h('input', { type: 'text', inputmode: 'numeric', autocomplete: 'off', name: 'kcal', value: String(form.custom) });
@@ -228,7 +259,10 @@ export function aiRationSheet(state, aim) {
     const k = tg.kcal > 0 ? Math.max(0, tg.kcal - fixedKcal(fixed)) / tg.kcal : 1;
     return {
       goal: f.mode === 'hold' ? 'hold' : 'loss', kcal: Math.round(tg.kcal * k), p: Math.round(tg.p * k), f: Math.round(tg.f * k), c: Math.round(tg.c * k),
-    diet: f.diet ? 'diabetes' : '', wishes: f.wishes, foods: usualFoods(state),
+    // Лікар обмежив білок — першим у побажаннях (бот їх обрізає до 300 знаків): інакше «схуднення» в боті додасть білка
+    diet: f.diet ? 'diabetes' : '', foods: usualFoods(state),
+    wishes: [tg.prot?.g === null ? t('Лікар обмежив білок: не більше {p} г білка за день, без акценту на білкові страви', { p: Math.round(tg.p * k) }) : '', f.wishes]
+      .filter(Boolean).join('. '),
       meals: budgets.map(({ id, name, time, kcal }) => ({ id, name, time, kcal })),
       ...(swap ? { swap } : {}),
     };

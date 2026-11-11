@@ -1568,3 +1568,16 @@ a.donate-card:active .donate-cup .st { animation: cat-puff .35s ease-out; }
 .chips.segmented button { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .chips.segmented:has(> :nth-child(4)) button { padding-inline: 4px; font-size: 13px; }
 .dict-find.hot { background: var(--accent-soft); }
+/* Мінімум білка: картка в налаштуваннях, «мін.» на плитці «Білки» */
+.protein-card { padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); display: grid; gap: 6px; }
+.protein-card p { margin: 0; }
+.protein-title { font-size: 17px; font-weight: 700; }
+.protein-details { display: grid; gap: 10px; margin-block: 10px; }
+.protein-details[hidden] { display: none; }
+.protein-check { align-items: flex-start; padding-block: 4px; }
+.protein-check input { margin-top: 1px; }
+.protein-check > span { display: grid; gap: 2px; }
+.protein-preview:empty { display: none; }
+.protein-preview { margin-bottom: 10px; }
+.food-macros .protein-min { font-size: 12px; }
+.ai-protein-setup { justify-self: start; text-align: left; }

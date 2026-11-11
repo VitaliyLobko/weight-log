@@ -1050,7 +1050,7 @@ const RATION_SEGS = [['today', 'Сьогодні'], ['calendar', 'Календа
 const SEG_KEY = 'weight-log:ration-seg';
 let rationSeg = RATION_SEGS.some(([k]) => k === recall(SEG_KEY)) ? recall(SEG_KEY) : 'today';
 
-export function renderRation(state, { noPlan, render, burn, aim }) {
+export function renderRation(state, { noPlan, render, burn, aim, protein }) {
   current = state;
   const day = today(state);
   if (!day) return h('div', {}, noPlan(), box(withIcon('leaf', t('Харчування при діабеті')), dietMemo(), { fold: 'diet' }));
@@ -1060,7 +1060,7 @@ export function renderRation(state, { noPlan, render, burn, aim }) {
     render();
   });
   const body = { today: rationToday, calendar: rationCalendar, foods: rationFoods, refs: rationRefs }[rationSeg];
-  return h('div', {}, seg, body(state, day, burn, aim));
+  return h('div', {}, seg, body(state, day, burn, aim, protein));
 }
 
 const r10 = (v) => Math.round(v / 10) * 10;
@@ -1090,14 +1090,70 @@ function burnLine(state, sum, burn) {
     n.kcal > b.kcal ? h('span', { class: 'muted' }, ` · ${t('з прогулянкою')}`) : null);
 }
 
-/** БЖУ дня — окремими плитками під калоріями, як «Норма · Сьогодні · Дефіцит» на головній. */
-function macroTiles(sum) {
-  const cell = (label, g) => h('div', { class: 'kcal-cell' },
-    h('span', { class: 'muted small' }, label), h('b', {}, fmt.int(g), h('small', {}, t('г'))));
-  return h('div', { class: 'kcal-grid food-macros' }, cell(t('Білки'), sum.p), cell(t('Жири'), sum.f), cell(t('Вуглеводи'), sum.c));
+/** БЖУ дня — окремими плитками під калоріями; з мінімумом білка — «мін. N» і зелений, коли добрали. */
+function macroTiles(sum, prot) {
+  const min = prot?.g ?? null;
+  const cell = (label, g, extra = null, cls = '') => h('div', { class: `kcal-cell${cls}` },
+    h('span', { class: 'muted small' }, label), h('b', {}, fmt.int(g), h('small', {}, t('г'))), extra);
+  return h('div', { class: 'kcal-grid food-macros' },
+    cell(t('Білки'), sum.p, min ? h('span', { class: 'muted small protein-min' }, t('мін. {g}', { g: fmt.int(min) })) : null,
+      min && sum.p >= min ? ' good' : ''),
+    cell(t('Жири'), sum.f), cell(t('Вуглеводи'), sum.c));
 }
 
-function rationToday(state, day, burn, aim) {
+// ---------- мінімум білка ----------
+
+const PROTEIN_SCENARIO = {
+  gain: 'Ви тренуєтесь — цієї норми достатньо, щоб м\'язи росли.',
+  maintenance: 'Цієї норми достатньо, щоб зберегти м\'язи.',
+  moderate: 'На помірній дієті ця норма допомагає не втрачати м\'язи.',
+  large: 'На жорсткій дієті м\'язам потрібно більше білка.',
+};
+export const NO_CALC_TEXT = 'Ми не розраховуємо норму білка для вашої ситуації. Порадьтеся з лікарем: іноді білок потрібно обмежувати.';
+
+/** Попередження до мінімуму білка — тексти зі специфікації; r — результат M.proteinFor. */
+export function proteinWarnings(r) {
+  const text = {
+    BIG_DEFICIT: t('Ваш дефіцит калорій великий ({d} %). Навіть із достатнім білком частина м\'язів може втрачатися. Спробуйте дефіцит до 20–25 %.', { d: fmt.int(r.deficit) }),
+    EXTREME_DEFICIT: t('Дефіцит понад 40 % — це дуже багато. Немає даних, що білок захищає м\'язи за такого дефіциту. Радимо його зменшити.'),
+    NO_TRAINING: t('Порада: силові тренування 2–3 рази на тиждень бережуть м\'язи сильніше, ніж будь-яка кількість білка.'),
+    BMI_ADJUSTED: t('Норму розраховано від ваги {w} кг, а не від поточної: при великій вазі розрахунок від повної ваги завищує потребу.', { w: fmt.fix(r.ref, 1) }),
+  };
+  return r.warnings.filter((w) => text[w]).map((w) => ({ code: w, text: text[w] }));
+}
+
+/** Значення в рядку налаштувань «Білок». */
+export function proteinValue(r, input) {
+  if (!input) return input === null ? t('Не налаштовано') : '';
+  if (input.missing) return t('Бракує зросту чи віку');
+  if (!r) return '';
+  return r.g === null ? t('Не рахуємо') : t('від {g} г на день', { g: fmt.int(r.g) });
+}
+
+/** Картка мінімуму білка: норма, пояснення, попередження, підказка про прийоми, застереження. */
+export function proteinCard(r, input) {
+  if (input?.missing) return h('p', { class: 'small muted' }, t('Для мінімуму білка вкажіть зріст і рік народження — у рядку «Норма калорій».'));
+  if (!r) return null;
+  if (r.g === null) return h('div', { class: 'protein-card' }, h('p', { class: 'small food-check' }, icon('warning'), h('span', {}, t(NO_CALC_TEXT))));
+  const adjusted = r.warnings.includes('BMI_ADJUSTED');
+  const basis = r.hold ? t('Розраховано для утримання ваги.')
+    : r.guessed ? t('Витрату не пораховано (бракує статі) — беремо помірний дефіцит.')
+      : r.deficit <= 0 ? t('Розраховано без дефіциту калорій: менше 5 % від витрати рахуємо як утримання.')
+        : t('Розраховано для дефіциту {d} % від витрати — за планом схуднення.', { d: fmt.int(r.deficit) });
+  return h('div', { class: 'protein-card' },
+    h('div', { class: 'protein-title' }, t('Мінімум білка: {g} г на день', { g: fmt.int(r.g) })),
+    h('p', { class: 'small' }, adjusted
+      ? t('Це {m} г на кожен кілограм опорної ваги ({w} кг). Можна їсти більше, але м\'язам це майже нічого не додасть.', { m: fmt.fix(r.mult, 1), w: fmt.fix(r.ref, 1) })
+      : t('Це {m} г на кожен кілограм ваги. Можна їсти більше, але м\'язам це майже нічого не додасть.', { m: fmt.fix(r.mult, 1) })),
+    h('p', { class: 'small' }, t(PROTEIN_SCENARIO[r.scenario === 'maintenance' && !r.warnings.includes('NO_TRAINING') ? 'gain' : r.scenario])),
+    h('p', { class: 'small muted' }, basis),
+    proteinWarnings(r).map((w) => h('p', { class: `small ${w.code === 'NO_TRAINING' || w.code === 'BMI_ADJUSTED' ? 'muted' : 'food-check'}` },
+      w.code.endsWith('DEFICIT') ? icon('warning') : null, h('span', {}, w.text))),
+    r.mealTip ? h('p', { class: 'small' }, t('Розподіліть білок на 3–4 прийоми їжі, приблизно по {n} г.', { n: fmt.int(r.perMeal) })) : null,
+    h('p', { class: 'small muted' }, t('Це загальна рекомендація, а не медична порада.')));
+}
+
+function rationToday(state, day, burn, aim, protein) {
   const { plan, pause, meals, planned, extra, sum } = day;
   const norm = plan.norm;
   return h('div', {},
@@ -1107,7 +1163,7 @@ function rationToday(state, day, burn, aim) {
       extra.kcal ? h('div', { class: 'hero-sub food-split' },
         t('за планом {a} + поза планом {b}', { a: fmt.int(planned.kcal), b: fmt.int(extra.kcal) })) : null,
       burnLine(state, sum, burn),
-      macroTiles(sum),
+      macroTiles(sum, protein?.()),
       dayPicker(state, day),
       windowEl(plan, Boolean(pause.now))),
     pauseNote(pause),

@@ -231,7 +231,7 @@ export function form(fields) {
   for (const f of fields) {
     let input;
     if (f.type === 'select') {
-      input = selectBox(f.options, f.value, { name: f.name, label: f.label });
+      input = selectBox(f.options, f.value, { name: f.name, label: f.label, onPick: f.onPick });
     } else if (f.type === 'chips') {
       input = chips(f.options, f.value, f.onPick);
     } else if (f.type === 'dmy') {

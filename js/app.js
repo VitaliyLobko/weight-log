@@ -12,7 +12,7 @@ import { initLock, lockOn, lockDelay, lockAvailable, enableLock, disableLock, se
 import { lineChart } from './chart.js';
 import { icon, withIcon } from './icons.js';
 import { remindTime, setRemindTime, googleCalendarUrl, icsFile } from './remind.js';
-import { renderRation, homeLine, noteTags, tickWindow, planOf, energy, calories, energyLeft, dayKcal, walkOf } from './nutrition.js';
+import { renderRation, homeLine, noteTags, tickWindow, planOf, energy, calories, energyLeft, dayKcal, walkOf, proteinCard, proteinValue } from './nutrition.js';
 import {
   weightHint, afterStatus, STATUS, yesterdayText, weekMarks, periodFood, streakMilestones, journalDay, dayDates, streak, dayOf,
   unrecorded, daySheet, rationStart, setWalkBase, setDayState,
@@ -1304,6 +1304,80 @@ function bodyRow() {
     f.el, h('div', { class: 'btn-row' }, btn(t('Зберегти'), save, 'primary'))]);
 }
 
+/** Мінімум білка за планом із «Цілі»: { input, r }; input null — не налаштовано чи вимкнено, { missing } — бракує даних. */
+function proteinNow(g = sum.goal) {
+  const input = M.proteinInput(g, sum.current, M.today());
+  if (!input || input.missing) return { input, r: null };
+  // Сценарій — від стабільної витрати (без прогулянки дня) і плану темпу з «Цілі»
+  const burn = calories(state, rows, sum.goal, sum.current)?.burn ?? null;
+  const rate = sum.goal.planRate > 0 ? sum.goal.planRate : 0.5;
+  const kcal = burn && !sum.hold ? M.lossKcal(burn, rate, g.sex).kcal : null;
+  return { input, r: M.proteinFor(input, { hold: sum.hold, burn, kcal }) };
+}
+
+/** Мінімум білка: кожен вмикає своє — силові, обмеження від лікаря, % жиру, підказку про прийоми, спосіб опорної ваги. */
+function proteinRow() {
+  const p = goal.protein ?? {};
+  const onOff = segmented([['on', t('Рахувати')], ['off', t('Не рахувати')]], p.off ? 'off' : 'on', () => paint());
+  const strength = segmented([['yes', t('Так')], ['no', t('Ні')]], p.strength ?? '', () => paint());
+  const check = (on, label, hint) => {
+    const input = h('input', { type: 'checkbox', checked: Boolean(on) });
+    input.addEventListener('change', () => paint());
+    return { input, el: h('label', { class: 'check-row protein-check' }, input, h('span', {}, label, hint ? h('small', { class: 'muted' }, hint) : null)) };
+  };
+  const medical = check(p.medical, t('Є обмеження від лікаря'),
+    t('Хвороба нирок чи печінки, вагітність чи годування груддю, лікар обмежив білок — тоді норму не рахуємо.'));
+  const mealTip = check(p.mealTip, t('Підказка про прийоми їжі'), t('Скільки білка на один прийом.'));
+  const f = form([
+    { name: 'bodyFat', label: t('Відсоток жиру (необов\'язково)'), type: 'number', value: numStr(p.bodyFat), min: 3, max: 60,
+      hint: t('Якщо відомий: ваги з біоімпедансом, DXA. Уточнює норму для сухих і для м\'язистих людей із високим ІМТ.') },
+    { name: 'ref', label: t('Опорна вага при зайвій вазі'), type: 'select', value: p.ref === 'spec' ? 'spec' : 'smooth', onPick: () => paint(), options: [
+      ['smooth', t('Плавно'), t('Від ІМТ 25 рахується 40 % надлишку ваги — норма не стрибає')],
+      ['spec', t('Від ІМТ 30 — вага при ІМТ 25'), t('Як у специфікації; на межі ІМТ 30 норма різко падає')],
+    ] },
+  ]);
+  f.inputs.bodyFat.addEventListener('input', () => paint());
+  const details = h('div', { class: 'protein-details' },
+    h('div', { class: 'field' }, h('span', { class: 'field-label' }, t('Силові тренування 2+ рази на тиждень')), strength,
+      h('small', { class: 'muted' }, t('Вправи з обтяженням: штанга, гантелі, тренажери, віджимання. Біг, ходьба чи велосипед сюди не рахуються.'))),
+    medical.el, mealTip.el, f.el);
+  const preview = h('div', { class: 'protein-preview' });
+  // Що вийде з поточними перемикачами — ще до «Зберегти»
+  const draft = () => {
+    const v = f.values();
+    return {
+      off: onOff.value === 'off' || undefined,
+      strength: strength.value || undefined,
+      medical: medical.input.checked || undefined,
+      mealTip: mealTip.input.checked || undefined,
+      bodyFat: Number.isFinite(v.bodyFat) && v.bodyFat >= 3 && v.bodyFat <= 60 ? v.bodyFat : undefined,
+      ref: v.ref === 'spec' ? 'spec' : undefined,
+    };
+  };
+  const paint = () => {
+    const d = draft();
+    details.hidden = Boolean(d.off);
+    if (d.off) { preview.replaceChildren(); return; }
+    if (!d.strength) { preview.replaceChildren(h('p', { class: 'small muted' }, t('Вкажіть, чи є силові тренування, — і норма з\'явиться тут.'))); return; }
+    const { input, r } = proteinNow({ ...sum.goal, protein: d });
+    preview.replaceChildren(proteinCard(r, input) ?? '');
+  };
+  const save = async () => {
+    const bad = f.invalid();
+    if (bad) { toast(t('Перевірте поле «{f}»', { f: bad.label })); return; }
+    const d = draft();
+    if (!d.off && !d.strength) { toast(t('Вкажіть, чи є силові тренування')); return; }
+    await saveGoal({ protein: JSON.parse(JSON.stringify(d)) });
+    toast(t('Збережено'));
+  };
+  paint();
+  const { input, r } = proteinNow();
+  return setRow('protein', 'leaf', t('Мінімум білка'), p.off ? t('Вимкнено') : proteinValue(r, input), [
+    h('p', { class: 'muted small' }, t('Найменше білка на день, за якого м\'язи зберігаються, а з силовими — ростуть. Залежить від дефіциту калорій, силових, віку й ваги; більше їсти можна, але м\'язам це майже нічого не додасть.')),
+    onOff, details, preview,
+    h('div', { class: 'btn-row' }, btn(t('Зберегти'), save, 'primary'))]);
+}
+
 function checkpointsRow() {
   const list = [...(goal.checkpoints ?? [])].sort((a, b) => b.kg - a.kg);
   const kgInput = h('input', { type: 'text', inputmode: 'decimal', placeholder: t('кг'), autocomplete: 'off', class: 'cp-kg' });
@@ -1781,7 +1855,7 @@ function renderSettings() {
   $('subtitle').textContent = t('версія {v}', { v: self.APP_VERSION });
   return h('div', {},
     settingsGroup(t('Про застосунок'), [aboutPanel()]),
-    settingsGroup(withIcon('target', t('Ціль і нагадування')), [goalRow(), bodyRow(), checkpointsRow(), remindRow()]),
+    settingsGroup(withIcon('target', t('Ціль і нагадування')), [goalRow(), bodyRow(), proteinRow(), checkpointsRow(), remindRow()]),
     settingsGroup(withIcon('cloud', t('Дані')), [syncRow(), driveRow(), lockRow(), fileRow(), wipeRow()]),
     settingsGroup(withIcon('theme', t('Зовнішній вигляд')), [themeRow(), backdropRow(), oinkRow()]));
 }
@@ -1929,10 +2003,14 @@ const VIEWS = {
         const c = calories(state, rows, sum.goal, sum.current);
         const f = M.formulaBurn(sum.goal, sum.current, M.today());
         return c ? {
-          burn: c.burnToday, source: c.source, bmr: f?.bmr ?? null, sex: sum.goal.sex,
+          burn: c.burnToday, base: c.burn, source: c.source, bmr: f?.bmr ?? null, sex: sum.goal.sex,
           planRate: sum.goal.planRate, hold: sum.hold, kg: sum.current, target: sum.target,
+          // Мінімум білка — лише коли людина налаштувала його в «Мінімум білка»
+          protein: M.proteinInput(sum.goal, sum.current, M.today()),
+          setupProtein: () => openSettings('protein'),
         } : null;
       },
+      protein: () => proteinNow().r,
       noPlan: () => empty('leaf', t('Плану харчування ще немає'),
         t('Завантажте файл із планом: Дані → Копія у файл → Відновити з файлу → Об’єднати.'),
         btn(withIcon('upload', t('Відкрити «Дані»')), () => openSettings('file'))),
