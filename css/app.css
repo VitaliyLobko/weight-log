@@ -1581,3 +1581,8 @@ a.donate-card:active .donate-cup .st { animation: cat-puff .35s ease-out; }
 .protein-preview { margin-bottom: 10px; }
 .food-macros .protein-min { font-size: 12px; }
 .ai-protein-setup { justify-self: start; text-align: left; }
+/* Раціон з ШІ: страва — кнопка «перенести в інший прийом» */
+.ai-item-main { padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; align-self: stretch; justify-content: center; min-height: 44px; }
+.ai-item-main:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+.ai-empty { margin: 0; padding: 10px 12px; border: 1px dashed var(--line); border-radius: 12px; }
+.ai-walk { display: grid; gap: 6px; margin-top: 14px; }

@@ -7,7 +7,7 @@ import { t } from './i18n.js';
 import { icon, withIcon } from './icons.js';
 import { fromModel, fromPer100 } from './foods.js';
 import { planOf, mealsToday, fixedToday, totals, replaceRation, revertRation, lastReplace, undoToast, proteinWarnings, NO_CALC_TEXT } from './nutrition.js';
-import { foodsOf, voiceControl } from './daylog.js';
+import { foodsOf, voiceControl, WALKS } from './daylog.js';
 
 const DRAFT_KEY = 'weight-log:ai-ration';
 const MODES = [['loss', 'Схуднення'], ['hold', 'Утримання'], ['custom', 'Свої ккал']];
@@ -15,6 +15,16 @@ const RATE_KEY = 'weight-log:ai-rate';
 // Темп схуднення, кг на тиждень
 export const RATES = [[0.25, 'Легко'], [0.5, 'Помірно'], [0.75, 'Активно'], [1, 'Інтенсивно']];
 const r10 = (v) => Math.round(v / 10) * 10;
+
+const WALK_KEY = 'weight-log:ai-walk';
+
+/** Щоденна прогулянка до темпу: остання вибрана, інакше без неї. */
+function defaultWalk() {
+  try {
+    const v = Number(localStorage.getItem(WALK_KEY));
+    return WALKS.includes(v) ? v : 0;
+  } catch { return 0; }
+}
 
 /** Темп за замовчуванням: останній вибраний, інакше найближчий до плану з «Цілі», інакше «Помірно». */
 function defaultRate(planRate) {
@@ -34,8 +44,11 @@ function defaultRate(planRate) {
  * не налаштовано — як раніше: на кг цільової ваги 1,8 г при схудненні, 1,4 — на утриманні (не більше 35 % ккал).
  * Жири — 28 %; решта — вуглеводи.
  */
-export function rationTarget(a, mode, custom, rate = 0.5) {
-  const burn = Math.round(a?.burn ?? 0);
+export function rationTarget(a, mode, custom, rate = 0.5, walk = 0) {
+  // Щоденна прогулянка до темпу: витрата — стабільна плюс прогулянка (замість записаної сьогодні), дефіцит той самий
+  const walkKcal = mode === 'loss' && a && walk > 0 ? Math.round(M.walkKcal(walk, a.kg)) : 0;
+  const stable = a?.base > 0 ? a.base : (a?.burn ?? 0);
+  const burn = Math.round(walkKcal ? stable + walkKcal : (a?.burn ?? 0));
   const floor = M.kcalFloor(a?.sex);
   const limits = [];
   let kcal;
@@ -52,7 +65,7 @@ export function rationTarget(a, mode, custom, rate = 0.5) {
   kcal = r10(Number(kcal) || 0);
   const deficit = burn ? burn - kcal : null;
   // Сценарій білка — від стабільної витрати: прогулянка дня не перекидає норму через межу 25 %
-  const base = a?.base > 0 ? a.base : burn;
+  const base = a?.base > 0 ? a.base + walkKcal : burn;
   const prot = a?.protein ? M.proteinFor(a.protein, { hold: mode === 'hold', burn: base, kcal: deficit !== null ? base - deficit : null }) : null;
   const ref = mode !== 'hold' && a?.target > 0 && a.target < a.kg ? a.target : (a?.kg || 70);
   let p;
@@ -61,7 +74,8 @@ export function rationTarget(a, mode, custom, rate = 0.5) {
   else p = Math.min(Math.round((mode === 'hold' ? 1.4 : 1.8) * ref), Math.round((kcal * 0.35) / 4));
   const f = Math.round((kcal * 0.28) / 9);
   const c = Math.max(0, Math.round((kcal - p * 4 - f * 9) / 4));
-  return { kcal, p, f, c, burn, floor, bmr: Math.round(a?.bmr ?? 0), deficit, weekKg: deficit !== null ? (deficit * 7) / M.KCAL_PER_KG : null, limits, ref, prot };
+  return { kcal, p, f, c, burn, floor, bmr: Math.round(a?.bmr ?? 0), deficit, weekKg: deficit !== null ? (deficit * 7) / M.KCAL_PER_KG : null, limits, ref, prot,
+    walk: walkKcal ? { min: walk, kcal: walkKcal, base: Math.round(stable) } : null };
 }
 
 // Частки дня, коли в плані прийоми без калорій
@@ -149,9 +163,10 @@ export function aiRationSheet(state, aim) {
     wishes: draft?.wishes ?? '',
     diet: draft?.diet ?? true,
     rate: draft?.rate ?? defaultRate(a?.planRate),
+    walk: draft?.walk ?? defaultWalk(),
   };
   if (!a) form.mode = 'custom';
-  const target = () => rationTarget(a, form.mode, form.custom, form.rate);
+  const target = () => rationTarget(a, form.mode, form.custom, form.rate, form.walk);
 
   // Ціль — пояснення розрахунку
   const targetEl = h('div', { class: 'ai-target' });
@@ -164,7 +179,11 @@ export function aiRationSheet(state, aim) {
     if (!a) lines.push(t('Для норми бракує зросту, статі чи року народження — їх вказують у «Цілі». Поки — свої ккал.'));
     else if (form.mode === 'hold') lines.push(t('Витрата {b} ({s}) — без дефіциту.', { b: fmt.int(tg.burn), s: src }));
     else if (form.mode === 'loss') {
-      lines.push(t('Витрата {b} ({s}) − дефіцит {d} ≈ {w} кг на тиждень.', { b: fmt.int(tg.burn), s: src, d: fmt.int(tg.deficit), w: fmt.fix(tg.weekKg, 2) }));
+      lines.push(tg.walk
+        ? t('Витрата {b} ({s}) + прогулянка {m} хв {k} − дефіцит {d} ≈ {w} кг на тиждень.', {
+          b: fmt.int(tg.walk.base), s: src, m: tg.walk.min, k: fmt.int(tg.walk.kcal), d: fmt.int(tg.deficit), w: fmt.fix(tg.weekKg, 2),
+        })
+        : t('Витрата {b} ({s}) − дефіцит {d} ≈ {w} кг на тиждень.', { b: fmt.int(tg.burn), s: src, d: fmt.int(tg.deficit), w: fmt.fix(tg.weekKg, 2) }));
       if (tg.limits.includes('cap')) lines.push(t('Дефіцит обмежено {m} ккал на день.', { m: fmt.int(M.MAX_DEFICIT) }));
       if (tg.limits.includes('floor')) lines.push(t('Не нижче {f} ккал на день — менше не варто навіть для швидкого схуднення.', { f: fmt.int(tg.floor) }));
       // Лікар обмежив білок — без «білок обов'язково»
@@ -232,7 +251,16 @@ export function aiRationSheet(state, aim) {
   const rateField = h('div', { class: 'field ai-rate', hidden: form.mode !== 'loss' },
     h('div', { class: 'ai-rate-head' }, h('span', { class: 'field-label' }, t('Темп')), rateValue),
     rateInput,
-    h('div', { class: 'ai-rate-ticks', 'aria-hidden': 'true' }, RATES.map(([, l], i) => h('span', { style: `left: ${(i / (RATES.length - 1)) * 100}%` }, t(l)))));
+    h('div', { class: 'ai-rate-ticks', 'aria-hidden': 'true' }, RATES.map(([, l], i) => h('span', { style: `left: ${(i / (RATES.length - 1)) * 100}%` }, t(l)))),
+    // Прогулянка щодня: темп той самий, а їсти можна більше на її калорії
+    h('div', { class: 'ai-walk' },
+      h('span', { class: 'field-label' }, t('Прогулянка щодня')),
+      segmented([['0', t('Ні')], ...WALKS.map((m) => [String(m), t('{m} хв', { m })])], String(form.walk), (v) => {
+        form.walk = Number(v);
+        try { localStorage.setItem(WALK_KEY, String(form.walk)); } catch { /* приватне вікно */ }
+        paintTarget();
+      }),
+      h('small', { class: 'muted' }, t('Швидким кроком, понад звичайну активність. Дефіцит той самий — їсти можна більше на калорії прогулянки.'))));
   paintRate();
   const modes = segmented(MODES.filter(([k]) => a || k === 'custom').map(([k, l]) => [k, t(l)]), form.mode, (v) => {
     form.mode = v;
@@ -323,12 +351,46 @@ export function aiRationSheet(state, aim) {
 
   const draftEl = h('div', { class: 'ai-draft' });
   const apply = btn(t('Замінити раціон з сьогодні'), () => applyDraft(), 'primary ai-apply');
+  // Страва в інший прийом чернетки: порції не підганяються — видно «N з M ккал» у кожному прийомі
+  const moveItem = (from, i, to) => {
+    const [x] = from.items.splice(i, 1);
+    to.items.push(x);
+    saveDraft(draft);
+    paintDraft();
+    toast(t('«{name}» тепер у «{meal}»', { name: x.name, meal: to.name }), {
+      action: t('Скасувати'),
+      onAction: () => {
+        const at = to.items.indexOf(x);
+        if (at < 0) return;
+        to.items.splice(at, 1);
+        from.items.splice(Math.min(i, from.items.length), 0, x);
+        saveDraft(draft);
+        paintDraft();
+      },
+    });
+  };
+  const moveSheet = (meal, x) => {
+    const others = draft.meals.filter((m) => m !== meal);
+    const done = sheet(x.name, h('div', { class: 'food-sheet' },
+      h('div', { class: 'food-figures' }, x.qty ? h('b', {}, x.qty) : null, h('span', {}, t('{n} ккал', { n: fmt.int(x.kcal) })),
+        h('span', { class: 'muted' }, macroLine(x))),
+      h('div', { class: 'chips food-portion food-move', role: 'group', 'aria-label': t('Перенести в інший прийом') },
+        h('span', { class: 'muted small' }, t('Перенести в:')),
+        others.map((m) => h('button', {
+          type: 'button',
+          onclick: () => { done(); const i = meal.items.indexOf(x); if (i >= 0) moveItem(meal, i, m); },
+        }, m.name)))));
+  };
   const itemRow = (meal, x, i) => {
     const re = h('button', { type: 'button', class: 'icon-btn tool ai-reroll', 'aria-label': t('Інша страва'), title: t('Інша страва') }, icon('sync'));
     re.addEventListener('click', () => reroll(meal, i, re));
+    const many = draft.meals.length > 1;
     return h('div', { class: 'row ai-item' },
-      h('div', { class: 'row-main' }, h('span', { class: 'row-title' }, x.name),
-        h('span', { class: 'row-sub muted small' }, [x.qty, macroLine(x)].filter(Boolean).join(' · '))),
+      h(many ? 'button' : 'div', {
+        class: `row-main${many ? ' ai-item-main' : ''}`,
+        ...(many ? { type: 'button', 'aria-label': t('{name} — перенести в інший прийом', { name: x.name }), onclick: () => moveSheet(meal, x) } : {}),
+      }, h('span', { class: 'row-title' }, x.name),
+      h('span', { class: 'row-sub muted small' }, [x.qty, macroLine(x)].filter(Boolean).join(' · '))),
       h('div', { class: 'row-side' }, h('span', { class: 'food-kcal' }, fmt.int(x.kcal))),
       re);
   };
@@ -351,9 +413,12 @@ export function aiRationSheet(state, aim) {
       ...draft.meals.map((m) => h('section', { class: 'ai-meal' },
         h('div', { class: 'food-sub-head' }, h('h4', { class: 'food-sub' }, m.name),
           h('span', { class: 'muted small' }, t('{n} з {k} ккал', { n: fmt.int(totals(m.items).kcal), k: fmt.int(m.kcal) }))),
-        h('div', { class: 'rows' }, m.items.map((x, i) => itemRow(m, x, i))))),
+        m.items.length ? h('div', { class: 'rows' }, m.items.map((x, i) => itemRow(m, x, i)))
+          : h('p', { class: 'small muted ai-empty' }, t('Порожньо: після «Замінити» в цьому прийомі з сьогодні не буде страв.')))),
       draft.note ? h('p', { class: 'small muted ai-note' }, icon('spark'), ' ', draft.note) : null,
-      h('p', { class: 'small muted' }, t('Не подобається страва — «🔄» дасть іншу на ті ж калорії.')),
+      h('p', { class: 'small muted' }, draft.meals.length > 1
+        ? t('Не подобається страва — «🔄» дасть іншу на ті ж калорії. Натисніть на страву, щоб перенести її в інший прийом.')
+        : t('Не подобається страва — «🔄» дасть іншу на ті ж калорії.')),
     ].filter(Boolean));
   };
 
