@@ -9,7 +9,7 @@ import { fromModel, fromPer100 } from './foods.js';
 import { planOf, mealsToday, fixedToday, totals, replaceRation, revertRation, lastReplace, undoToast, proteinWarnings, NO_CALC_TEXT } from './nutrition.js';
 import * as db from './db.js';
 import { foodsOf, voiceControl, WALKS, dayState, setDayMenu } from './daylog.js';
-import { addMenu, useMenu, dayMenu, dishSheet } from './menus.js';
+import { addMenu, useMenu, dayMenu, dishSheet, nameSheet } from './menus.js';
 
 const DRAFT_KEY = 'weight-log:ai-ration';
 const MODES = [['loss', 'Схуднення'], ['hold', 'Утримання'], ['custom', 'Свої ккал']];
@@ -98,6 +98,7 @@ export function mealBudgets(meals, kcal, fixed = { day: null, pause: 0 }) {
 }
 
 const fixedKcal = (fixed) => (fixed.day?.kcal || 0) + (fixed.pause || 0);
+const fixedP = (fixed) => (fixed.day?.p || 0) + (fixed.pauseP || 0);
 
 const GRAM_QTY = /^\s*\d+(?:[.,]\d+)?\s*(г|гр|грам\S*|мл)\.?\s*$/i;
 // Підганяти можна лише страву в грамах: «2 яйця» лишаються двома
@@ -284,19 +285,26 @@ export function aiRationSheet(state, aim) {
   const diet = h('input', { type: 'checkbox', checked: form.diet });
   diet.addEventListener('change', () => { form.diet = diet.checked; });
 
-  // Модель добирає лише прийоми: ккал і БЖВ — без продукту дня й добавки в паузу
-  const askBody = (tg, budgets, f, swap) => {
+  // Модель добирає лише прийоми: ккал і БЖВ — без продукту дня й добавки в паузу.
+  // Білок — без їхнього справжнього білка (курка дня дає більше, ніж частка за ккал); мінімум — мінімумом, не «близько».
+  // swapP — скільки білка має дати страва на заміну.
+  const askBody = (tg, budgets, f, swap, swapP = 0) => {
     const k = tg.kcal > 0 ? Math.max(0, tg.kcal - fixedKcal(fixed)) / tg.kcal : 1;
+    const p = tg.prot?.g ? Math.max(0, Math.round(tg.p - fixedP(fixed))) : Math.round(tg.p * k);
+    // Білкові побажання — першими: бот обрізає побажання до 300 знаків
+    const protWish = tg.prot?.g === null ? t('Лікар обмежив білок: не більше {p} г білка за день, без акценту на білкові страви', { p })
+      : tg.prot?.g ? t('Білка в прийомах разом не менше {p} г — це мінімум, більше можна', { p }) : '';
     return {
-      goal: f.mode === 'hold' ? 'hold' : 'loss', kcal: Math.round(tg.kcal * k), p: Math.round(tg.p * k), f: Math.round(tg.f * k), c: Math.round(tg.c * k),
-    // Лікар обмежив білок — першим у побажаннях (бот їх обрізає до 300 знаків): інакше «схуднення» в боті додасть білка
-    diet: f.diet ? 'diabetes' : '', foods: usualFoods(state),
-    wishes: [tg.prot?.g === null ? t('Лікар обмежив білок: не більше {p} г білка за день, без акценту на білкові страви', { p: Math.round(tg.p * k) }) : '', f.wishes]
-      .filter(Boolean).join('. '),
+      goal: f.mode === 'hold' ? 'hold' : 'loss', kcal: Math.round(tg.kcal * k), p, f: Math.round(tg.f * k), c: Math.round(tg.c * k),
+      diet: f.diet ? 'diabetes' : '', foods: usualFoods(state),
+      wishes: [swapP > 0 ? t('Страва на заміну — щонайменше {p} г білка', { p: swapP }) : '', protWish, f.wishes].filter(Boolean).join('. '),
       meals: budgets.map(({ id, name, time, kcal }) => ({ id, name, time, kcal })),
       ...(swap ? { swap } : {}),
     };
   };
+  // Білок дня чернетки разом з продуктом дня й добавкою; недобір до мінімуму (0 — нема мінімуму чи добрано)
+  const draftP = (d) => totals(d.meals.flatMap((m) => m.items)).p + fixedP(fixed);
+  const protShort = (d) => (d.target.prot?.g ? Math.max(0, Math.round(d.target.prot.g - draftP(d))) : 0);
 
   const goLabel = () => withIcon('spark', draft ? t('Інший варіант') : t('Підібрати раціон'));
   const go = btn(goLabel(), () => generate(), 'primary ai-go');
@@ -327,18 +335,25 @@ export function aiRationSheet(state, aim) {
     }
   };
 
-  // Інша страва замість однієї: ті ж ккал, не з уже відкинутих і не з решти прийому
+  // Інша страва замість однієї: ті ж ккал, не з уже відкинутих і не з решти прийому.
+  // Білка — не менше, ніж було, а бракує до мінімуму — заміна його й добирає (не понад ¾ ккал страви).
   const reroll = async (meal, i, b) => {
     const old = meal.items[i];
     const rejected = [...(draft.rejected[meal.id] ?? []), old.name];
+    const kcal = Math.max(10, Math.round(old.kcal));
+    const needP = draft.target.prot?.g ? Math.min(Math.round((kcal * 0.75) / 4), Math.round((old.p || 0) + protShort(draft))) : 0;
+    const swap = { meal: meal.id, kcal, keep: meal.items.filter((_, j) => j !== i).map((x) => x.name), reject: rejected };
+    const fresh = (raw) => raw && !rejected.some((n) => n.toLowerCase() === String(raw.name).toLowerCase());
     b.disabled = true;
     b.classList.add('busy');
     try {
-      const r = await bot.askRation(askBody(draft.target, draft.meals, draft, {
-        meal: meal.id, kcal: Math.max(10, Math.round(old.kcal)), keep: meal.items.filter((_, j) => j !== i).map((x) => x.name), reject: rejected,
-      }));
-      const raw = (r.meals ?? []).find((x) => x.id === meal.id)?.items?.[0];
-      if (!raw || rejected.some((n) => n.toLowerCase() === String(raw.name).toLowerCase())) { toast(t('Не знайшов заміни — спробуйте ще раз.')); return; }
+      // ШІ іноді повертає те, що вже відкинуто чи є в прийомі, — бот таке відсіює; одна тиха повторна спроба
+      let raw = null;
+      for (let n = 0; n < 2 && !fresh(raw); n++) {
+        const r = await bot.askRation(askBody(draft.target, draft.meals, draft, swap, needP));
+        raw = (r.meals ?? []).find((x) => x.id === meal.id)?.items?.[0] ?? null;
+      }
+      if (!fresh(raw)) { toast(t('ШІ двічі запропонував те, що вже відкинуто чи є в прийомі, — натисніть «🔄» ще раз.')); return; }
       meal.items[i] = fitMeal([toItem(raw)], old.kcal)[0];
       draft.rejected[meal.id] = rejected;
       saveDraft(draft);
@@ -404,6 +419,11 @@ export function aiRationSheet(state, aim) {
         plus ? h('span', { class: 'muted small' }, ` · ${t('з них {k} — продукт дня й добавки', { k: fmt.int(plus) })}`) : null),
       Math.abs(miss) > draft.target.kcal * 0.1 ? h('p', { class: 'small food-check' }, icon('warning'), h('span', {},
         t(miss < 0 ? 'Менше цілі на {d} ккал — спробуйте «Інший варіант» або «🔄» на легких стравах.' : 'Більше цілі на {d} ккал — спробуйте «Інший варіант» або «🔄» на важких стравах.', { d: fmt.int(Math.abs(miss)) }))) : null,
+      // Мінімум білка: ШІ не завжди добирає — видно, скільки бракує, «🔄» добере в заміні
+      protShort(draft) >= 5 ? h('p', { class: 'small food-check ai-protein-short' }, icon('warning'), h('span', {},
+        t('Білка {p} г — до мінімуму {min} г бракує {d} г. «🔄» на страві підбере білковішу заміну, або «Інший варіант».', {
+          p: fmt.int(draftP(draft)), min: fmt.int(draft.target.prot.g), d: fmt.int(protShort(draft)),
+        }))) : null,
       ...draft.meals.map((m) => h('section', { class: 'ai-meal' },
         h('div', { class: 'food-sub-head' }, h('h4', { class: 'food-sub' }, m.name),
           h('span', { class: 'muted small' }, t('{n} з {k} ккал', { n: fmt.int(totals(m.items).kcal), k: fmt.int(m.kcal) }))),
@@ -448,11 +468,14 @@ export function aiRationSheet(state, aim) {
       }, t('Раціон замінено з сьогодні')));
   };
   // Чернетку — в «Мої меню»: на будь-який день, без зміни плану
-  const saveAsMenu = btn(withIcon('plus', t('Зберегти як меню')), async () => {
-    const menu = await addMenu({ name: t('Меню ШІ {d}', { d: fmt.date(M.today()) }), src: 'ai', meals: draft.meals });
-    toast(t('Меню «{name}» збережено', { name: menu.name }), {
-      action: t('На сьогодні'),
-      onAction: async () => { close(); await useMenu(M.today(), menu); },
+  const saveAsMenu = btn(withIcon('plus', t('Зберегти як меню')), () => {
+    const meals = draft.meals;
+    nameSheet(t('Меню ШІ {d}', { d: fmt.date(M.today()) }), meals, async (name) => {
+      const menu = await addMenu({ name, src: 'ai', meals });
+      toast(t('Меню «{name}» збережено', { name: menu.name }), {
+        action: t('На сьогодні'),
+        onAction: async () => { close(); await useMenu(M.today(), menu); },
+      });
     });
   }, 'ai-save-menu');
 

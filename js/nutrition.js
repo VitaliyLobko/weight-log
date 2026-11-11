@@ -195,9 +195,10 @@ export function mealsToday(state, date = M.today()) {
  */
 export function fixedToday(state) {
   const day = today(state);
-  const pick = day?.meals.flatMap((m) => m.items.filter((x) => x.isDay && !x.off).map((x) => ({ name: x.name, kcal: Number((x.full ?? x).kcal) || 0, meal: m.id })))[0] ?? null;
-  const pause = totals((day?.meals.find((m) => m.isPause)?.items ?? []).filter((x) => !x.off).map((x) => x.full ?? x)).kcal;
-  return { day: pick, pause };
+  const pick = day?.meals.flatMap((m) => m.items.filter((x) => x.isDay && !x.off)
+    .map((x) => ({ name: x.name, kcal: Number((x.full ?? x).kcal) || 0, p: Number((x.full ?? x).p) || 0, meal: m.id })))[0] ?? null;
+  const inPause = totals((day?.meals.find((m) => m.isPause)?.items ?? []).filter((x) => !x.off).map((x) => x.full ?? x));
+  return { day: pick, pause: inPause.kcal, pauseP: inPause.p };
 }
 
 /** Частка порції коротко: ½, ¾, ¼, інакше відсотки. */
@@ -1105,7 +1106,9 @@ function burnLine(state, sum, burn) {
   const b = burn?.();
   if (!b?.kcal) return null;
   const n = dayNorm(state, b, M.today());
-  return h('div', { class: 'hero-sub' }, t('Норма {n} · {r}', { n: fmt.int(r10(n.kcal)), r: balanceText(sum.kcal, n) }),
+  // Дефіцит — головне число рядка: жирним і кольором, як плитка на головній
+  return h('div', { class: 'hero-sub' }, t('Норма {n}', { n: fmt.int(r10(n.kcal)) }), ' · ',
+    h('b', { class: `hero-balance ${balanceGood(sum.kcal, n) ? 'good' : 'bad'}` }, balanceText(sum.kcal, n)),
     n.kcal > b.kcal ? h('span', { class: 'muted' }, ` · ${t('з прогулянкою')}`) : null);
 }
 

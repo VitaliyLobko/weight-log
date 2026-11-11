@@ -647,7 +647,7 @@ function caloriesBox() {
       : fact(t('Прогноз за калоріями'), t('{d} кг/тиж', { d: fmt.signed(-perWeek, 2) }), deficit >= 0 ? t('сер. дефіцит {k}', { k: fmt.int(round10(deficit)) }) : t('сер. понад норму {k}', { k: fmt.int(round10(-deficit)) })),
     real !== null ? fact(t('Насправді на вагах'), t('{d} кг/тиж', { d: fmt.signed(-real, 2) }),
       sum.recent !== null ? t('за останні 4 тижні') : t('за весь час')) : null);
-  return box(withIcon('speed', t('Калорії на день')), h('div', { class: 'kcal' },
+  const el = box(withIcon('speed', t('Калорії на день')), h('div', { class: 'kcal' },
     h('div', { class: 'kcal-grid' }, cells),
     kcalBars(c),
     facts,
@@ -663,7 +663,10 @@ function caloriesBox() {
           { kg: fmt.fix(f.kg, 1), h: fmt.int(sum.goal.height), a: f.age, k: numStr(f.activity) }),
         ' ', t('Коли за 4 тижні буде 14 позначених днів «Як день?», порахую за вашими даними.'),
         ' ', t('Прогулянки з «Як день?» додаються до норми свого дня; активність у налаштуваннях через них не міняйте — інакше порахуються двічі.')]))),
-  { tools: [toolBtn('edit', t('Змінити'), () => openSettings('body'))] });
+  // Згорнуто — лише плитки «Норма · Сьогодні · Дефіцит», решта по стрілці
+  { fold: 'calories', tools: [toolBtn('edit', t('Змінити'), () => openSettings('body'))] });
+  el.classList.add('kcal-box');
+  return el;
 }
 
 /**
@@ -731,19 +734,30 @@ function checkpointsBox() {
   // Пройдену точку можна тапнути — святкування ще раз
   const won = new Map(milestones().map((m) => [m.id, m]));
   const replay = (c) => won.get(`${c.isTarget ? 'target' : 'cp'}:${c.kg}`);
-  return box(withIcon('flag', t('Контрольні точки')), h('div', { class: 'rows' }, list.map((c) => h(replay(c) ? 'button' : 'div', {
-    class: `row cp ${c.reached ? 'done' : ''}`,
+  // Згорнуто — лише найближча непройдена (усі пройдені — ціль), решта під розгортанням
+  const next = list.find((c) => !c.reached) ?? list.at(-1);
+  const done = list.filter((c) => c.reached).length;
+  // Точка з картки «Встигаєте?» — згорнутою без рядка «до …»: вердикт уже там
+  const dl = nextDeadline()?.c;
+  const same = (c) => dl && c.kg === dl.kg && c.isTarget === dl.isTarget;
+  const el = box(withIcon('flag', t('Контрольні точки')), h('div', { class: 'rows' }, list.map((c) => h(replay(c) ? 'button' : 'div', {
+    class: `row cp ${c.reached ? 'done' : ''} ${c === next ? 'cp-next' : ''} ${same(c) ? 'cp-dl' : ''}`,
     ...(replay(c) ? { type: 'button', onclick: () => party.play(replay(c)) } : {}),
   },
     h('div', { class: 'row-main' },
       h('span', { class: 'row-title' }, kg(c.kg), c.isTarget ? h('span', { class: 'cp-target' }, t('ціль')) : null),
       c.note ? h('span', { class: 'muted small' }, c.note) : null,
-      byLine(c)),
+      (() => { const b = byLine(c); b?.classList.add('cp-by'); return b; })()),
     h('div', { class: 'row-side' },
       c.reached ? h('span', { class: 'good cp-done' }, icon('check'), fmt.date(c.reached))
         : c.eta ? [h('span', {}, `≈ ${fmt.date(c.eta)}`), h('span', { class: 'muted small' }, weeksText(M.daysBetween(sum.currentDate, c.eta)))]
           : h('span', { class: 'muted' }, '—'))))),
-  { tools: [toolBtn('edit', t('Змінити'), () => openSettings('checkpoints'))] });
+  {
+    fold: 'checkpoints', count: list.length > 1 ? t('пройдено {n} з {all}', { n: done, all: list.length }) : null,
+    tools: [toolBtn('edit', t('Змінити'), () => openSettings('checkpoints'))],
+  });
+  el.classList.add('cp-box');
+  return el;
 }
 
 /** «до 10.12 · треба −0,78 кг/тиж» під точкою з датою: зелене — встигаєте прогнозом, червоне — ні. */

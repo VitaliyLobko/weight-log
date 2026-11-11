@@ -1594,3 +1594,9 @@ a.donate-card:active .donate-cup .st { animation: cat-puff .35s ease-out; }
 .day-menu .ico { width: 16px; height: 16px; }
 .menu-edit { display: grid; gap: 12px; }
 .menu-add { justify-self: start; }
+/* Контрольні точки згорнуті — під лінією заголовка лише найближча */
+.box.cp-box.closed > .box-body { display: block; padding-top: 8px; }
+.box.cp-box.closed .row.cp:not(.cp-next) { display: none; }
+.box.cp-box.closed .row.cp-dl .cp-by { display: none; }
+.box.kcal-box.closed > .box-body { display: block; padding-top: 8px; }
+.box.kcal-box.closed .kcal > :not(.kcal-grid) { display: none; }

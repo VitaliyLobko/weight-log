@@ -48,6 +48,26 @@ export async function addMenu({ name, src, meals }) {
   return menu;
 }
 
+/** Шторка «Назва меню»: name підставлено й виділено — одразу пишеться своя; onSave(назва). */
+export function nameSheet(name, meals, onSave) {
+  const input = h('input', { type: 'text', autocomplete: 'off', maxlength: 60, name: 'menu-name' });
+  input.value = name;
+  const s = totals(meals.flatMap((m) => m.items ?? []));
+  const ok = btn(t('Зберегти'), () => {
+    const v = input.value.trim();
+    if (!v) { input.focus(); toast(t('Вкажіть назву меню')); return; }
+    close();
+    onSave(v);
+  }, 'primary');
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); ok.click(); } });
+  const close = sheet(t('Зберегти як меню'), h('div', { class: 'form' },
+    h('label', { class: 'field' }, h('span', { class: 'field-label' }, t('Назва')), input),
+    h('p', { class: 'small muted' }, `${kcal(s.kcal)} · ${macroLine(s)}`)), {
+    actions: [btn(t('Скасувати'), () => close()), ok],
+  });
+  setTimeout(() => { input.focus(); input.select(); }, 50);
+}
+
 /** Меню на день date. */
 export const useMenu = (date, menu) => setDayMenu(date, snapshot(menu));
 
