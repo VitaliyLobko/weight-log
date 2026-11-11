@@ -7,7 +7,7 @@ import { h, fmt, sheet, toast, form, btn, toolBtn, box, confirmSheet, remember, 
 import { t, plural } from './i18n.js';
 import { icon, withIcon } from './icons.js';
 import { dietMemo } from './diet.js';
-import { dayCard, monthBox, extrasSum, dayOf, STATUS, toggleSkipped, toggleMealSkipped, setPortion, setMealPortion, calendarPanel, myFoodsBox, dictBox, countFood, voiceControl } from './daylog.js';
+import { dayCard, monthBox, extrasSum, dayOf, rationStart, STATUS, toggleSkipped, toggleMealSkipped, setPortion, setMealPortion, calendarPanel, myFoodsBox, dictBox, countFood, voiceControl } from './daylog.js';
 import { parsePiece } from './foods.js';
 import { aiRationSheet } from './ai-ration.js';
 import { menuPicker } from './menus.js';
@@ -263,11 +263,27 @@ function energyWindow(state, rows) {
   if (!cur || !planOf(state)) return null;
   const then = withAvg.find((r) => r.date >= M.addDays(cur.date, -ENERGY_DAYS));
   const eaten = [];
+  const auto = autoFrom(state);
   for (let d = then.date; d <= cur.date; d = M.addDays(d, 1)) {
-    if (!dayOf(state, d)?.status) continue;
+    if (!dayOf(state, d)?.status && !(auto && d >= auto && d < M.today())) continue;
     eaten.push((plannedKcal(state, d) ?? 0) + extrasSum(state, d).kcal);
   }
   return { then, cur, days: M.daysBetween(then.date, cur.date), eaten };
+}
+
+/**
+ * «Невідмічені дні — як за планом» (goal.autoPlan): з якої дати минулий день без позначки рахується в нормі за вашими даними
+ * як «за планом». Від першої позначки «Як день?» — дні до раціону не беремо. Вимкнено чи позначок нема — null.
+ */
+function autoFrom(state) {
+  return state.settings.find((s) => s.id === M.GOAL_ID)?.autoPlan ? rationStart(state) : null;
+}
+
+/** Минулий день без позначки, який рахується як «за планом» (див. autoFrom). */
+export function autoPlanDay(state, date) {
+  if (dayOf(state, date)?.status || date >= M.today()) return false;
+  const auto = autoFrom(state);
+  return !!auto && date >= auto;
 }
 
 /** Скільки ще позначених днів «Як день?» до норми за вашими даними; 0 — уже за ними, null — без плану. */

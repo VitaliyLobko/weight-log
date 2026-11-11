@@ -7,7 +7,7 @@ import * as bot from './bot.js';
 import { h, fmt, sheet, toast, btn, toolBtn, box, parseNum } from './ui.js';
 import { t, plural } from './i18n.js';
 import { icon, withIcon, hop } from './icons.js';
-import { planOf, tagLists, slipRule, plannedKcal, cutOf, cutText, portionText, dayKcal, balanceText, balanceGood, dayNorm, walkOf } from './nutrition.js';
+import { planOf, tagLists, slipRule, plannedKcal, cutOf, cutText, portionText, dayKcal, balanceText, balanceGood, dayNorm, walkOf, autoPlanDay } from './nutrition.js';
 import { resolveLocal, fromModel, fromPer100, per100Of, kcalMismatch, withoutStats, parsePiece, tableFoods, setOwnFoods, dictKey } from './foods.js';
 import { scanSheet, lookupBarcode, pickLabelPhoto, labelItem } from './scan.js';
 import { oink, oinkOn, setOinkOn } from './oink.js';
@@ -1406,7 +1406,7 @@ export function journalDay(state, date, norm = null) {
   return h('button', { type: 'button', class: `log-food ${empty ? 'none' : ''}`, onclick: () => daySheet(date) },
     h('span', { class: 'log-food-head' },
       h('span', { class: `day-dot ${rec?.status ?? 'none'}`, 'aria-hidden': 'true' }),
-      h('span', {}, rec?.status ? t(STATUS[rec.status]) : t('День не позначено')),
+      h('span', {}, rec?.status ? t(STATUS[rec.status]) : autoPlanDay(state, date) ? t('Не позначено — рахується як за планом') : t('День не позначено')),
       rec?.status === 'slip' && REASONS[rec.reason] ? h('span', { class: 'muted' }, `· ${t(REASONS[rec.reason]).toLowerCase()}`) : null,
       xs ? h('span', { class: 'log-chip plus' }, `+${fmt.int(xs)}`) : null,
       missedKcal ? h('span', { class: 'log-chip minus' }, `−${fmt.int(missedKcal)}`) : null,
