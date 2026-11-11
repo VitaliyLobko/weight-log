@@ -12,27 +12,42 @@ import { foodsOf, voiceControl } from './daylog.js';
 const KCAL_PER_KG = 7700;
 const DRAFT_KEY = 'weight-log:ai-ration';
 const MODES = [['loss', 'Схуднення'], ['hold', 'Утримання'], ['custom', 'Свої ккал']];
+const RATE_KEY = 'weight-log:ai-rate';
+// Темп схуднення, кг на тиждень
+export const RATES = [[0.25, 'Легко'], [0.5, 'Помірно'], [0.75, 'Активно'], [1, 'Інтенсивно']];
+const MAX_DEFICIT = 1000;
 const r10 = (v) => Math.round(v / 10) * 10;
 
+/** Темп за замовчуванням: останній вибраний, інакше найближчий до плану з «Цілі», інакше «Помірно». */
+function defaultRate(planRate) {
+  try {
+    const v = Number(localStorage.getItem(RATE_KEY));
+    if (RATES.some(([r]) => r === v)) return v;
+  } catch { /* приватне вікно */ }
+  if (!(planRate > 0)) return 0.5;
+  return RATES.reduce((best, [r]) => (Math.abs(r - planRate) < Math.abs(best - planRate) ? r : best), RATES[0][0]);
+}
+
 /**
- * Ціль дня: a — { burn, bmr, sex, planRate, kg, target } з app.js (null — даних для норми нема); mode — loss | hold | custom.
- * Схуднення: дефіцит за планом темпу (кг/тиж × 7700 / 7, без плану — 500), не більше 25 % витрати й 1000 ккал,
- * і не нижче базового обміну (не менше 1500 ккал чоловікам, 1200 — жінкам).
+ * Ціль дня: a — { burn, bmr, sex, planRate, kg, target } з app.js (null — даних для норми нема); mode — loss | hold | custom;
+ * rate — темп схуднення, кг/тиж. Дефіцит = темп × 7700 / 7, не більше 1000 ккал і не нижче 1500 ккал чоловікам (1200 — жінкам).
+ * Понад чверть витрати чи нижче базового обміну — лише попередження (limits 'hard', 'bmr'), рішення за людиною.
  * Білок — на кг цільової ваги: 1,8 г при схудненні, 1,4 — на утриманні (не більше 35 % ккал); жири — 28 %; решта — вуглеводи.
  */
-export function rationTarget(a, mode, custom) {
+export function rationTarget(a, mode, custom, rate = 0.5) {
   const burn = Math.round(a?.burn ?? 0);
-  const floor = Math.round(Math.max(a?.bmr ?? 0, a?.sex === 'f' ? 1200 : 1500));
+  const floor = a?.sex === 'f' ? 1200 : 1500;
   const limits = [];
   let kcal;
   if (mode === 'custom' || !burn) kcal = custom;
   else if (mode === 'hold') kcal = burn;
   else {
-    const want = a.planRate > 0 ? (a.planRate * KCAL_PER_KG) / 7 : 500;
-    const cap = Math.min(burn * 0.25, 1000);
-    if (want > cap) limits.push('cap');
-    kcal = burn - Math.min(want, cap);
+    const want = (rate * KCAL_PER_KG) / 7;
+    if (want > MAX_DEFICIT) limits.push('cap');
+    kcal = burn - Math.min(want, MAX_DEFICIT);
     if (kcal < floor) { kcal = floor; limits.push('floor'); }
+    if (burn - kcal > burn * 0.25) limits.push('hard');
+    if (a.bmr && kcal < a.bmr) limits.push('bmr');
   }
   kcal = r10(Number(kcal) || 0);
   const ref = mode !== 'hold' && a?.target > 0 && a.target < a.kg ? a.target : (a?.kg || 70);
@@ -40,7 +55,7 @@ export function rationTarget(a, mode, custom) {
   const f = Math.round((kcal * 0.28) / 9);
   const c = Math.max(0, Math.round((kcal - p * 4 - f * 9) / 4));
   const deficit = burn ? burn - kcal : null;
-  return { kcal, p, f, c, burn, floor, deficit, weekKg: deficit !== null ? (deficit * 7) / KCAL_PER_KG : null, limits, ref };
+  return { kcal, p, f, c, burn, floor, bmr: Math.round(a?.bmr ?? 0), deficit, weekKg: deficit !== null ? (deficit * 7) / KCAL_PER_KG : null, limits, ref };
 }
 
 // Частки дня, коли в плані прийоми без калорій
@@ -127,9 +142,10 @@ export function aiRationSheet(state, aim) {
     custom: draft?.custom ?? (a ? r10(a.burn - 500) : 2000),
     wishes: draft?.wishes ?? '',
     diet: draft?.diet ?? true,
+    rate: draft?.rate ?? defaultRate(a?.planRate),
   };
   if (!a) form.mode = 'custom';
-  const target = () => rationTarget(a, form.mode, form.custom);
+  const target = () => rationTarget(a, form.mode, form.custom, form.rate);
 
   // Ціль — пояснення розрахунку
   const targetEl = h('div', { class: 'ai-target' });
@@ -141,12 +157,15 @@ export function aiRationSheet(state, aim) {
     else if (form.mode === 'hold') lines.push(t('Витрата {b} ({s}) — без дефіциту.', { b: fmt.int(tg.burn), s: src }));
     else if (form.mode === 'loss') {
       lines.push(t('Витрата {b} ({s}) − дефіцит {d} ≈ {w} кг на тиждень.', { b: fmt.int(tg.burn), s: src, d: fmt.int(tg.deficit), w: fmt.fix(tg.weekKg, 2) }));
-      if (tg.limits.includes('cap')) lines.push(t('Дефіцит обмежено чвертю витрати: швидше худнути — втрачати м\'язи.'));
-      if (tg.limits.includes('floor')) lines.push(t('Не нижче базового обміну: {f} ккал.', { f: fmt.int(tg.floor) }));
+      if (tg.limits.includes('cap')) lines.push(t('Дефіцит обмежено {m} ккал на день.', { m: fmt.int(MAX_DEFICIT) }));
+      if (tg.limits.includes('floor')) lines.push(t('Не нижче {f} ккал на день — менше не варто навіть для швидкого схуднення.', { f: fmt.int(tg.floor) }));
+      if (tg.limits.includes('hard')) lines.push(t('Дефіцит понад чверть витрати: важче втримати, частина втрати — м\'язи. Білок — обов\'язково.'));
+      else if (tg.limits.includes('bmr')) lines.push(t('Нижче базового обміну ({b}) — при дефіциті це нормально.', { b: fmt.int(tg.bmr) }));
     } else if (tg.burn && tg.kcal) {
       lines.push(tg.deficit >= 0 ? t('Витрата {b}: дефіцит {d} ≈ {w} кг на тиждень.', { b: fmt.int(tg.burn), d: fmt.int(tg.deficit), w: fmt.fix(tg.weekKg, 2) })
         : t('Витрата {b}: профіцит {d}.', { b: fmt.int(tg.burn), d: fmt.int(-tg.deficit) }));
-      if (tg.kcal < tg.floor) lines.push(t('Це нижче базового обміну ({f}) — так довго не варто.', { f: fmt.int(tg.floor) }));
+      if (tg.kcal < tg.floor) lines.push(t('Менше {f} ккал на день — так довго не варто.', { f: fmt.int(tg.floor) }));
+      else if (tg.bmr && tg.kcal < tg.bmr) lines.push(t('Нижче базового обміну ({b}) — при дефіциті це нормально.', { b: fmt.int(tg.bmr) }));
     }
     // Продукт дня й добавка в паузу лишаються — ШІ добирає решту
     if (fixed.day) lines.push(t('Продукт дня «{n}» ({k} ккал) лишається — ШІ добере решту.', { n: fixed.day.name, k: fmt.int(fixed.day.kcal) }));
@@ -162,9 +181,32 @@ export function aiRationSheet(state, aim) {
   const customInput = h('input', { type: 'text', inputmode: 'numeric', autocomplete: 'off', name: 'kcal', value: String(form.custom) });
   customInput.addEventListener('input', () => { form.custom = parseNum(customInput.value) || 0; paintTarget(); });
   const customField = h('label', { class: 'field', hidden: form.mode !== 'custom' }, h('span', { class: 'field-label' }, t('Ккал на день')), customInput);
+  // Темп схуднення: тягнеш — ціль одразу перераховується
+  const rateIdx = () => Math.max(0, RATES.findIndex(([r]) => r === form.rate));
+  const rateValue = h('b', { class: 'ai-rate-value' });
+  const paintRate = () => {
+    const [r, label] = RATES[rateIdx()];
+    rateValue.textContent = t('{l} · {r} кг на тиждень', { l: t(label), r: fmt.fix(r, r % 0.5 ? 2 : 1) });
+  };
+  const rateInput = h('input', {
+    type: 'range', min: '0', max: String(RATES.length - 1), step: '1', value: String(rateIdx()), name: 'rate',
+    'aria-label': t('Темп схуднення'),
+    oninput: (e) => {
+      form.rate = RATES[Number(e.target.value)][0];
+      try { localStorage.setItem(RATE_KEY, String(form.rate)); } catch { /* приватне вікно */ }
+      paintRate();
+      paintTarget();
+    },
+  });
+  const rateField = h('div', { class: 'field ai-rate', hidden: form.mode !== 'loss' },
+    h('div', { class: 'ai-rate-head' }, h('span', { class: 'field-label' }, t('Темп')), rateValue),
+    rateInput,
+    h('div', { class: 'ai-rate-ticks', 'aria-hidden': 'true' }, RATES.map(([, l], i) => h('span', { style: `left: ${(i / (RATES.length - 1)) * 100}%` }, t(l)))));
+  paintRate();
   const modes = segmented(MODES.filter(([k]) => a || k === 'custom').map(([k, l]) => [k, t(l)]), form.mode, (v) => {
     form.mode = v;
     customField.hidden = v !== 'custom';
+    rateField.hidden = v !== 'loss';
     paintTarget();
   });
 
@@ -307,7 +349,7 @@ export function aiRationSheet(state, aim) {
 
   const body = h('div', { class: 'ai-ration' }, ...[
     bot.botConfig().from ? null : h('p', { class: 'small food-check' }, icon('warning'), h('span', {}, t(ERRORS['no-bot']))),
-    modes, customField, targetEl,
+    modes, customField, rateField, targetEl,
     h('label', { class: 'field' }, h('span', { class: 'field-label' }, t('Побажання')), wishes),
     voice,
     h('label', { class: 'check-row' }, diet, h('span', {}, t('Як при діабеті: без цукру й швидких вуглеводів'))),
