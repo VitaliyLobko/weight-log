@@ -5,8 +5,9 @@ import * as M from './model.js';
 import { h, fmt, sheet, toast, btn, toolBtn, confirmSheet } from './ui.js';
 import { t } from './i18n.js';
 import { icon, withIcon } from './icons.js';
-import { planOf, mealsToday, totals } from './nutrition.js';
+import { planOf, mealsToday, totals, fixedToday } from './nutrition.js';
 import { dayOf, dayState, setDayMenu, countFood, voiceControl } from './daylog.js';
+import { swapDish, swapButton, proteinShort, dayProtein, fixedKcal } from './ai-ration.js';
 
 export const MENUS_ID = 'nutrition-menus';
 const KEYS = ['kcal', 'p', 'f', 'c'];
@@ -15,6 +16,10 @@ const kcal = (v) => t('{n} ккал', { n: fmt.int(v) });
 const macroLine = (x) => t('Б {p} · Ж {f} · В {c}', { p: fmt.int(x.p), f: fmt.int(x.f), c: fmt.int(x.c) });
 
 export const menusOf = (state) => state?.settings.find((s) => s.id === MENUS_ID)?.items ?? [];
+
+// Мінімум білка зараз (результат M.proteinFor чи null) — його дає «Раціон» з налаштувань «Мінімум білка»
+let proteinSource = () => null;
+export function setProteinSource(fn) { proteinSource = fn ?? (() => null); }
 
 /** Меню, що стоїть у записі дня (копія); нема — null. */
 export const dayMenu = (state, date) => {
@@ -41,9 +46,9 @@ async function writeMenus(change) {
 }
 const restoreMenus = (before) => db.write({ settings: { put: [{ id: MENUS_ID, items: before }] } });
 
-/** Нове меню в бібліотеці: meals — [{ id, name, time, items }]; страви отримують нові id. → меню. */
-export async function addMenu({ name, src, meals }) {
-  const menu = { id: newId(), name, src, created: M.today(), meals: menuMeals(meals) };
+/** Нове меню в бібліотеці: meals — [{ id, name, time, items }]; страви отримують нові id; diet — з «Раціону з ШІ». → меню. */
+export async function addMenu({ name, src, meals, diet }) {
+  const menu = { id: newId(), name, src, created: M.today(), meals: menuMeals(meals), ...(diet !== undefined ? { diet: !!diet } : {}) };
   await writeMenus((list) => [menu, ...list]);
   return menu;
 }
@@ -153,23 +158,57 @@ export function menuEditor(menu) {
   const nameInput = h('input', { type: 'text', autocomplete: 'off', maxlength: 60, name: 'menu-name' });
   nameInput.value = work.name;
   const list = h('div', { class: 'menu-edit' });
+  // 🔄 — як у «Раціоні з ШІ»: ціль — саме це меню (його ккал і БЖВ), з мінімумом білка й продуктом дня
+  const fixed = fixedToday(state);
+  const ask = { mode: M.isHold(M.goalOf(state)) ? 'hold' : 'loss', diet: work.diet ?? true, wishes: '' };
+  const target = () => {
+    const s = totals(meals.flatMap((m) => m.items));
+    const prot = proteinSource();
+    return { kcal: Math.max(800, Math.round(s.kcal)) + fixedKcal(fixed), p: prot?.g || Math.round(s.p), f: Math.round(s.f), c: Math.round(s.c), prot };
+  };
+  const rejected = {};
+  const reroll = async (m, x, b) => {
+    const i = m.items.indexOf(x);
+    if (i < 0) return;
+    const mine = [...(rejected[m.id] ?? []), x.name];
+    const withKcal = meals.map((mm) => ({ ...mm, kcal: Math.round(totals(mm.items).kcal) }));
+    const item = await swapButton(b, () => swapDish({ state, fixed, tg: target(), f: ask, meals: withKcal, meal: m, i, rejected: mine }));
+    // Поки чекали — страву могли прибрати чи перенести
+    const at = m.items.indexOf(x);
+    if (!item || at < 0) return;
+    m.items[at] = dish(item);
+    rejected[m.id] = mine;
+    paint();
+  };
+  const dishRow = (m, x) => {
+    const re = h('button', { type: 'button', class: 'icon-btn tool ai-reroll menu-reroll', 'aria-label': t('Інша страва'), title: t('Інша страва') }, icon('sync'));
+    re.addEventListener('click', () => reroll(m, x, re));
+    return h('div', { class: 'row ai-item' },
+      h('button', {
+        type: 'button', class: 'row-main ai-item-main menu-dish',
+        onclick: () => dishSheet(x, {
+          meals, from: m,
+          onMove: (to) => { m.items = m.items.filter((y) => y !== x); to.items = [...to.items, x]; paint(); },
+          extra: (done) => btn(withIcon('trash', t('Прибрати з меню')), () => { done(); m.items = m.items.filter((y) => y !== x); paint(); }, 'danger'),
+        }),
+      }, h('span', { class: 'row-title' }, x.name),
+      h('span', { class: 'row-sub muted small' }, [x.qty, macroLine(x)].filter(Boolean).join(' · '))),
+      h('div', { class: 'row-side' }, h('span', { class: 'food-kcal' }, fmt.int(x.kcal))),
+      re);
+  };
   const paint = () => {
     const day = totals(meals.flatMap((m) => m.items));
+    const tg = target();
+    const short = proteinShort(tg, meals, fixed);
     list.replaceChildren(
       h('p', { class: 'ai-total' }, h('b', {}, kcal(day.kcal)), h('span', { class: 'muted' }, ` · ${macroLine(day)}`)),
+      short >= 5 ? h('p', { class: 'small food-check menu-protein-short' }, icon('warning'), h('span', {},
+        t('Білка {p} г разом з продуктом дня — до мінімуму {min} г бракує {d} г. «🔄» на страві підбере білковішу заміну.', {
+          p: fmt.int(dayProtein(meals, fixed)), min: fmt.int(tg.prot.g), d: fmt.int(short),
+        }))) : null,
       ...meals.map((m) => h('section', { class: 'ai-meal' },
         h('div', { class: 'food-sub-head' }, h('h4', { class: 'food-sub' }, m.name), h('span', { class: 'muted small' }, kcal(totals(m.items).kcal))),
-        m.items.length ? h('div', { class: 'rows' }, m.items.map((x) => h('button', {
-          type: 'button', class: 'row food-row menu-dish',
-          onclick: () => dishSheet(x, {
-            meals, from: m,
-            onMove: (to) => { m.items = m.items.filter((y) => y !== x); to.items = [...to.items, x]; paint(); },
-            extra: (done) => btn(withIcon('trash', t('Прибрати з меню')), () => { done(); m.items = m.items.filter((y) => y !== x); paint(); }, 'danger'),
-          }),
-        },
-          h('div', { class: 'row-main' }, h('span', { class: 'row-title' }, x.name),
-            h('span', { class: 'muted small' }, [x.qty, macroLine(x)].filter(Boolean).join(' · '))),
-          h('div', { class: 'row-side' }, h('span', { class: 'food-kcal' }, fmt.int(x.kcal))))))
+        m.items.length ? h('div', { class: 'rows' }, m.items.map((x) => dishRow(m, x)))
           : h('p', { class: 'small muted ai-empty' }, t('Порожньо: цього дня в прийомі не буде страв.')),
         h('button', { type: 'button', class: 'link-btn small menu-add', onclick: () => addDish(m) }, t('+ Додати страву')))));
   };

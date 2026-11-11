@@ -97,7 +97,7 @@ export function mealBudgets(meals, kcal, fixed = { day: null, pause: 0 }) {
   });
 }
 
-const fixedKcal = (fixed) => (fixed.day?.kcal || 0) + (fixed.pause || 0);
+export const fixedKcal = (fixed) => (fixed.day?.kcal || 0) + (fixed.pause || 0);
 const fixedP = (fixed) => (fixed.day?.p || 0) + (fixed.pauseP || 0);
 
 const GRAM_QTY = /^\s*\d+(?:[.,]\d+)?\s*(г|гр|грам\S*|мл)\.?\s*$/i;
@@ -153,6 +153,68 @@ const ERRORS = {
 const errorText = (err) => t(ERRORS[err?.message] ?? 'Не вдалося скласти раціон — спробуйте ще раз.');
 
 const macroLine = (x) => t('Б {p} · Ж {f} · В {c}', { p: fmt.int(x.p), f: fmt.int(x.f), c: fmt.int(x.c) });
+
+/**
+ * Запит до /api/ration. Модель добирає лише прийоми: ккал і БЖВ — без продукту дня й добавки в паузу (fixed).
+ * Білок — без їхнього справжнього білка (курка дня дає більше, ніж частка за ккал); мінімум — мінімумом, не «близько».
+ * f — { mode, diet, wishes }; swapP — скільки білка має дати страва на заміну.
+ */
+function rationAsk(state, fixed, tg, budgets, f, swap = null, swapP = 0) {
+  const k = tg.kcal > 0 ? Math.max(0, tg.kcal - fixedKcal(fixed)) / tg.kcal : 1;
+  const p = tg.prot?.g ? Math.max(0, Math.round(tg.p - fixedP(fixed))) : Math.round(tg.p * k);
+  // Білкові побажання — першими: бот обрізає побажання до 300 знаків
+  const protWish = tg.prot?.g === null ? t('Лікар обмежив білок: не більше {p} г білка за день, без акценту на білкові страви', { p })
+    : tg.prot?.g ? t('Білка в прийомах разом не менше {p} г — це мінімум, більше можна', { p }) : '';
+  return {
+    goal: f.mode === 'hold' ? 'hold' : 'loss', kcal: Math.round(tg.kcal * k), p, f: Math.round(tg.f * k), c: Math.round(tg.c * k),
+    diet: f.diet ? 'diabetes' : '', foods: usualFoods(state),
+    wishes: [swapP > 0 ? t('Страва на заміну — щонайменше {p} г білка', { p: swapP }) : '', protWish, f.wishes].filter(Boolean).join('. '),
+    meals: budgets.map(({ id, name, time, kcal }) => ({ id, name, time, kcal })),
+    ...(swap ? { swap } : {}),
+  };
+}
+
+/** Білок дня: страви прийомів разом з продуктом дня й добавкою в паузу. */
+export const dayProtein = (meals, fixed) => totals(meals.flatMap((m) => m.items)).p + fixedP(fixed);
+
+/** Недобір до мінімуму білка, г (0 — мінімуму нема чи добрано); tg.prot — результат M.proteinFor. */
+export const proteinShort = (tg, meals, fixed) => (tg.prot?.g ? Math.max(0, Math.round(tg.prot.g - dayProtein(meals, fixed))) : 0);
+
+/**
+ * Інша страва замість meal.items[i]: ті ж ккал, не з rejected і не з решти прийому. Білка — не менше, ніж було,
+ * а бракує до мінімуму — заміна його й добирає (не понад ¾ ккал страви). ШІ іноді повертає відкинуте чи те, що
+ * вже є в прийомі, — бот таке відсіює; одна тиха повторна спроба. meals — прийоми з kcal. → страва чи null.
+ */
+export async function swapDish({ state, fixed, tg, f, meals, meal, i, rejected }) {
+  const old = meal.items[i];
+  const kcal = Math.max(10, Math.round(old.kcal));
+  const needP = tg.prot?.g ? Math.min(Math.round((kcal * 0.75) / 4), Math.round((old.p || 0) + proteinShort(tg, meals, fixed))) : 0;
+  const swap = { meal: meal.id, kcal, keep: meal.items.filter((_, j) => j !== i).map((x) => x.name), reject: rejected };
+  const fresh = (raw) => raw && !rejected.some((n) => n.toLowerCase() === String(raw.name).toLowerCase());
+  let raw = null;
+  for (let n = 0; n < 2 && !fresh(raw); n++) {
+    const r = await bot.askRation(rationAsk(state, fixed, tg, meals, f, swap, needP));
+    raw = (r.meals ?? []).find((x) => x.id === meal.id)?.items?.[0] ?? null;
+  }
+  return fresh(raw) ? fitMeal([toItem(raw)], old.kcal)[0] : null;
+}
+
+/** 🔄 крутиться, поки йде заміна; не вдалося — пояснення тостом. → страва чи null. */
+export async function swapButton(b, run) {
+  b.disabled = true;
+  b.classList.add('busy');
+  try {
+    const item = await run();
+    if (!item) toast(t('ШІ двічі запропонував те, що вже відкинуто чи є в прийомі, — натисніть «🔄» ще раз.'));
+    return item;
+  } catch (err) {
+    toast(errorText(err));
+    return null;
+  } finally {
+    b.disabled = false;
+    b.classList.remove('busy');
+  }
+}
 
 /** Шторка «Раціон з ШІ»: ціль, побажання, складений день з «🔄» на кожній страві, «Замінити раціон з сьогодні». */
 export function aiRationSheet(state, aim) {
@@ -285,26 +347,9 @@ export function aiRationSheet(state, aim) {
   const diet = h('input', { type: 'checkbox', checked: form.diet });
   diet.addEventListener('change', () => { form.diet = diet.checked; });
 
-  // Модель добирає лише прийоми: ккал і БЖВ — без продукту дня й добавки в паузу.
-  // Білок — без їхнього справжнього білка (курка дня дає більше, ніж частка за ккал); мінімум — мінімумом, не «близько».
-  // swapP — скільки білка має дати страва на заміну.
-  const askBody = (tg, budgets, f, swap, swapP = 0) => {
-    const k = tg.kcal > 0 ? Math.max(0, tg.kcal - fixedKcal(fixed)) / tg.kcal : 1;
-    const p = tg.prot?.g ? Math.max(0, Math.round(tg.p - fixedP(fixed))) : Math.round(tg.p * k);
-    // Білкові побажання — першими: бот обрізає побажання до 300 знаків
-    const protWish = tg.prot?.g === null ? t('Лікар обмежив білок: не більше {p} г білка за день, без акценту на білкові страви', { p })
-      : tg.prot?.g ? t('Білка в прийомах разом не менше {p} г — це мінімум, більше можна', { p }) : '';
-    return {
-      goal: f.mode === 'hold' ? 'hold' : 'loss', kcal: Math.round(tg.kcal * k), p, f: Math.round(tg.f * k), c: Math.round(tg.c * k),
-      diet: f.diet ? 'diabetes' : '', foods: usualFoods(state),
-      wishes: [swapP > 0 ? t('Страва на заміну — щонайменше {p} г білка', { p: swapP }) : '', protWish, f.wishes].filter(Boolean).join('. '),
-      meals: budgets.map(({ id, name, time, kcal }) => ({ id, name, time, kcal })),
-      ...(swap ? { swap } : {}),
-    };
-  };
-  // Білок дня чернетки разом з продуктом дня й добавкою; недобір до мінімуму (0 — нема мінімуму чи добрано)
-  const draftP = (d) => totals(d.meals.flatMap((m) => m.items)).p + fixedP(fixed);
-  const protShort = (d) => (d.target.prot?.g ? Math.max(0, Math.round(d.target.prot.g - draftP(d))) : 0);
+  const askBody = (tg, budgets, f) => rationAsk(state, fixed, tg, budgets, f);
+  const draftP = (d) => dayProtein(d.meals, fixed);
+  const protShort = (d) => proteinShort(d.target, d.meals, fixed);
 
   const goLabel = () => withIcon('spark', draft ? t('Інший варіант') : t('Підібрати раціон'));
   const go = btn(goLabel(), () => generate(), 'primary ai-go');
@@ -335,35 +380,14 @@ export function aiRationSheet(state, aim) {
     }
   };
 
-  // Інша страва замість однієї: ті ж ккал, не з уже відкинутих і не з решти прийому.
-  // Білка — не менше, ніж було, а бракує до мінімуму — заміна його й добирає (не понад ¾ ккал страви).
   const reroll = async (meal, i, b) => {
-    const old = meal.items[i];
-    const rejected = [...(draft.rejected[meal.id] ?? []), old.name];
-    const kcal = Math.max(10, Math.round(old.kcal));
-    const needP = draft.target.prot?.g ? Math.min(Math.round((kcal * 0.75) / 4), Math.round((old.p || 0) + protShort(draft))) : 0;
-    const swap = { meal: meal.id, kcal, keep: meal.items.filter((_, j) => j !== i).map((x) => x.name), reject: rejected };
-    const fresh = (raw) => raw && !rejected.some((n) => n.toLowerCase() === String(raw.name).toLowerCase());
-    b.disabled = true;
-    b.classList.add('busy');
-    try {
-      // ШІ іноді повертає те, що вже відкинуто чи є в прийомі, — бот таке відсіює; одна тиха повторна спроба
-      let raw = null;
-      for (let n = 0; n < 2 && !fresh(raw); n++) {
-        const r = await bot.askRation(askBody(draft.target, draft.meals, draft, swap, needP));
-        raw = (r.meals ?? []).find((x) => x.id === meal.id)?.items?.[0] ?? null;
-      }
-      if (!fresh(raw)) { toast(t('ШІ двічі запропонував те, що вже відкинуто чи є в прийомі, — натисніть «🔄» ще раз.')); return; }
-      meal.items[i] = fitMeal([toItem(raw)], old.kcal)[0];
-      draft.rejected[meal.id] = rejected;
-      saveDraft(draft);
-      paintDraft();
-    } catch (err) {
-      toast(errorText(err));
-    } finally {
-      b.disabled = false;
-      b.classList.remove('busy');
-    }
+    const rejected = [...(draft.rejected[meal.id] ?? []), meal.items[i].name];
+    const item = await swapButton(b, () => swapDish({ state, fixed, tg: draft.target, f: draft, meals: draft.meals, meal, i, rejected }));
+    if (!item) return;
+    meal.items[i] = item;
+    draft.rejected[meal.id] = rejected;
+    saveDraft(draft);
+    paintDraft();
   };
 
   const draftEl = h('div', { class: 'ai-draft' });
@@ -471,7 +495,7 @@ export function aiRationSheet(state, aim) {
   const saveAsMenu = btn(withIcon('plus', t('Зберегти як меню')), () => {
     const meals = draft.meals;
     nameSheet(t('Меню ШІ {d}', { d: fmt.date(M.today()) }), meals, async (name) => {
-      const menu = await addMenu({ name, src: 'ai', meals });
+      const menu = await addMenu({ name, src: 'ai', meals, diet: draft.diet });
       toast(t('Меню «{name}» збережено', { name: menu.name }), {
         action: t('На сьогодні'),
         onAction: async () => { close(); await useMenu(M.today(), menu); },

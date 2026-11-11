@@ -10,7 +10,7 @@ import { dietMemo } from './diet.js';
 import { dayCard, monthBox, extrasSum, dayOf, rationStart, STATUS, toggleSkipped, toggleMealSkipped, setPortion, setMealPortion, calendarPanel, myFoodsBox, dictBox, countFood, voiceControl } from './daylog.js';
 import { parsePiece } from './foods.js';
 import { aiRationSheet } from './ai-ration.js';
-import { menuPicker } from './menus.js';
+import { menuPicker, setProteinSource } from './menus.js';
 
 export const PLAN_ID = 'nutrition';
 /** Вибір продукту дня — окремим записом: тап на телефоні не перетирає правку плану з іншого пристрою. */
@@ -1088,6 +1088,8 @@ let rationSeg = RATION_SEGS.some(([k]) => k === recall(SEG_KEY)) ? recall(SEG_KE
 
 export function renderRation(state, { noPlan, render, burn, aim, protein }) {
   current = state;
+  // Редактор меню (🔄) бере мінімум білка звідси ж
+  setProteinSource(protein);
   const day = today(state);
   if (!day) return h('div', {}, noPlan(), box(withIcon('leaf', t('Харчування при діабеті')), dietMemo(), { fold: 'diet' }));
   const seg = segmented(RATION_SEGS.map(([k, l]) => [k, t(l)]), rationSeg, (v) => {

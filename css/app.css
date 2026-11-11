@@ -1597,6 +1597,11 @@ a.donate-card:active .donate-cup .st { animation: cat-puff .35s ease-out; }
 /* Контрольні точки згорнуті — під лінією заголовка лише найближча */
 .box.cp-box.closed > .box-body { display: block; padding-top: 8px; }
 .box.cp-box.closed .row.cp:not(.cp-next) { display: none; }
-.box.cp-box.closed .row.cp-dl .cp-by { display: none; }
+.box.cp-box.closed .cp-detail { display: none; }
+/* Розгорнуто — «до … · треба …» найближчої вже в подробицях під нею */
+.box.cp-box:not(.closed) .row.cp-dl .cp-by { display: none; }
+.cp-box .cp-detail { padding: 4px 0 14px; }
+.cp-box .box-count { white-space: nowrap; }
+.cp-box .cp-detail + .row { border-top: 1px solid var(--line-soft); }
 .box.kcal-box.closed > .box-body { display: block; padding-top: 8px; }
 .box.kcal-box.closed .kcal > :not(.kcal-grid) { display: none; }

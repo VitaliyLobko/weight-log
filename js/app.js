@@ -504,12 +504,10 @@ function deadlineKind({ c, d }) {
 }
 
 /**
- * «Встигаю до дати?» — найближча контрольна точка з датою: скільки треба на тиждень, де буде середнє
- * поточним темпом і темпом раціону, і скільки їсти, щоб встигнути.
+ * «Встигаю до дати?» для точки x = { c, d }: скільки треба на тиждень, де буде середнє поточним темпом
+ * і темпом раціону, і скільки їсти, щоб встигнути. → { kind, badge, el } — у картку «Контрольні точки».
  */
-function deadlineBox() {
-  const x = nextDeadline();
-  if (!x) return null;
+function deadlineDetails(x) {
   const { c, d } = x;
   const kind = deadlineKind(x);
   const days = M.daysBetween(M.today(), c.by);
@@ -538,17 +536,15 @@ function deadlineBox() {
   const floor = sum.goal.sex === 'f' ? 1200 : 1500;
   const warn = d.need > sum.current * 0.01 ? t('Це понад 1 % ваги на тиждень — швидше вже ризиковано. Краще відсунути дату.')
     : eat !== null && eat < floor ? t('Це менше {k} на день — так худнуть лише під наглядом лікаря. Краще додати ходьби або відсунути дату.', { k: kcalText(floor) }) : null;
-  return box(withIcon('flag', c.isTarget ? t('Ціль {kg} до {date}', { kg: kg(c.kg), date: fmt.date(c.by) })
-    : t('{kg} до {date}', { kg: kg(c.kg), date: fmt.date(c.by) })), h('div', { class: 'deadline' },
-    h('div', { class: `deadline-head ${kind}` }, icon(head[0]), h('b', {}, head[1])),
-    facts,
-    advice.length ? h('p', { class: 'small deadline-advice' }, advice) : null,
-    warn ? h('p', { class: 'small deadline-warn' }, warn) : null),
-  {
-    fold: 'deadline',
-    count: h('span', { class: `deadline-badge ${kind}` }, head[2]),
-    tools: [toolBtn('edit', t('Змінити'), () => openSettings(c.isTarget ? 'goal' : 'checkpoints'))],
-  });
+  return {
+    kind,
+    badge: h('span', { class: `deadline-badge ${kind}` }, head[2]),
+    el: h('div', { class: 'deadline cp-detail' },
+      h('div', { class: `deadline-head ${kind}` }, icon(head[0]), h('b', {}, head[1])),
+      facts,
+      advice.length ? h('p', { class: 'small deadline-advice' }, advice) : null,
+      warn ? h('p', { class: 'small deadline-warn' }, warn) : null),
+  };
 }
 
 /**
@@ -728,20 +724,23 @@ function weekCompare() {
     })));
 }
 
+/**
+ * Контрольні точки разом із «Встигаєте?»: згорнуто — найближча непройдена (усі пройдені — ціль) і вердикт у заголовку;
+ * розгорнуто — під нею подробиці «встигаю до дати?» (лише для найближчої), далі решта точок.
+ */
 function checkpointsBox() {
+  if (sum.hold) return null;
   const list = M.checkpoints(rows, goal, sum);
   if (!list.length) return null;
   // Пройдену точку можна тапнути — святкування ще раз
   const won = new Map(milestones().map((m) => [m.id, m]));
   const replay = (c) => won.get(`${c.isTarget ? 'target' : 'cp'}:${c.kg}`);
-  // Згорнуто — лише найближча непройдена (усі пройдені — ціль), решта під розгортанням
   const next = list.find((c) => !c.reached) ?? list.at(-1);
   const done = list.filter((c) => c.reached).length;
-  // Точка з картки «Встигаєте?» — згорнутою без рядка «до …»: вердикт уже там
-  const dl = nextDeadline()?.c;
-  const same = (c) => dl && c.kg === dl.kg && c.isTarget === dl.isTarget;
-  const el = box(withIcon('flag', t('Контрольні точки')), h('div', { class: 'rows' }, list.map((c) => h(replay(c) ? 'button' : 'div', {
-    class: `row cp ${c.reached ? 'done' : ''} ${c === next ? 'cp-next' : ''} ${same(c) ? 'cp-dl' : ''}`,
+  const nd = !next.reached && next.by ? M.deadline(sum, next) : null;
+  const dl = nd && !nd.late ? deadlineDetails({ c: next, d: nd }) : null;
+  const rowOf = (c) => h(replay(c) ? 'button' : 'div', {
+    class: `row cp ${c.reached ? 'done' : ''} ${c === next ? 'cp-next' : ''} ${c === next && dl ? 'cp-dl' : ''}`,
     ...(replay(c) ? { type: 'button', onclick: () => party.play(replay(c)) } : {}),
   },
     h('div', { class: 'row-main' },
@@ -751,11 +750,16 @@ function checkpointsBox() {
     h('div', { class: 'row-side' },
       c.reached ? h('span', { class: 'good cp-done' }, icon('check'), fmt.date(c.reached))
         : c.eta ? [h('span', {}, `≈ ${fmt.date(c.eta)}`), h('span', { class: 'muted small' }, weeksText(M.daysBetween(sum.currentDate, c.eta)))]
-          : h('span', { class: 'muted' }, '—'))))),
-  {
-    fold: 'checkpoints', count: list.length > 1 ? t('пройдено {n} з {all}', { n: done, all: list.length }) : null,
-    tools: [toolBtn('edit', t('Змінити'), () => openSettings('checkpoints'))],
-  });
+          : h('span', { class: 'muted' }, '—')));
+  const progress = list.length > 1 ? t('пройдено {n} з {all}', { n: done, all: list.length }) : null;
+  const el = box(withIcon('flag', t('Контрольні точки')),
+    h('div', { class: 'rows' }, list.flatMap((c) => (c === next && dl ? [rowOf(c), dl.el] : [rowOf(c)]))),
+    {
+      fold: 'checkpoints',
+      // З вердиктом — коротко «1 з 4 · встигаєте», щоб заголовок не переносився на телефоні
+      count: dl ? [list.length > 1 ? `${t('{n} з {all}', { n: done, all: list.length })} · ` : null, dl.badge] : progress,
+      tools: [toolBtn('edit', t('Змінити'), () => openSettings(next.isTarget && next.by ? 'goal' : 'checkpoints'))],
+    });
   el.classList.add('cp-box');
   return el;
 }
@@ -815,11 +819,10 @@ function renderHome() {
     weightHint(state, todayRow),
     missingNote(),
     sum.hold ? holdNote() : [plateauNote(), holdOffer()],
-    deadlineBox(),
+    checkpointsBox(),
     homeLine(state, rationBadge()),
     statsGrid(),
     caloriesBox(),
-    sum.hold ? null : checkpointsBox(),
     waistNudge());
 }
 
