@@ -1153,7 +1153,7 @@ button:focus-visible, a:focus-visible, summary:focus-visible, [tabindex]:focus-v
 .day-plus { position: absolute; top: 22px; right: calc(50% - 16px); font-size: 11px; font-weight: 800; line-height: 1; color: var(--accent-2); }
 .hero-sub.food-split { margin-top: 2px; font-size: 13px; }
 .food-macros { margin-top: 12px; }
-.food-macros .kcal-cell { background: color-mix(in srgb, var(--surface-2) 75%, transparent); }
+.food-macros .kcal-cell { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 8px 12px; }
 .food-macros b small { margin-left: 3px; font-size: 13px; font-weight: 600; color: var(--muted); }
 .food-ask { display: flex; flex-direction: column; gap: 4px; }
 .food-quick button { display: inline-flex; gap: 6px; align-items: baseline; min-height: 40px; }
@@ -1457,6 +1457,30 @@ a.donate-card:active .donate-cup .st { animation: cat-puff .35s ease-out; }
 .food-voice-lang { flex: none; align-items: center; flex-wrap: nowrap; }
 .food-voice-lang button { min-height: 48px; padding: 0 10px; font-size: 13px; }
 .food-edit .food-voice { margin-top: 0; }
+/* Раціон з ШІ */
+.ai-ration { display: grid; gap: 12px; }
+/* .field і .btn мають свій display — hidden без цього не ховає */
+.ai-ration [hidden], .btn.ai-apply[hidden] { display: none !important; }
+.ai-target { padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); display: grid; gap: 4px; }
+.ai-target p { margin: 0; }
+.ai-target-kcal { font-size: 15px; }
+.ai-target-kcal b { font-size: 28px; font-variant-numeric: tabular-nums; }
+.check-row { display: flex; align-items: center; gap: 10px; min-height: 44px; cursor: pointer; }
+.check-row input { width: 22px; height: 22px; flex: none; accent-color: var(--accent); }
+.ai-go { width: 100%; gap: 6px; }
+.ai-draft { display: grid; gap: 12px; }
+.ai-draft:empty { display: none; }
+.ai-total { font-size: 15px; }
+.ai-total b { font-size: 20px; }
+.ai-meal { display: grid; gap: 6px; }
+.ai-item { align-items: center; }
+.ai-reroll { flex: none; }
+.ai-reroll .ico { width: 20px; height: 20px; }
+.ai-reroll.busy .ico { animation: ai-spin 0.9s linear infinite; }
+@keyframes ai-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .ai-reroll.busy .ico { animation: none; } }
+.ai-note { display: flex; gap: 6px; align-items: flex-start; }
+.ai-revert { justify-self: start; }
 .ration-calc { display: grid; gap: 8px; grid-column: 1 / -1; }
 .ration-calc .food-calc { width: 100%; gap: 6px; }
 .ration-calc .food-calc .ico { color: var(--accent-2); }

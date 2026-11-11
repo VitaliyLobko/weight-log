@@ -50,7 +50,7 @@ function settingsIndex(settings) {
 
 export const dayOf = (state, date) => settingsIndex(state.settings).get(`${DAY_PREFIX}${date}`) ?? null;
 const extrasOf = (state, date) => dayOf(state, date)?.extras ?? [];
-const foodsOf = (state) => state.settings.find((s) => s.id === FOODS_ID)?.items ?? [];
+export const foodsOf = (state) => state.settings.find((s) => s.id === FOODS_ID)?.items ?? [];
 
 /** Сума поза планом за день: { kcal, p, f, c }. */
 export function extrasSum(state, date) {

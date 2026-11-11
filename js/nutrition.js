@@ -9,6 +9,7 @@ import { icon, withIcon } from './icons.js';
 import { dietMemo } from './diet.js';
 import { dayCard, monthBox, extrasSum, dayOf, STATUS, toggleSkipped, toggleMealSkipped, setPortion, setMealPortion, calendarPanel, myFoodsBox, dictBox, countFood, voiceControl } from './daylog.js';
 import { parsePiece } from './foods.js';
+import { aiRationSheet } from './ai-ration.js';
 
 export const PLAN_ID = 'nutrition';
 /** Вибір продукту дня — окремим записом: тап на телефоні не перетирає правку плану з іншого пристрою. */
@@ -30,6 +31,18 @@ const groupOf = (p) => p.group || p.id;
 
 /** Період, коли продукт тимчасово не додається: offs — [{ from, to }], to порожнє — до повернення. */
 export const offAt = (item, date) => (item.offs ?? []).find((p) => p.from <= date && (!p.to || date <= p.to)) ?? null;
+
+/**
+ * Замінено раціоном з ШІ: такий період (replaced) ховає продукт зовсім, а не показує «не додаю».
+ * Старі продукти — з дня заміни, нові — до дня заміни: минулі дні рахуються як були.
+ */
+const replacedAt = (item, date) => (item.offs ?? []).some((p) => p.replaced && p.from <= date && (!p.to || date <= p.to));
+const REPLACED_FROM = '2000-01-01';
+/** Перший день нового продукту з ШІ-раціону; звичайний — null. */
+const startOf = (item) => {
+  const p = (item.offs ?? []).find((x) => x.replaced && x.from === REPLACED_FROM && x.to);
+  return p ? M.addDays(p.to, 1) : null;
+};
 
 /**
  * Продукт дня: вибраний на цю дату, а як ні — пропозиція: група, якої за попередні 6 днів
@@ -137,7 +150,7 @@ function buildDay(state, date) {
   const meals = (plan.meals ?? []).map((m) => ({
     ...m,
     portion: portions[`meal:${m.id}`] ?? null,
-    items: order([...(m.items ?? []), ...(choice && plan.day?.meal === m.id ? [{ ...choice.item, isDay: true }] : [])].map((x) => mark(x, m.id))),
+    items: order([...(m.items ?? []).filter((x) => !replacedAt(x, date)), ...(choice && plan.day?.meal === m.id ? [{ ...choice.item, isDay: true }] : [])].map((x) => mark(x, m.id))),
   }));
   if (pause.now && plan.pauseItems?.length) {
     meals.push({ id: 'pause', name: t('Добавка в паузу'), portion: portions['meal:pause'] ?? null, items: order(plan.pauseItems.map((x) => mark(x, 'pause'))), isPause: true });
@@ -146,6 +159,29 @@ function buildDay(state, date) {
   const extra = extrasSum(state, date);
   // Підсумок дня — план плюс з'їдене поза планом
   return { plan, choice, pause, meals, planned, extra, sum: totals([planned, extra]), cut: cutOfMeals(meals) };
+}
+
+/**
+ * Прийоми на сьогодні для ШІ-раціону: [{ id, name, time, kcal, items }] — ккал за планом (повна порція,
+ * без тимчасово вимкнених і продукту дня), щоб ціль ділилась у звичних вам пропорціях.
+ */
+export function mealsToday(state) {
+  const day = today(state);
+  return (day?.meals ?? []).filter((m) => !m.isPause).map((m) => {
+    const items = m.items.filter((x) => !x.off && !x.isDay).map((x) => x.full ?? x);
+    return { id: m.id, name: m.name, time: m.time ?? '', kcal: totals(items).kcal, items };
+  });
+}
+
+/**
+ * Що сьогодні додається понад прийоми й заміною не чіпається: продукт дня (у своєму прийомі) і добавка в паузу.
+ * → { day: { name, kcal, meal } | null, pause: ккал }.
+ */
+export function fixedToday(state) {
+  const day = today(state);
+  const pick = day?.meals.flatMap((m) => m.items.filter((x) => x.isDay && !x.off).map((x) => ({ name: x.name, kcal: Number((x.full ?? x).kcal) || 0, meal: m.id })))[0] ?? null;
+  const pause = totals((day?.meals.find((m) => m.isPause)?.items ?? []).filter((x) => !x.off).map((x) => x.full ?? x)).kcal;
+  return { day: pick, pause };
 }
 
 /** Частка порції коротко: ½, ¾, ¼, інакше відсотки. */
@@ -329,7 +365,7 @@ async function savePlan(change) {
   return before;
 }
 
-function undoToast(message, before) {
+export function undoToast(message, before) {
   if (!before) return;
   toast(message, {
     action: t('Скасувати'),
@@ -434,6 +470,62 @@ async function removeItem(item) {
     if (at) at.list.splice(at.i, 1);
   });
   undoToast(t('«{name}» видалено', { name: item.name }), before);
+}
+
+/**
+ * Раціон з ШІ замість страв прийомів з date: meals — [{ id, items: [{ name, qty, grams, kcal, p, f, c }] }].
+ * Старі продукти лишаються в плані для минулих днів (період replaced від date), нові — лише від date.
+ * Додане того ж дня попередньою заміною в минулих днях не було — прибирається зовсім. → план до зміни.
+ */
+export function replaceRation(meals, date = M.today()) {
+  const prev = M.addDays(date, -1);
+  return savePlan((plan) => {
+    for (const g of meals) {
+      const m = plan.meals?.find((x) => x.id === g.id);
+      if (!m) continue;
+      m.items = (m.items ?? []).flatMap((x) => {
+        if (startOf(x) === date) return [];
+        if (replacedAt(x, date)) return [x];
+        return [{ ...x, offs: [...(x.offs ?? []), { from: date, replaced: true }] }];
+      });
+      m.items.push(...g.items.map((x) => ({
+        id: newId(), name: x.name, qty: x.qty ?? '', ...(x.grams ? { grams: x.grams } : {}),
+        ...Object.fromEntries(KEYS.map((k) => [k, Number(x[k]) || 0])), note: '', alts: [], src: 'ai',
+        offs: [{ from: REPLACED_FROM, to: prev, replaced: true }],
+      })));
+    }
+  });
+}
+
+/** День останньої заміни раціону з ШІ, що ще діє; немає — null. */
+export function lastReplace(plan) {
+  const days = (plan?.meals ?? []).flatMap((m) => (m.items ?? []).flatMap((x) => (x.offs ?? []).filter((p) => p.replaced && !p.undone && p.from !== REPLACED_FROM && !p.to).map((p) => p.from)));
+  return days.length ? days.sort().at(-1) : null;
+}
+
+/**
+ * Повернути раціон, який був до останньої заміни, — з date: минулі дні не перераховуються.
+ * Заміна сьогоднішня — просто прибрати її сліди. → план до зміни.
+ */
+export function revertRation(date = M.today()) {
+  const prev = M.addDays(date, -1);
+  return savePlan((plan) => {
+    const at = lastReplace(plan);
+    if (!at) return;
+    for (const m of plan.meals ?? []) {
+      m.items = (m.items ?? []).flatMap((x) => {
+        const start = startOf(x);
+        // Нові з тієї заміни: сьогоднішні — геть, давніші — вимкнути з сьогодні
+        // undone — не нова заміна: «Повернути» вдруге не відкотить повернення
+        if (start && start >= at && !replacedAt(x, date)) return start === date ? [] : [{ ...x, offs: [...x.offs, { from: date, replaced: true, undone: true }] }];
+        const offs = (x.offs ?? []).flatMap((p) => {
+          if (!(p.replaced && p.from === at && !p.to)) return [p];
+          return at === date ? [] : [{ ...p, to: prev }];
+        });
+        return [{ ...x, offs }];
+      });
+    }
+  });
 }
 
 /** Змінити періоди «не додаю» продукту в плані: change(offs) → нові offs. */
@@ -958,7 +1050,7 @@ const RATION_SEGS = [['today', 'Сьогодні'], ['calendar', 'Календа
 const SEG_KEY = 'weight-log:ration-seg';
 let rationSeg = RATION_SEGS.some(([k]) => k === recall(SEG_KEY)) ? recall(SEG_KEY) : 'today';
 
-export function renderRation(state, { noPlan, render, burn }) {
+export function renderRation(state, { noPlan, render, burn, aim }) {
   current = state;
   const day = today(state);
   if (!day) return h('div', {}, noPlan(), box(withIcon('leaf', t('Харчування при діабеті')), dietMemo(), { fold: 'diet' }));
@@ -968,7 +1060,7 @@ export function renderRation(state, { noPlan, render, burn }) {
     render();
   });
   const body = { today: rationToday, calendar: rationCalendar, foods: rationFoods, refs: rationRefs }[rationSeg];
-  return h('div', {}, seg, body(state, day, burn));
+  return h('div', {}, seg, body(state, day, burn, aim));
 }
 
 const r10 = (v) => Math.round(v / 10) * 10;
@@ -1005,7 +1097,7 @@ function macroTiles(sum) {
   return h('div', { class: 'kcal-grid food-macros' }, cell(t('Білки'), sum.p), cell(t('Жири'), sum.f), cell(t('Вуглеводи'), sum.c));
 }
 
-function rationToday(state, day, burn) {
+function rationToday(state, day, burn, aim) {
   const { plan, pause, meals, planned, extra, sum } = day;
   const norm = plan.norm;
   return h('div', {},
@@ -1020,7 +1112,8 @@ function rationToday(state, day, burn) {
       windowEl(plan, Boolean(pause.now))),
     pauseNote(pause),
     meals.map(mealBox),
-    h('div', { class: 'btn-row' }, btn(withIcon('plus', t('Прийом їжі')), () => mealForm(null))),
+    h('div', { class: 'btn-row' }, btn(withIcon('plus', t('Прийом їжі')), () => mealForm(null)),
+      aim ? btn(withIcon('spark', t('Раціон з ШІ')), () => aiRationSheet(state, aim), 'ai-ration-open') : null),
     norm ? h('p', { class: 'muted small food-norm' }, t('План у середньому за тиждень: {k} · {m}', { k: kcal(norm.kcal), m: macros(norm) })) : null,
     // «Як день?» — підсумок дня, після прийомів
     dayCard(state));

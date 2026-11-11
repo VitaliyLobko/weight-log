@@ -158,6 +158,14 @@ export const askFood = (text) => askBot('/api/food', { text });
 /** Фото етикетки (data URL JPEG) → { name, k100, p100, f100, c100, serving, note, source }; помилки — як в askFood. */
 export const askLabel = (image) => askBot('/api/food-label', { image });
 
+/**
+ * Раціон на день через бота (/api/ration): { meals: [{ id, items: як в askFood }], note, source }.
+ * Старий бот без цього запиту — помилка 'old-bot'; решта — як в askFood.
+ */
+export const askRation = (body) => askBot('/api/ration', body).catch((err) => {
+  throw err.status === 404 ? Object.assign(new Error('old-bot'), { status: 404 }) : err;
+});
+
 async function askBot(path, body) {
   const { url, key } = botConfig();
   if (!url || !key) throw new Error('no-bot');

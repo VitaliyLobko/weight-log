@@ -1924,6 +1924,15 @@ const VIEWS = {
       render,
       // Норма — та сама, що на головній: з ваших даних або за формулою; без зросту й віку — нема
       burn: () => normOf() ?? { kcal: null, hold: sum.hold },
+      // Для раціону з ШІ: витрата сьогодні, базовий обмін, план темпу й ваги
+      aim: () => {
+        const c = calories(state, rows, sum.goal, sum.current);
+        const f = M.formulaBurn(sum.goal, sum.current, M.today());
+        return c ? {
+          burn: c.burnToday, source: c.source, bmr: f?.bmr ?? null, sex: sum.goal.sex,
+          planRate: sum.goal.planRate, hold: sum.hold, kg: sum.current, target: sum.target,
+        } : null;
+      },
       noPlan: () => empty('leaf', t('Плану харчування ще немає'),
         t('Завантажте файл із планом: Дані → Копія у файл → Відновити з файлу → Об’єднати.'),
         btn(withIcon('upload', t('Відкрити «Дані»')), () => openSettings('file'))),
