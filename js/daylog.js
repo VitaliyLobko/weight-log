@@ -1261,7 +1261,7 @@ export function calendarPanel(state, norm = null) {
   return h('section', { class: 'panel cal-panel' }, h('h3', {}, t('Календар калорій')), calendarBody(state, norm));
 }
 
-/** Картка «Як день?» на «Раціоні»: сьогоднішня позначка, поза планом, тиждень і серія. */
+/** Картка «Як день?» на головній («Сьогодні») — підсумок дня: позначка, поза планом, прогулянка, тиждень і серія. */
 const DAY_FOLD_KEY = 'weight-log:day-card-folded';
 const dayFolded = () => { try { return localStorage.getItem(DAY_FOLD_KEY) === '1'; } catch { return false; } };
 

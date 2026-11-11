@@ -7,7 +7,7 @@ import { h, fmt, sheet, toast, form, btn, toolBtn, box, confirmSheet, remember, 
 import { t, plural } from './i18n.js';
 import { icon, withIcon } from './icons.js';
 import { dietMemo } from './diet.js';
-import { dayCard, monthBox, extrasSum, dayOf, rationStart, STATUS, toggleSkipped, toggleMealSkipped, setPortion, setMealPortion, calendarPanel, myFoodsBox, dictBox, countFood, voiceControl } from './daylog.js';
+import { monthBox, extrasSum, dayOf, rationStart, STATUS, toggleSkipped, toggleMealSkipped, setPortion, setMealPortion, calendarPanel, myFoodsBox, dictBox, countFood, voiceControl } from './daylog.js';
 import { parsePiece } from './foods.js';
 import { aiRationSheet } from './ai-ration.js';
 import { menuPicker, setProteinSource } from './menus.js';
@@ -1211,9 +1211,7 @@ function rationToday(state, day, burn, aim, protein) {
     meals.map(mealBox),
     h('div', { class: 'btn-row' }, btn(withIcon('plus', t('Прийом їжі')), () => mealForm(null)),
       aim ? btn(withIcon('spark', t('Раціон з ШІ')), () => aiRationSheet(state, aim), 'ai-ration-open') : null),
-    norm ? h('p', { class: 'muted small food-norm' }, t('План у середньому за тиждень: {k} · {m}', { k: kcal(norm.kcal), m: macros(norm) })) : null,
-    // «Як день?» — підсумок дня, після прийомів
-    dayCard(state));
+    norm ? h('p', { class: 'muted small food-norm' }, t('План у середньому за тиждень: {k} · {m}', { k: kcal(norm.kcal), m: macros(norm) })) : null);
 }
 
 function rationCalendar(state, { plan }, burn) {
@@ -1267,7 +1265,7 @@ export function tickWindow() {
   document.querySelectorAll('.food-window, .food-line').forEach((el) => el.paint?.());
 }
 
-/** Рядок на головній: що сьогодні їсти й скільки лишилось вікна — тап веде у «Раціон». */
+/** Рядок на головній: що сьогодні їсти й скільки лишилось вікна — тап веде у «Раціон». «Як день?» — картка одразу під ним. */
 export function homeLine(state, badge = null) {
   const day = today(state);
   if (!day) return null;
@@ -1282,9 +1280,8 @@ export function homeLine(state, badge = null) {
   const status = dayOf(state, M.today())?.status;
   el.paint = () => {
     const win = windowText(day.plan);
-    // Вікно закрите — час позначити день; позначений — показати як
+    // Позначений день — показати як; інакше — стан вікна
     if (status) sub.replaceChildren(h('span', { class: `day-dot ${status}`, 'aria-hidden': 'true' }), t(STATUS[status]));
-    else if (win?.state === 'closed') sub.textContent = t('Як день? Позначте в «Раціоні»');
     else sub.textContent = win?.text ?? '';
     sub.hidden = !status && !win;
   };

@@ -15,7 +15,7 @@ import { remindTime, setRemindTime, googleCalendarUrl, icsFile } from './remind.
 import { renderRation, homeLine, noteTags, tickWindow, planOf, energy, calories, energyLeft, dayKcal, walkOf, proteinCard, proteinValue } from './nutrition.js';
 import {
   weightHint, afterStatus, STATUS, yesterdayText, weekMarks, periodFood, streakMilestones, journalDay, dayDates, streak, dayOf,
-  unrecorded, daySheet, rationStart, setWalkBase, setDayState,
+  unrecorded, daySheet, rationStart, setWalkBase, setDayState, dayCard,
 } from './daylog.js';
 import { oink, oinkOn, setOinkOn } from './oink.js';
 import * as party from './celebrate.js';
@@ -821,6 +821,8 @@ function renderHome() {
     sum.hold ? holdNote() : [plateauNote(), holdOffer()],
     checkpointsBox(),
     homeLine(state, rationBadge()),
+    // «Як день?» — підсумок дня одразу під рядком раціону
+    planOf(state) ? dayCard(state) : null,
     statsGrid(),
     caloriesBox(),
     waistNudge());
@@ -1482,7 +1484,7 @@ function dayAskPanel() {
   });
   return h('div', {},
     h('h4', { class: 'sub-head' }, withIcon('leaf', t('Питання про раціон'))),
-    h('p', { class: 'muted small' }, t('Увечері бот спитає, як минув день: три кнопки, при зриві — причина. Позначка ляже в «Раціон». Якщо день уже позначено — не спитає.')),
+    h('p', { class: 'muted small' }, t('Увечері бот спитає, як минув день: три кнопки, при зриві — причина. Позначка ляже в «Як день?» на «Сьогодні». Якщо день уже позначено — не спитає.')),
     segmented([['on', t('Питати')], ['off', t('Не питати')]], at ? 'on' : 'off', (v) => {
       bot.setDayAskTime(v === 'on' ? (time.value || bot.DAY_ASK_DEFAULT) : null);
       time.disabled = v !== 'on';
