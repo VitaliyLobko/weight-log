@@ -275,7 +275,7 @@ const VOICE_ERRORS = {
  * Без розпізнавання в браузері — null (лишається мікрофон клавіатури телефона).
  * У елемента є cancel() — шторку закрили під час запису: сказане вже нікуди не йде.
  */
-function voiceControl({ label, onStart = () => {}, onText = () => {}, onDone, withLangs = true }) {
+export function voiceControl({ label, onStart = () => {}, onText = () => {}, onDone, withLangs = true }) {
   if (!canListen()) return null;
   let stop = null;
   let cancelled = false;
@@ -358,13 +358,15 @@ export function foodSheet(date = M.today()) {
     const own = mine.filter((f) => matchesSearch(f.name, keys)).sort(byUse);
     const dict = keys.length ? dictMatches(keys).slice(0, 12) : [];
     const head = (title, side) => h('div', { class: 'food-sub-head' }, h('h4', { class: 'food-sub' }, title), h('span', { class: 'muted small' }, side));
-    pickSec.replaceChildren(
+    // replaceChildren, на відміну від h(), null не пропускає — пише «null» текстом
+    pickSec.replaceChildren(...[
       own.length || !keys.length ? head(t('Мої продукти'), String(own.length || '')) : null,
       own.length ? h('div', { class: 'rows my-foods' }, own.map((f) => foodRow(f, quick)))
         : keys.length ? null : h('p', { class: 'muted small my-foods-empty' }, t('Тут з\'являться продукти, які ви вже записували: наступного разу — одним дотиком. Почніть писати — підкажу й з довідника.')),
       dict.length ? head(t('З довідника'), t('ккал на 100 г')) : null,
       dict.length ? h('div', { class: 'rows my-foods' }, dict.map((x) => dictRow(x, pickDict))) : null,
-      keys.length && !own.length && !dict.length ? h('p', { class: 'muted small my-foods-empty' }, t('Не знайшлося — натисніть «Порахувати».')) : null);
+      keys.length && !own.length && !dict.length ? h('p', { class: 'muted small my-foods-empty' }, t('Не знайшлося — натисніть «Порахувати».')) : null,
+    ].filter(Boolean));
   };
   text.addEventListener('input', () => paintPick());
   const quick = async (f) => {
@@ -435,8 +437,8 @@ export function foodSheet(date = M.today()) {
   const body = h('div', { class: 'food-ask' },
     h('label', { class: 'field' }, h('span', { class: 'field-label' }, t('Що з\'їли')), text,
       h('small', { class: 'muted' }, connected
-        ? t('Можна кілька продуктів із грамами чи штуками. Спершу — «Мої продукти» й довідник, решту порахує ШІ.')
-        : t('Можна кілька продуктів із грамами чи штуками — порахую за довідником. Для решти підключіть Telegram-бот у «Даних».'))),
+        ? t('Кілька продуктів — через кому, з грамами чи штуками.')
+        : t('Кілька продуктів — через кому. Чого нема в довіднику, порахує ШІ: бот у «Даних».'))),
     voice,
     h('div', { class: 'food-src-btns' },
       btn(withIcon('barcode', t('Штрихкод')), scan),
@@ -701,6 +703,17 @@ function asOne(items, name) {
   return { name: name || items.map((x) => x.name).join(' + '), qty: '', ...(grams ? { grams, per100 } : {}), ...sum, src: 'table' };
 }
 
+/**
+ * Порахувати один продукт за текстом (свої продукти → довідник → ШІ); кілька знайдених — однією стравою.
+ * → { item, note, parts } або { item: null, note }.
+ */
+export async function countFood(q, name = '') {
+  const r = await resolveText(q, current ? foodsOf(current) : []);
+  const parts = r.items.filter(hasKcal);
+  if (!parts.length) return { item: null, note: r.note || t('Не вдалося порахувати — введіть вручну.') };
+  return { item: asOne(parts, name), note: r.note, parts };
+}
+
 /** Свій продукт: назва, порція, ккал і БЖВ, «Порахувати» з довідника чи ШІ. Лише в «Мої продукти», не в день. */
 function foodForm(food = null) {
   const others = (current ? foodsOf(current) : []).filter((x) => !food || !sameFood(x, food));
@@ -789,12 +802,12 @@ function recheckBlock(card) {
         ...[['', ['Ккал', 'Б', 'Ж', 'В']], [t('У вас'), v], [t('ШІ'), ai]].map(([label, x]) => h('div', { class: 'food-recheck-row', role: 'row' },
           h('span', { class: 'muted' }, label),
           ...(Array.isArray(x) ? x.map((c) => h('span', { class: 'muted' }, t(c))) : NUMS.map((k) => cell(x, k)))))),
-      agree ? null : h('div', { class: 'btn-row' }, btn(t('Взяти цифри ШІ'), () => {
+      ...agree ? [] : [h('div', { class: 'btn-row' }, btn(t('Взяти цифри ШІ'), () => {
         const nums = Object.fromEntries(NUMS.map((k) => [k, ai[k]]));
         card.fill({ name: v.name, qty: v.qty, ...(v.grams ? { grams: v.grams, per100: per100Of({ ...nums, grams: v.grams }) } : {}), ...nums, src: 'ai' });
         verdict.hidden = true;
         toast(t('Цифри ШІ підставлено — збережіть.'));
-      })));
+      }))]);
   };
   return h('div', { class: 'food-recheck' }, recheck, verdict);
 }
@@ -848,7 +861,7 @@ function foodRow(f, onPick) {
 
 // ---------- Довідник: перегляд і перевірка ----------
 
-const UNIT_LABEL = { pc: 'шт', slice: 'скибка', tbsp: 'ст. л.', tsp: 'ч. л.', cup: 'склянка', plate: 'порція' };
+const UNIT_LABEL = { pc: 'шт', slice: 'скибка', tbsp: 'ст. л.', tsp: 'ч. л.', cup: 'склянка', plate: 'порція', whole: 'ціла' };
 // Назва українською, якщо є серед синонімів («хліб білий», не «хлеб белый»)
 const dictName = (x) => {
   const s = (x.aliases.find((a) => /[іїєґ]/.test(a.text)) ?? x.aliases[0]).text;

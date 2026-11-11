@@ -7,7 +7,8 @@ import { h, fmt, sheet, toast, form, btn, toolBtn, box, confirmSheet, remember, 
 import { t, plural } from './i18n.js';
 import { icon, withIcon } from './icons.js';
 import { dietMemo } from './diet.js';
-import { dayCard, monthBox, extrasSum, dayOf, STATUS, toggleSkipped, toggleMealSkipped, setPortion, setMealPortion, calendarPanel, myFoodsBox, dictBox } from './daylog.js';
+import { dayCard, monthBox, extrasSum, dayOf, STATUS, toggleSkipped, toggleMealSkipped, setPortion, setMealPortion, calendarPanel, myFoodsBox, dictBox, countFood, voiceControl } from './daylog.js';
+import { parsePiece } from './foods.js';
 
 export const PLAN_ID = 'nutrition';
 /** Вибір продукту дня — окремим записом: тап на телефоні не перетирає правку плану з іншого пристрою. */
@@ -579,6 +580,38 @@ function itemForm(item, where = {}) {
   const alts = h('textarea', { rows: 6, placeholder: t('Одна заміна — один рядок') });
   alts.value = (item?.alts ?? []).join('\n');
   f.el.append(h('label', { class: 'field' }, h('span', { class: 'field-label' }, t('Чим замінити')), alts));
+  // «Порахувати»: ккал і БЖВ за назвою й порцією — свої продукти → довідник → ШІ
+  const note = h('p', { class: 'small muted ration-calc-note' }, t('Напишіть, що й скільки, — «Порахувати» підставить ккал і БЖВ.'));
+  const calc = btn(withIcon('spark', t('Порахувати')), async () => {
+    const v = f.values();
+    const q = [v.name, v.qty].filter(Boolean).join(' ');
+    if (!q) { f.inputs.name.focus(); toast(t('Напишіть, що це')); return; }
+    calc.disabled = true;
+    try {
+      // Порція в назві («гречка 150 г») переходить у «Скільки», назва лишається своєю
+      const typed = parsePiece(v.name);
+      const own = typed.n !== null && !v.qty ? typed.name : v.name;
+      const r = await countFood(q);
+      note.textContent = r.note ?? '';
+      const x = r.item;
+      if (!x) return;
+      // Та сама кількість слів — назва з довідника («кефіру» → «Кефір»); своя довша («Котлета домашня») — своя
+      const count = (s) => s.trim().split(/\s+/).length;
+      const same = r.parts.length === 1 && count(own) === count(x.name);
+      f.inputs.name.value = !own || same ? x.name : own[0].toUpperCase() + own.slice(1);
+      if (!v.qty || own !== v.name) f.inputs.qty.value = x.qty || (x.grams ? t('{g} г', { g: fmt.int(x.grams) }) : '');
+      for (const k of KEYS) f.inputs[k].value = num(Number(x[k]));
+      if (r.parts.length > 1) toast(t('Порахував як одну страву: {list}', { list: r.parts.map((p) => p.name).join(', ') }));
+    } finally { calc.disabled = false; }
+  }, 'food-calc');
+  for (const k of ['name', 'qty']) f.inputs[k].addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); calc.click(); } });
+  // Голосом — сказане стає назвою з порцією й одразу рахується
+  const voice = voiceControl({
+    label: t('Сказати голосом'),
+    onText: (said) => { f.inputs.name.value = said; },
+    onDone: (said) => { f.inputs.name.value = said; f.inputs.qty.value = ''; calc.click(); },
+  });
+  f.inputs.qty.closest('.field').after(h('div', { class: 'ration-calc' }, calc, voice, note));
   const save = async () => {
     const bad = f.invalid();
     if (bad) { toast(t('Перевірте поле «{f}»', { f: bad.label })); return; }
@@ -595,6 +628,7 @@ function itemForm(item, where = {}) {
   };
   const remove = () => { close(); removeItem(item); };
   const close = sheet(item ? item.name : t('Новий продукт'), f.el, {
+    onClose: () => voice?.cancel(),
     tools: item ? [toolBtn('delete', t('Видалити'), remove, 'danger')] : [],
     actions: [btn(t('Скасувати'), () => close()), btn(t('Зберегти'), save, 'primary')],
   });
