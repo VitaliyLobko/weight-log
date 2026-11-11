@@ -10,6 +10,7 @@ import { dietMemo } from './diet.js';
 import { dayCard, monthBox, extrasSum, dayOf, STATUS, toggleSkipped, toggleMealSkipped, setPortion, setMealPortion, calendarPanel, myFoodsBox, dictBox, countFood, voiceControl } from './daylog.js';
 import { parsePiece } from './foods.js';
 import { aiRationSheet } from './ai-ration.js';
+import { menuPicker } from './menus.js';
 
 export const PLAN_ID = 'nutrition';
 /** Вибір продукту дня — окремим записом: тап на телефоні не перетирає правку плану з іншого пристрою. */
@@ -147,26 +148,41 @@ function buildDay(state, date) {
     return { ...x, ...Object.fromEntries(KEYS.map((k) => [k, (Number(x[k]) || 0) * portion])), portion, ownPortion: own !== undefined, full: x };
   };
   const order = (list) => [...list.filter((x) => !x.off), ...list.filter((x) => x.off)];
-  const meals = (plan.meals ?? []).map((m) => ({
+  // Меню на цей день — увесь день: страви плану не показуються в жодному прийомі; продукт дня й пауза лишаються
+  const menu = Array.isArray(rec?.menu?.meals) ? rec.menu : null;
+  const menuMeals = new Map((menu?.meals ?? []).map((m) => [m.id, m]));
+  const own = (m) => (menu ? (menuMeals.get(m.id)?.items ?? []).map((x) => ({ ...x, fromMenu: true }))
+    : (m.items ?? []).filter((x) => !replacedAt(x, date)));
+  const planMeals = plan.meals ?? [];
+  const meals = planMeals.map((m) => ({
     ...m,
     portion: portions[`meal:${m.id}`] ?? null,
-    items: order([...(m.items ?? []).filter((x) => !replacedAt(x, date)), ...(choice && plan.day?.meal === m.id ? [{ ...choice.item, isDay: true }] : [])].map((x) => mark(x, m.id))),
+    fromMenu: Boolean(menu),
+    items: order([...own(m), ...(choice && plan.day?.meal === m.id ? [{ ...choice.item, isDay: true }] : [])].map((x) => mark(x, m.id))),
   }));
+  // Прийом меню, якого в плані вже нема, не губиться — окремим блоком зі своєю назвою
+  for (const mm of menu?.meals ?? []) {
+    if (planMeals.some((m) => m.id === mm.id) || !mm.items?.length) continue;
+    meals.push({
+      id: mm.id, name: mm.name || t('Прийом'), time: mm.time ?? '', portion: portions[`meal:${mm.id}`] ?? null, fromMenu: true, orphan: true,
+      items: order(mm.items.map((x) => mark({ ...x, fromMenu: true }, mm.id))),
+    });
+  }
   if (pause.now && plan.pauseItems?.length) {
     meals.push({ id: 'pause', name: t('Добавка в паузу'), portion: portions['meal:pause'] ?? null, items: order(plan.pauseItems.map((x) => mark(x, 'pause'))), isPause: true });
   }
   const planned = totals(meals.flatMap((m) => m.items).filter((x) => !x.skipped && !x.off));
   const extra = extrasSum(state, date);
   // Підсумок дня — план плюс з'їдене поза планом
-  return { plan, choice, pause, meals, planned, extra, sum: totals([planned, extra]), cut: cutOfMeals(meals) };
+  return { plan, choice, pause, meals, planned, extra, sum: totals([planned, extra]), cut: cutOfMeals(meals), menu };
 }
 
 /**
  * Прийоми на сьогодні для ШІ-раціону: [{ id, name, time, kcal, items }] — ккал за планом (повна порція,
  * без тимчасово вимкнених і продукту дня), щоб ціль ділилась у звичних вам пропорціях.
  */
-export function mealsToday(state) {
-  const day = today(state);
+export function mealsToday(state, date = M.today()) {
+  const day = today(state, date);
   return (day?.meals ?? []).filter((m) => !m.isPause).map((m) => {
     const items = m.items.filter((x) => !x.off && !x.isDay).map((x) => x.full ?? x);
     return { id: m.id, name: m.name, time: m.time ?? '', kcal: totals(items).kcal, items };
@@ -637,13 +653,15 @@ function itemSheet(item, meal = null, others = []) {
     }
     body.append(h('div', { class: 'btn-row' },
       btn(item.skipped ? withIcon('check', t('Усе ж з\'їв')) : t('Сьогодні не з\'їв'), () => { close(); toggleSkipped(M.today(), item); }),
-      btn(t('Тимчасово не додаю'), () => { close(); offForm(item); })));
+      // Страва меню дня — не з плану: «тимчасово не додаю», перенос і правка міняли б план, а не меню
+      item.fromMenu ? null : btn(t('Тимчасово не додаю'), () => { close(); offForm(item); })));
   }
+  if (item.fromMenu) body.append(h('p', { class: 'muted small' }, t('Страва з меню дня — змінюється в самому меню: «Меню дня» над прийомами.')));
   // Перенос — правка плану назавжди, тому окремо від «сьогодні» й останнім
-  body.append(moveChips(item, meal, others, () => close()) ?? '');
+  else body.append(moveChips(item, meal, others, () => close()) ?? '');
   // Продукт дня в обіді переставляється серед продуктів дня, а не серед страв обіду; правка — повні числа плану
   const close = sheet(item.name, body, {
-    tools: [
+    tools: item.fromMenu ? [] : [
       toolBtn('up', t('Вище'), () => moveItem(item.id, -1)),
       toolBtn('down', t('Нижче'), () => moveItem(item.id, 1)),
       toolBtn('edit', t('Змінити'), () => { close(); itemForm(full, full.isDay ? { day: true } : {}); }),
@@ -896,10 +914,11 @@ function mealBox(meal, index, all) {
   // Увесь прийом пропущено — заголовок каже це, ккал у ньому немає
   const missed = active.length > 0 && !eaten.length;
   const title = [meal.name, meal.time ? ` · ${meal.time}` : ''].join('');
-  const tools = meal.isPause ? [] : [
-    toolBtn('plus', t('Додати продукт'), () => itemForm(null, { meal: meal.id })),
+  // День за меню: «+» додав би продукт у план, а не в меню; прийом-сирота з меню в плані не правиться
+  const tools = meal.isPause || meal.orphan ? [] : [
+    meal.fromMenu ? null : toolBtn('plus', t('Додати продукт'), () => itemForm(null, { meal: meal.id })),
     toolBtn('edit', t('Змінити'), () => mealForm(meal)),
-  ];
+  ].filter(Boolean);
   const key = `meal:${meal.id}`;
   openFirstTime(key);
   const toggleMeal = () => toggleMealSkipped(M.today(), meal);
@@ -907,7 +926,7 @@ function mealBox(meal, index, all) {
   const part = !missed && meal.portion > 0 && meal.portion < 1 ? `${portionText(meal.portion)} · ` : '';
   const title2 = [withIcon(mealIcon(meal), title), missed ? h('span', { class: 'food-tag skip' }, t('пропущено')) : null];
   if (!meal.items.length) {
-    return box(title2, h('p', { class: 'muted small' }, t('Порожньо — додайте продукт «+»')), { fold: key, tools });
+    return box(title2, h('p', { class: 'muted small' }, meal.fromMenu ? t('У меню дня цей прийом порожній.') : t('Порожньо — додайте продукт «+»')), { fold: key, tools });
   }
   let el;
   if (missed) {
@@ -1165,6 +1184,7 @@ function rationToday(state, day, burn, aim, protein) {
       burnLine(state, sum, burn),
       macroTiles(sum, protein?.()),
       dayPicker(state, day),
+      menuPicker(state),
       windowEl(plan, Boolean(pause.now))),
     pauseNote(pause),
     meals.map(mealBox),

@@ -7,7 +7,9 @@ import { t } from './i18n.js';
 import { icon, withIcon } from './icons.js';
 import { fromModel, fromPer100 } from './foods.js';
 import { planOf, mealsToday, fixedToday, totals, replaceRation, revertRation, lastReplace, undoToast, proteinWarnings, NO_CALC_TEXT } from './nutrition.js';
-import { foodsOf, voiceControl, WALKS } from './daylog.js';
+import * as db from './db.js';
+import { foodsOf, voiceControl, WALKS, dayState, setDayMenu } from './daylog.js';
+import { addMenu, useMenu, dayMenu, dishSheet } from './menus.js';
 
 const DRAFT_KEY = 'weight-log:ai-ration';
 const MODES = [['loss', 'Схуднення'], ['hold', 'Утримання'], ['custom', 'Свої ккал']];
@@ -369,18 +371,10 @@ export function aiRationSheet(state, aim) {
       },
     });
   };
-  const moveSheet = (meal, x) => {
-    const others = draft.meals.filter((m) => m !== meal);
-    const done = sheet(x.name, h('div', { class: 'food-sheet' },
-      h('div', { class: 'food-figures' }, x.qty ? h('b', {}, x.qty) : null, h('span', {}, t('{n} ккал', { n: fmt.int(x.kcal) })),
-        h('span', { class: 'muted' }, macroLine(x))),
-      h('div', { class: 'chips food-portion food-move', role: 'group', 'aria-label': t('Перенести в інший прийом') },
-        h('span', { class: 'muted small' }, t('Перенести в:')),
-        others.map((m) => h('button', {
-          type: 'button',
-          onclick: () => { done(); const i = meal.items.indexOf(x); if (i >= 0) moveItem(meal, i, m); },
-        }, m.name)))));
-  };
+  const moveSheet = (meal, x) => dishSheet(x, {
+    meals: draft.meals, from: meal,
+    onMove: (to) => { const i = meal.items.indexOf(x); if (i >= 0) moveItem(meal, i, to); },
+  });
   const itemRow = (meal, x, i) => {
     const re = h('button', { type: 'button', class: 'icon-btn tool ai-reroll', 'aria-label': t('Інша страва'), title: t('Інша страва') }, icon('sync'));
     re.addEventListener('click', () => reroll(meal, i, re));
@@ -419,31 +413,55 @@ export function aiRationSheet(state, aim) {
       h('p', { class: 'small muted' }, draft.meals.length > 1
         ? t('Не подобається страва — «🔄» дасть іншу на ті ж калорії. Натисніть на страву, щоб перенести її в інший прийом.')
         : t('Не подобається страва — «🔄» дасть іншу на ті ж калорії.')),
+      h('div', { class: 'btn-row' }, saveAsMenu),
+      h('p', { class: 'small muted' }, t('«Зберегти як меню» — план не зміниться: меню вибирається на окремий день у «Меню дня».')),
     ].filter(Boolean));
   };
 
+  // Сьогодні стоїть меню дня — заміна плану без його зняття сьогодні нічого б не показала; знімаємо тим самим записом
+  const menuNow = () => dayMenu(dayState() ?? state, M.today());
+  const menuNote = () => (menuNow() ? ` ${t('Меню дня «{name}» на сьогодні знімається.', { name: menuNow().name })}` : '');
+  const withMenuOff = async (change, message) => {
+    const had = Boolean(menuNow());
+    const before = await change();
+    const dayBefore = had ? await setDayMenu(M.today(), null, { quiet: true }) : null;
+    close();
+    if (!had) { undoToast(message, before); return; }
+    toast(message, {
+      action: t('Скасувати'),
+      onAction: () => {
+        const { updated, ...plan } = before;
+        const { updated: u, ...rec } = dayBefore;
+        db.write({ settings: { put: [plan, rec] } });
+      },
+    });
+  };
   const applyDraft = () => {
     const names = draft.meals.map((m) => m.name).join(', ');
     confirmSheet(t('Замінити раціон з сьогодні?'),
-      t('Страви прийомів «{list}» зміняться з сьогодні — і в уже з\'їдених сьогодні прийомах теж. Минулі дні й норма лишаться як були; повернути можна тут же — «Повернути попередній раціон».', { list: names }),
-      t('Замінити'), async () => {
+      t('Страви прийомів «{list}» зміняться з сьогодні — і в уже з\'їдених сьогодні прийомах теж. Минулі дні й норма лишаться як були; повернути можна тут же — «Повернути попередній раціон».', { list: names }) + menuNote(),
+      t('Замінити'), () => withMenuOff(async () => {
         const before = await replaceRation(draft.meals.map((m) => ({ id: m.id, items: m.items })));
         draft = null;
         saveDraft(null);
-        close();
-        undoToast(t('Раціон замінено з сьогодні'), before);
-      });
+        return before;
+      }, t('Раціон замінено з сьогодні')));
   };
+  // Чернетку — в «Мої меню»: на будь-який день, без зміни плану
+  const saveAsMenu = btn(withIcon('plus', t('Зберегти як меню')), async () => {
+    const menu = await addMenu({ name: t('Меню ШІ {d}', { d: fmt.date(M.today()) }), src: 'ai', meals: draft.meals });
+    toast(t('Меню «{name}» збережено', { name: menu.name }), {
+      action: t('На сьогодні'),
+      onAction: async () => { close(); await useMenu(M.today(), menu); },
+    });
+  }, 'ai-save-menu');
 
   const since = lastReplace(planOf(state));
   const revert = since ? h('button', {
     type: 'button', class: 'link-btn ai-revert',
     onclick: () => confirmSheet(t('Повернути попередній раціон?'),
-      t('Страви, які були до заміни {date}, повернуться з сьогодні; минулі дні лишаться як були.', { date: fmt.date(since) }), t('Повернути'), async () => {
-        const before = await revertRation();
-        close();
-        undoToast(t('Попередній раціон повернуто'), before);
-      }),
+      t('Страви, які були до заміни {date}, повернуться з сьогодні; минулі дні лишаться як були.', { date: fmt.date(since) }) + menuNote(), t('Повернути'),
+      () => withMenuOff(() => revertRation(), t('Попередній раціон повернуто'))),
   }, t('Повернути попередній раціон (до {date})', { date: fmt.date(since) })) : null;
 
   const body = h('div', { class: 'ai-ration' }, ...[

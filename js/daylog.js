@@ -12,6 +12,7 @@ import { resolveLocal, fromModel, fromPer100, per100Of, kcalMismatch, withoutSta
 import { scanSheet, lookupBarcode, pickLabelPhoto, labelItem } from './scan.js';
 import { oink, oinkOn, setOinkOn } from './oink.js';
 import { canListen, listen, VOICE_LANGS, voiceLang, setVoiceLang } from './voice.js';
+import { menuLine } from './menus.js';
 
 export const DAY_PREFIX = 'day:';
 /** «Мої продукти»: що вже рахували — кнопки швидкого додавання і кеш, щоб не питати модель вдруге. */
@@ -69,6 +70,19 @@ async function saveDay(date, patch) {
   delete next.updated;
   sync.renewOnGesture();
   await db.write({ settings: { put: [next] } });
+  return before;
+}
+
+/** Свіжий стан для шторок інших модулів (меню дня). */
+export const dayState = () => current;
+
+/**
+ * Меню на день: копія меню { id, name, meals } у записі дня — пізніша правка меню минулих днів не змінює;
+ * null — знову за планом. «Не з'їв» і порції плану лишаються в записі й повертаються разом із планом. quiet — без тосту.
+ */
+export async function setDayMenu(date, menu, { quiet = false } = {}) {
+  const before = await saveDay(date, { menu: menu ? JSON.parse(JSON.stringify(menu)) : null });
+  if (!quiet) undo(menu ? t('{date}: меню «{name}»', { date: fmt.date(date), name: menu.name }) : t('{date}: знову за планом', { date: fmt.date(date) }), date, before);
   return before;
 }
 
@@ -1123,6 +1137,7 @@ function dayBody(state, date) {
         return h('button', { type: 'button', class: on ? 'on' : '', 'aria-pressed': String(on), onclick: () => toggleTag(state, date, tag) }, tag);
       })) : null,
     walkRow(state, date),
+    menuLine(state, date),
     cut.kcal > 0 ? h('p', { class: 'small day-skipped' }, t('{what} · −{k}', { what: cutText(cut, { first: true }), k: kcal(cut.kcal) })) : null);
 }
 
@@ -1177,7 +1192,8 @@ function calDay(state, date) {
   const rec = dayOf(state, date);
   const extra = extrasSum(state, date).kcal;
   const cut = cutOf(state, date).kcal;
-  if (!rec?.status && !extra && !cut) return { cls: 'none', eaten: null };
+  // Вибране меню — теж запис дня: клітинка показує, скільки за ним
+  if (!rec?.status && !extra && !cut && !rec?.menu) return { cls: 'none', eaten: null };
   const eaten = (plannedKcal(state, date) ?? 0) + extra;
   const over = extra - cut;
   const cls = rec?.status === 'slip' ? 'slip'
